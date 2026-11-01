@@ -22,6 +22,7 @@ from typing import Any
 from scout_reader import calendar as cal
 from scout_reader._et import utc_to_et
 from scout_reader.datetext import announced_date
+from scout_reader.discord_schedule import schedule_hits
 from scout_reader.records import parse_time, result, visible
 
 __all__ = [
@@ -242,12 +243,15 @@ def _announced(facts: Iterable[Mapping[str, Any]], symbol: str, as_of: datetime,
                first: date, last: date) -> tuple[list[str], list[str]]:
     """(fact ids whose announced date falls on an ET day of the window, fact ids not parsed). A fact
     without `published_at` (the model allows null) uses its `first_seen_at` for the lookback and the
-    year: skipping it would turn a date notice into gate 5 `false` (third review)."""
+    year: skipping it would turn a date notice into gate 5 `false` (third review). Only wire and filing
+    facts (`CATALYST_KINDS`) count: a `discord` post classed `earnings_date` is record + brief only
+    (DESIGN 2.7); Discord reaches gate 5 only through `earnings_schedule` facts and its own switch."""
     since = as_of - timedelta(days=lookback_days)
     hits: list[str] = []
     unparsed: list[str] = []
     for rec in facts:
-        if rec.get("class") != "earnings_date" or not _ticker_is(rec, symbol) or not visible(rec, as_of):
+        if (rec.get("kind") not in CATALYST_KINDS or rec.get("class") != "earnings_date"
+                or not _ticker_is(rec, symbol) or not visible(rec, as_of)):
             continue
         published = parse_time(rec.get("published_at")) or parse_time(rec.get("first_seen_at"))
         if published is None or published < since:
@@ -319,9 +323,11 @@ def macro_events_in(facts: Iterable[Mapping[str, Any]], as_of: datetime, start: 
 def event_before_next_session_from(facts: Iterable[Mapping[str, Any]], due: Iterable[Mapping[str, Any]],
                                    beat: Mapping[str, Any] | None, params: Mapping[str, Any] | None,
                                    symbol: str, as_of: datetime) -> Result:
-    """Gate 5 (SS 7.2, DESIGN 3.6). `true` when any source finds an event in the window; `false`
-    only when no announced date, S outside its EDGAR due window, the gate-6 sources ok, Scout fresh
-    and the calendar covering the next session; `unknown` otherwise."""
+    """Gate 5 (SS 7.2, DESIGN 3.6). `true` when any source finds an event in the window (an
+    announced date on a wire, a Discord earnings list with `discord_gate5_enabled`, a macro event with
+    `hold_block_macro_events`); `false` only when no announced date, S outside its EDGAR due window,
+    the gate-6 sources ok, Scout fresh and the calendar covering the next session; `unknown`
+    otherwise. The Discord source never takes part in `false` (block only)."""
     early = precheck(beat, params)
     if early is not None:
         return early
@@ -341,12 +347,17 @@ def event_before_next_session_from(facts: Iterable[Mapping[str, Any]], due: Iter
         reasons.append("no_param:earnings_lookback_days")
     else:
         hits, unparsed = _announced(facts, symbol, as_of, lookback, first, last)
+    # Paper Gains Discord earnings lists (DESIGN 2.7): untrusted, so they can only add `true`. The key is
+    # read only when it is exactly true; params written before it existed change nothing.
+    discord = schedule_hits(facts, symbol, as_of, start, end) if params.get("discord_gate5_enabled") is True else []
+    hits += discord
     if params.get("hold_block_macro_events") is True:
         hits += [f"macro:{f.get('fact_id')}" for f in macro_events_in(facts, as_of, start, end)]
     elif params.get("hold_block_macro_events") is not False:
         reasons.append("no_param:hold_block_macro_events")
     if hits:
-        res = result("true", sorted(set(hits)), False, ("event_in_window",))
+        why = ("event_in_window", "discord_earnings_schedule") if discord else ("event_in_window",)
+        res = result("true", sorted(set(hits)), False, why)
         res["window"] = out_window
         return res
     reasons += [f"unparsed_date:{fid}" for fid in unparsed]

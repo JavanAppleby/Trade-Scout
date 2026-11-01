@@ -26,7 +26,11 @@ from typing import Any
 
 from scout_reader.records import known, parse_time
 
-__all__ = ["GOOD_RESULTS", "WHY", "gaps", "sources_for_gate6"]
+__all__ = ["GOOD_RESULTS", "NOT_COVERAGE", "WHY", "gaps", "sources_for_gate6"]
+
+#: Beat entries that are never gate coverage: the Discord capture cadence (DESIGN 2.7) is shown on the
+#: heartbeat for the owner only.
+NOT_COVERAGE = frozenset({"discord_inbox"})
 
 GOOD_RESULTS = frozenset({"ok", "not_modified"})
 WHY = ("failed_poll", "no_overlap", "interval", "no_poll_at_start", "no_poll_at_end", "missing_feed", "error")
@@ -133,7 +137,8 @@ def sources_for_gate6(beat: Mapping[str, Any] | None, params: Mapping[str, Any] 
                 return sorted(set(listed))
         sources = (beat or {}).get("sources")
         if isinstance(sources, Mapping):
-            return sorted(str(n) for n, status in sources.items() if status != "disabled")
+            return sorted(str(n) for n, status in sources.items()
+                          if status != "disabled" and str(n) not in NOT_COVERAGE)
     except Exception:  # noqa: BLE001 - never raise
         pass
     return []

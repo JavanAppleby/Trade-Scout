@@ -36,10 +36,11 @@ JASON = "state/jason"
 JASON_SNAPSHOTS = "state/jason/snapshots.jsonl"
 VERIFY = "state/verify"
 PARAMS = "state/params.jsonl"
+DISCORD = "state/discord"
 HEARTBEAT = "state/scout.heartbeat"
 
 __all__ = [
-    "ANSWERS", "BEATS", "DEFAULT_STALE_S", "EDGAR_DUE", "FACTS", "HEALTH", "HEARTBEAT", "JASON",
+    "ANSWERS", "BEATS", "DEFAULT_STALE_S", "DISCORD", "EDGAR_DUE", "FACTS", "HEALTH", "HEARTBEAT", "JASON",
     "JASON_SNAPSHOTS", "KNOWN_FORMATS", "LABELS", "LLM", "MACRO", "MACRO_HISTORY", "PARAMS", "RAW", "STATE",
     "UNKNOWN", "VERIFY", "day_file", "day_files", "governing_beat", "known", "last_params", "parse_time",
     "read_json", "read_jsonl", "result", "visible",

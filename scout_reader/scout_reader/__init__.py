@@ -3,7 +3,7 @@
 Radar and Pilot install it at a pinned tag
 (`pip install "git+https://github.com/JavanAppleby/Trade-Scout.git@<tag>#subdirectory=scout_reader"`).
 Every public function answers "true", "false" or "unknown" with evidence and never raises into the
-caller. The six functions, `Reader` and `hold_allowed` live in `scout_reader.api` and are loaded on
+caller. The six functions, `scanner_alerts` (descriptive), `Reader` and `hold_allowed` live in `scout_reader.api` and are loaded on
 first use (PEP 562), so `import scout_reader` stays cheap.
 """
 
@@ -15,7 +15,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "Reader", "event_before_next_session", "fresh_catalyst", "halt_open", "hold_allowed", "jason_tags",
-    "market_context", "news_headline",
+    "market_context", "news_headline", "scanner_alerts",
 ]
 
 

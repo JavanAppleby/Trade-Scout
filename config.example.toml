@@ -99,6 +99,30 @@ log_level = "INFO"                # DEBUG, INFO, WARNING or ERROR
 scout_webull_enabled = false      # must stay false in v1: Scout sends no Webull requests
 scout_webull_budget_per_min = 2   # phase 3 only
 
+# --------------------------------------------------------------------------- the inbox and Paper Gains Discord
+# Scheduled Claude tasks (Claude Code desktop, Claude in Chrome with the owner's logged-in Discord) write
+# capture files into inbox\discord\<channel>\ and level files into inbox\jason\ (docs/INBOX.md). Scout itself
+# never logs in or fetches anything from Discord, YouTube or X; it reads those files as untrusted data.
+inbox_poll_s = 60                 # the inbox is checked for new capture files this often
+discord_enabled = true            # false: capture files are ignored and discord_inbox shows "disabled"
+discord_channels = ["daily-watchlist", "weekly-trade-plan", "free-analysis", "brianna-news", "stockmktnewz", "major-headlines", "earnings-whispers", "market-movers", "open-outcrier", "15m-scanner", "daily-scanner", "weekly-scanner"]  # channels accepted (folder name = channel); scanner_alert lines only in the three *-scanner folders
+discord_schedule_channels = ["daily-watchlist", "open-outcrier", "market-movers"]  # channels whose earnings lists may feed gate 5 (block only)
+discord_prefix_ticker_channels = ["brianna-news"]  # channels whose "TICKER - headline" form names a ticker
+discord_headline_channels = ["major-headlines", "stockmktnewz"]  # the brief's market-wide headlines
+discord_catalyst_channels = ["brianna-news"]       # the brief's small-cap catalyst headlines
+discord_reaction_channels = ["earnings-whispers", "open-outcrier"]  # the brief's earnings reactions (Radar finds, watch symbols)
+discord_gate5_enabled = true      # a Discord earnings date in gate 5's window answers "true" (blocks a hold); never "false"
+discord_text_max_chars = 2000     # longer post text is cut to this many characters
+discord_image_text_max_chars = 4000  # longer image transcriptions are cut to this many characters
+discord_max_post_age_days = 14    # posts older than this are refused (repeats are found over this many days)
+discord_posted_at_tolerance_s = 120  # posted_at must agree with the message id's own time within this many seconds
+discord_schedule_max_ahead_days = 14  # an earnings date further ahead of the post (or before its ET date) is refused
+discord_max_file_bytes = 2000000  # a larger capture file is refused whole
+discord_expected_every_min = 60   # discord_inbox is "ok" while a capture arrives at least this often in capture hours
+discord_capture_hours_et = ["07:00", "17:00"]  # [start, end] on trading days: when captures are expected
+discord_brief_max_items = 10      # lines per Discord list in the brief (and scanner groups per timeframe)
+discord_scanner_brief_max_tickers = 12  # tickers shown per scanner pattern line in the brief (Radar finds and watch symbols first)
+
 # =========================================================================== tables
 
 # Minimum seconds between two requests to one host (code also enforces hard minimums).

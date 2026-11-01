@@ -1,7 +1,9 @@
 # Scout (market context): v1 specification
 
 Status: APPROVED (2026-11-01): the owner accepted every recommended default in §16 ("accept
-defaults"), so each §16 answer below is **decided** as its bold default. Repo:
+defaults"), so each §16 answer below is **decided** as its bold default. Later the same day the
+owner decided how Jason's material and the Paper Gains Discord reach Scout (§18, "Owner decisions
+2026-11-01"); §2 rule 10, §4.1 #12, §5.2, §10.2 and §17 are amended to match. Repo:
 JavanAppleby/Trade-Scout (`E:\Scout_dev`). Scout never trades.
 **Decided** marks the owner's decisions recorded in `docs/HANDOFF.md` §3, `PILOT_SPEC.md` §16 or the
 owner's message of 2026-10-31. **Proposed** marks this spec's suggestions. §16 lists what the owner
@@ -70,8 +72,12 @@ hold may use them (§11). An LLM output is evidence to be scored; it gates nothi
    Scout's clock. A query "as of t" sees only records with `first_seen_at <= t` and
    `published_at <= t` (and labels with `labelled_at <= t`). Files are append-only, so a replay gets
    the same answer.
-10. **Jason's material is gathered by hand** (**decided**). Scout never logs in to Discord, YouTube
-    or any site with the owner's account, and never fetches Jason's material.
+10. **Jason's material is gathered outside Scout, by scheduled Claude tasks** (**decided**
+    2026-11-01, §18; the earlier "gathered by the owner by hand" was a misreading). Claude Code
+    desktop scheduled tasks (Claude in Chrome with the owner's logged-in Discord, WebFetch for YouTube
+    transcripts, an approved fetch of the weekly-plan PDF host) write files into Scout's inbox, and
+    Scout reads them as untrusted data (`docs/INBOX.md`). The Scout program never logs in to Discord,
+    YouTube, X or any site with the owner's account, and never fetches Jason's material.
 11. **Tests never touch the network** (**decided**, CLAUDE.md): recorded fixtures, a mocked
     Anthropic client, `ManualClock`.
 
@@ -119,7 +125,7 @@ changes. Each phase is an owner decision; phases are build order, not a limit on
 | 9 | FOMC decision dates | static table in config | federalreserve.gov, by hand | — | 2027 dates tentative |
 | 10 | Cboe `VIX_History.csv` | Daily VIX close | V (header DATE,OPEN,HIGH,LOW,CLOSE) | once after 16:30 ET | Terms U; record only |
 | 11 | Claude API, server `web_search` and `web_fetch` (job J3, §8) | Hold-candidate and gap-filler research | tool exists; accuracy U | capped per day | Output untrusted; `allowed_domains` from config |
-| 12 | Owner's `E:\Scout\inbox\jason\` | Jason's level files (§5) | — | when the owner adds one | Owner-gathered (**decided**) |
+| 12 | `E:\Scout\inbox\jason\` and `inbox\discord\` | Jason's level files (§5); Paper Gains Discord captures (§18) | — | when a scheduled Claude task writes one | Gathered by the owner's scheduled Claude tasks, never by Scout (**decided** 2026-11-01, §18) |
 
 Effect of what v1 leaves out: small caps often publish on Accesswire or Newsfile, which have no
 official RSS found. A catalyst there makes gate 6 `false` in v1 (or `unknown` on a coverage gap),
@@ -163,14 +169,18 @@ Reddit Data API (owner reads the current terms first), StockTwits (registration 
 - **All three of Jason's sources use this format** in v1. A converter from the old
   `daily_levels.json` and `weekly_levels.json` shapes is §16 Q12.
 
-### 5.2 How the owner enters a read (**decided**: gathered by hand in the browser)
-1. The owner reads the material and writes the file, by hand or with Claude in a chat session the
-   owner runs (the old platform's file was written that way, from a transcript). The owner saves it
-   to `E:\Scout\inbox\jason\`.
-2. **Add Levels** runs `python -m scout levels add <file>`. It validates with the loader (§5.3),
-   prints every warning and asks once for confirmation. It then copies the file into
-   `state\levels\` with a sidecar `.meta.json` (`added_at`, `sha256`, original filename). A file
-   that raises is refused and nothing is copied.
+### 5.2 How a read is entered (**decided** 2026-11-01: by scheduled Claude tasks, auto-added; §18)
+1. A scheduled Claude task (Claude Code desktop, outside Scout) reads the material (the
+   #daily-watchlist card, the #weekly-trade-plan PDF, the Tuesday stream's transcript) and writes
+   the file in the decided format to `E:\Scout\inbox\jason\<session_date>.<source_kind>.json`
+   (`docs/INBOX.md` §2). The owner may still write one himself.
+2. The task runs `python -m scout levels add --yes <file>` (or `levels add --inbox`, which adds every
+   new valid file there). It validates with the loader (§5.3) and copies the file into
+   `state\levels\` with a sidecar `.meta.json` (`added_at`, `sha256`, original filename). A file that
+   raises is refused and nothing is copied. Auto-add also refuses a missing `source_kind`, a file
+   with no setup left and a file name that disagrees with its contents; a refusal prints one
+   "REFUSED:" line, exits non-zero and leaves `<file>.rejected.txt` beside the file. **Add Levels**
+   (the launcher) still asks once when the owner adds a file himself.
 3. Scout never edits a level file. Drafting files from raw material with Claude (J6) is phase 2 and
    §16 Q12.
 
@@ -314,7 +324,9 @@ Sources, all deterministic (proposed):
    - This replaces a "last filing + 75-105 days" rule, which falls outside its own window in 10-K
      season (Q3 10-Q to 10-K can be 120-135 days) and would wrongly clear. Values are proposed and
      tested by replay over EDGAR history (build step 4), with a fixture per fiscal quarter.
-3. **Any enabled calendar** (Webull or Finnhub, phase 2) can only add `true` or `unknown`.
+3. **Any enabled calendar** (Webull or Finnhub, phase 2) can only add `true` or `unknown`. The Paper
+   Gains Discord earnings lists (§18, `discord_gate5_enabled`) are such a source from 2026-11-01:
+   they can only add `true`.
 4. **The answer:** `true` if any source finds an event in the window; `false` only when source 1
    found nothing, source 2 places S outside its due window, every enabled calendar answered without
    error, and the calendar covers the next session; `unknown` otherwise.
@@ -578,7 +590,7 @@ A source whose status is not `ok` makes every answer that depends on it `unknown
 ### 10.2 Files
 | File | Written | Contents |
 |---|---|---|
-| `facts\<date>.jsonl` | on each new fact | `fact_id` (sha256 of source and guid), `kind` (wire, filing, halt, scheduled_event, macro_event), `ticker`, `cik`, `class`, `source`, `url`, `title`, `published_at`, `first_seen_at`, `raw_sha256`; halts add `halt_code`, `halt_time`, `resumed_at`; events add `event_at`, `event_kind` |
+| `facts\<date>.jsonl` | on each new fact | `fact_id` (sha256 of source and guid), `kind` (wire, filing, halt, scheduled_event, macro_event; discord and earnings_schedule since §18), `ticker`, `cik`, `class`, `source`, `url`, `title`, `published_at`, `first_seen_at`, `raw_sha256`; halts add `halt_code`, `halt_time`, `resumed_at`; events add `event_at`, `event_kind` |
 | `health\<date>.jsonl` | on each poll | §6.1-6.2 |
 | `answers\<date>.jsonl` | 19:30 and 19:45 ET per covered symbol; after 20:00 for Radar's finds | `symbol`, `as_of`, `fresh_catalyst`, `event_before_next_session`, `macro_event_next_session`, `reasons`, `evidence`, `stale` |
 | `labels\<date>.jsonl` | on each label | §8.3 plus metadata, `fact_id`, `verified` |
@@ -649,6 +661,14 @@ and never raises: every exception becomes `unknown` with a reason.
   `llm_item_chars` (2000), `web_fetch_max_content_tokens` (8000), `[llm.prices]`.
 - **Schedule and verification:** `brief_time_et` ("08:20"), `verify_days` (20).
 - **Webull (phase 3 only):** `scout_webull_enabled` (false), `scout_webull_budget_per_min` (2).
+- **Inbox and Discord (§18; added 2026-11-01):** `inbox_poll_s` (60), `discord_enabled` (true),
+  `discord_channels`, `discord_schedule_channels`, `discord_prefix_ticker_channels`,
+  `discord_headline_channels`, `discord_catalyst_channels`, `discord_reaction_channels`,
+  `discord_gate5_enabled` (true), `discord_text_max_chars` (2000), `discord_image_text_max_chars`
+  (4000), `discord_max_post_age_days` (14), `discord_posted_at_tolerance_s` (120),
+  `discord_schedule_max_ahead_days` (14), `discord_max_file_bytes` (2000000),
+  `discord_expected_every_min` (60), `discord_capture_hours_et` (["07:00", "17:00"]),
+  `discord_brief_max_items` (10). DESIGN 6.9 documents them.
 
 Radar gains `scout_dir` and `jason_near_level_pct`. Pilot gains `scout_dir` and `pilot_hold_check_et`
 ("19:40"). Guardian gains no key. No per-ticker settings anywhere.
@@ -772,11 +792,69 @@ Each step is its own commit with its tests; the owner installs outside US hours.
 - Any input to Guardian beyond Pilot's hold ticket.
 - Any LLM label or J3 finding changing a gate.
 - Macro events, regime or halts as gates.
-- Automated gathering of Jason's material; any login to Discord, YouTube or another site with the
-  owner's account; J6 drafting and the old-format converters.
+- Any login by the Scout program to Discord, YouTube or another site with the owner's account, and
+  any fetch of Jason's material by Scout (the owner's scheduled Claude tasks gather it, §18); J6
+  drafting and the old-format converters.
 - Accesswire, Newsfile and other wires as fetchers; Finnhub, Alpha Vantage, FDA sources; Webull news,
   calendars and hot stocks; Reddit, StockTwits and X.
 - The intraday ETF regime label (needs Radar's snapshot).
 - Republishing any source's raw files.
 - Per-ticker rules.
 - Alerts by sound, pop-up, phone or Telegram.
+
+## 18. Owner decisions 2026-11-01: Jason's material and the Paper Gains Discord
+**Decided** by the owner on 2026-11-01 ("Auto-add, but there's a lot more news worthy info in Jason's
+School of Gains Discord you can use for Scout too, check all the channels under Market News category
+and Main Stage category (except for market-edge-chat as this is just general chat)").
+
+1. **Gathering is by scheduled Claude tasks.** Jason's material is gathered as before by Claude Code
+   desktop scheduled tasks: Claude in Chrome with the owner's logged-in Discord, WebFetch for YouTube
+   transcripts, and an approved fetch of the weekly-plan newsletter PDF from
+   `cdn.trendsetters.cloudflowventures.com` (that host only). The tasks write files into Scout's
+   inbox; Scout reads them as data (`docs/INBOX.md`). §2 rule 10 holds for the Scout program: it
+   never logs in anywhere and never fetches this material. The tasks need Chrome open and logged in
+   to Discord, and the PC awake.
+2. **Level files are auto-added.** The task runs `python -m scout levels add --yes <file>` (or
+   `--inbox`); validation still refuses bad files (§5.2).
+3. **The Paper Gains Discord channels** (all of MARKET NEWS and MAIN STAGE except `market-edge-chat`,
+   surveyed 2026-11-01) are captured into `inbox\discord\<channel>\` (`docs/INBOX.md` §3). How each
+   feeds Scout:
+
+   | Channel | What it carries | Scout uses it for |
+   |---|---|---|
+   | #daily-watchlist | the weekday card (~08:09 ET): context, "AM ER" / "PM ER", an image of about 3 symbols with long and short triggers and targets; a next-day recap | the daily level file (auto-added); the AM/PM ER lists for gate 5 (block only); the brief |
+   | #weekly-trade-plan | Monday "Weekly Watchlist" with the plan in a PDF; weekly recaps; video links | the weekly level file (from the PDF, auto-added); record and brief |
+   | #free-analysis | Jason's chart commentary | record and brief |
+   | #brianna-news | small-cap catalyst headlines "TICKER - headline" | record and brief (catalysts, flagged when a Radar find prices the ticker under `scan_max_price`) |
+   | #stockmktnewz | @StockMKTNewz posts, mostly large caps | record and brief (market headlines) |
+   | #major-headlines | First Squawk macro and political headlines | record and brief (market headlines) |
+   | #earnings-whispers | earnings movers and sector notes | record and brief (reactions for Radar finds and watch symbols) |
+   | #market-movers | weekly earnings and economic calendars | the earnings calendar (when legible) for gate 5 (block only); record and brief |
+   | #open-outcrier | per-ticker earnings reactions; "Top Earnings <day> <date> Pre/Aft" lists | the lists for gate 5 (block only); the reactions to the brief |
+   | #15m-scanner, #daily-scanner, #weekly-scanner (SCANNERS, item 7) | "PaperGains Scanner" cards "<Pattern> - <Timeframe> (<state>)" with a ticker list, mostly large caps | record and brief only (no gate) |
+
+4. **Gate 5: block only.** A structured earnings list (an `earnings_schedule` fact) naming S with a
+   session inside gate 5's window makes gate 5 `true`, exactly as §7.2 item 3 allows a calendar to
+   ("any enabled calendar can only add true or unknown"). Its absence never makes gate 5 `false` and
+   never clears an `unknown`. Config `discord_gate5_enabled` (default true). What it adds: a source
+   that can only remove holds; what it removes: holds into an earnings date that only Discord listed.
+5. **Gate 6: none.** Discord text is untrusted third-party text transcribed by an LLM task (images
+   even more so). It never satisfies gate 6 (§16 Q6 stands) and decides nothing. Everything other than
+   the earnings lists is record and brief (and, later, Radar tags through a Radar spec change).
+6. **As-of and honest coverage.** Every Discord fact carries `first_seen_at` = the time Scout read the
+   capture (§2 rule 9). The heartbeat's `discord_inbox` says whether captures arrive on the expected
+   cadence during capture hours (`discord_expected_every_min`, `discord_capture_hours_et`); no gate
+   reads it.
+7. **The SCANNERS channels: record and brief only, no gate** (owner, 2026-11-01, added the same
+   day). #15m-scanner, #daily-scanner and #weekly-scanner carry the "PaperGains Scanner" bot's
+   text-only cards ("Outside Bar - 15m (In Force)", "Inside Bar - 15m", "Failed 2D - 15m",
+   "Outside Bar - Daily (Current Candle)", "Outside Bar - Weekly (Current Candle)"), each a ticker
+   list. The news task captures each card as a `scanner_alert` line (`docs/INBOX.md` §3.3: timeframe
+   from the channel and agreeing with it, pattern and state as printed, tickers validated). Scout
+   stores one `scanner` fact per ticker (source `discord:<channel>`, class `scanner_alert`, the
+   as-of rule unchanged) and lists the cards in the brief ("Paper Gains scanners", by timeframe and
+   pattern, Radar finds and watch symbols flagged). **Neither gate 5 nor gate 6 reads them** (tests
+   prove both answers are unchanged with scanner facts present). `scout_reader.scanner_alerts(S,
+   as_of)` describes them (descriptive, never raises, `unknown` while `discord_inbox` is not `ok`) for
+   a later Radar tag, which needs its own Radar spec change (§9.1). It adds no gate and removes
+   nothing.

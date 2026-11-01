@@ -93,6 +93,14 @@ class ScoutPaths:
         return self.inbox / "jason"
 
     @property
+    def inbox_discord(self) -> Path:
+        return self.inbox / "discord"
+
+    @property
+    def discord(self) -> Path:
+        return self.root / R.DISCORD
+
+    @property
     def levels(self) -> Path:
         return (self.root / self.levels_dir).resolve(strict=False)
 
@@ -187,7 +195,8 @@ class ScoutPaths:
 
     def ensure(self) -> None:
         """Create the runtime folders (all inside Scout's folder)."""
-        for folder in (self.state, self.logs, self.reports, self.inbox_jason, self.levels, self.facts,
+        for folder in (self.state, self.logs, self.reports, self.inbox_jason, self.inbox_discord, self.discord,
+                       self.levels, self.facts,
                        self.health, self.answers, self.labels, self.llm, self.macro, self.raw, self.beats,
                        self.edgar_due, self.jason, self.verify):
             self.writable(folder).mkdir(parents=True, exist_ok=True)

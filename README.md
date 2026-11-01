@@ -48,7 +48,7 @@ spend limit, put `ANTHROPIC_API_KEY=...` in a file named `.env` in Scout's folde
 - **Scout Brief**: writes the morning brief now and opens it in Notepad. Safe while Scout runs.
 - **Add Levels**: drop one of Jason's level files on it (or put the file in `inbox\jason` and
   double-click). Scout checks the file, shows any warnings and asks before adding it. It never
-  changes a file it has already added.
+  changes a file it has already added. (The scheduled Claude tasks add files themselves; see below.)
 - **Update Scout**: downloads and installs the latest version. Stop Scout first: while Scout is
   running, Update Scout says so and changes nothing.
 
@@ -57,7 +57,9 @@ spend limit, put `ANTHROPIC_API_KEY=...` in a file named `.env` in Scout's folde
     python -m scout run                       # gather facts and answer, until Ctrl+C
     python -m scout brief [--date YYYY-MM-DD] # write the morning brief now
     python -m scout levels add <file> [--yes] # add one of Jason's level files
+    python -m scout levels add --inbox        # add every new valid file in inbox\jason (no question)
     python -m scout levels score              # score past level files (report only)
+    python -m scout discord check <file>      # check one Discord capture file (writes nothing)
     python -m scout check [--week YYYY-Www]   # this week's hand-check sample
     python -m scout verify                    # the verification report
     python -m scout answers SYMBOL... [--as-of ISO-time]   # print answers (writes nothing)
@@ -68,8 +70,33 @@ All of these are built in v1. (A command whose module is missing says "not built
 ## Folders
 
 `state\` (facts, source health, answers, heartbeat and the other files the bots read), `logs\`,
-`reports\` (the brief and the verification report), `inbox\jason\` (where you drop level files).
-All are created on first run and ignored by git.
+`reports\` (the brief and the verification report), `inbox\jason\` (level files) and
+`inbox\discord\` (Discord capture files). All are created on first run and ignored by git.
+
+## Jason's material and the Paper Gains Discord (scheduled Claude tasks)
+
+Scout itself never logs in to Discord, YouTube or X and never downloads Jason's material. Scheduled
+Claude tasks in Claude Code desktop do that and leave files in Scout's inbox; Scout reads them as
+untrusted data. The file format and the commands the tasks run are in `docs/INBOX.md`.
+
+- **What the tasks need:** the PC awake and Claude Code desktop running at the scheduled times, and
+  Chrome open with the Claude in Chrome extension and **logged in to Discord** (and to nothing the
+  tasks should not use). The weekly plan's PDF is fetched only from
+  `cdn.trendsetters.cloudflowventures.com`.
+- **Level files** (the daily card, the weekly plan, the Tuesday stream) go to
+  `inbox\jason\<session_date>.<source_kind>.json` and are added at once with
+  `python -m scout levels add --yes <file>` or `levels add --inbox`. A refused file stays in the
+  inbox with a `<file>.rejected.txt` note beside it saying why; Scout never replaces a file it has
+  already added, so a correction for the same day needs you.
+- **Discord captures** (the channels under MARKET NEWS, MAIN STAGE and SCANNERS, not market-edge-chat) go to
+  `inbox\discord\<channel>\<time>.jsonl`. The running Scout reads new files every minute and stores
+  each post as a fact. They appear in the brief's "Paper Gains Discord" section. Only an earnings
+  list (open-outcrier's "Top Earnings", the card's AM/PM ER, market-movers' calendar) reaches an
+  answer, and only to block a hold. Nothing from Discord can allow a hold. Scanner cards (#15m-scanner,
+  #daily-scanner, #weekly-scanner) are listed in the brief's "Paper Gains scanners" lines and reach no answer.
+- **Is it working?** The brief and the heartbeat show `discord_inbox`: `ok` while a capture arrives at
+  least every `discord_expected_every_min` (60) minutes between `discord_capture_hours_et` (07:00 and
+  17:00 ET) on trading days, else `stale`, with each channel's last capture and today's refused lines.
 
 To stop Scout without its window, put a file named `STOP` in Scout's folder. In Explorer, New > Text
 Document renamed to STOP is really `STOP.txt` when extensions are hidden; Scout accepts either name.

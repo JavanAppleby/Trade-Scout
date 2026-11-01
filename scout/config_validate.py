@@ -48,8 +48,27 @@ _RANGES: tuple[tuple[str, float, float], ...] = (
     ("llm_timeout_s", 1, 1800), ("web_search_usd_per_1000", 0, 1000), ("verify_days", 1, 365),
     ("verify_sample_size", 1, 1000), ("heartbeat_interval_s", 5, 60), ("loop_interval_s", 0.2, 10),
     ("scout_webull_budget_per_min", 0, 60), ("ticker_map_retry_s", 60, 86400),
-    ("levels_long_horizon_sessions", 1, 260),
+    ("levels_long_horizon_sessions", 1, 260), ("inbox_poll_s", 5, 3600), ("discord_text_max_chars", 100, 100000),
+    ("discord_image_text_max_chars", 100, 100000), ("discord_max_post_age_days", 1, 60),
+    ("discord_posted_at_tolerance_s", 0, 3600), ("discord_schedule_max_ahead_days", 1, 60),
+    ("discord_max_file_bytes", 1000, 100_000_000), ("discord_expected_every_min", 1, 1440),
+    ("discord_brief_max_items", 1, 200), ("discord_scanner_brief_max_tickers", 1, 200),
 )
+_CHANNEL = re.compile(r"[a-z0-9][a-z0-9_-]{0,99}")
+_DISCORD_LISTS = ("discord_schedule_channels", "discord_prefix_ticker_channels", "discord_headline_channels",
+                  "discord_catalyst_channels", "discord_reaction_channels")
+
+
+def _validate_discord(c: Any) -> None:
+    for name in c.discord_channels:
+        _check(bool(_CHANNEL.fullmatch(name)),
+               f"discord_channels: {name!r} must be a channel name (lower case letters, digits, - and _)")
+    _check(len(set(c.discord_channels)) == len(c.discord_channels), "discord_channels: a channel is listed twice")
+    for key in _DISCORD_LISTS:
+        extra = [n for n in getattr(c, key) if n not in c.discord_channels]
+        _check(not extra, f"{key}: {extra} are not in discord_channels")
+    _check(len(c.discord_capture_hours_et) == 2 and c.discord_capture_hours_et[0] < c.discord_capture_hours_et[1],
+           "discord_capture_hours_et: must be two times [start, end] with start before end")
 
 
 def validate(c: Any) -> None:
@@ -108,6 +127,7 @@ def validate(c: Any) -> None:
             _check(s.min_spacing_s >= 30, f"{where}.min_spacing_s: must be >= 30")
             _check(s.idle_spacing_s == 0 or s.idle_spacing_s >= 30,
                    f"{where}.idle_spacing_s: must be 0 (the same) or >= 30")
+    _validate_discord(c)
     for j, job in c.llm_jobs.items():
         _check(bool(job.model.strip()), f"llm.jobs.{j}.model: must be set")
         _check(job.effort in EFFORTS, f"llm.jobs.{j}.effort: must be one of {EFFORTS}")

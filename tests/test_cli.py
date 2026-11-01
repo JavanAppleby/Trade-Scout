@@ -43,8 +43,15 @@ def test_bad_config_exits_2(tmp_path: Path, capsys: pytest.CaptureFixture[str]) 
     assert "bogus_key" in capsys.readouterr().out
 
 
+def parser_args(argv: list[str]):
+    return cli.build_parser().parse_args(argv)
+
+
 def test_every_command_is_dispatched() -> None:
-    assert set(cli.DISPATCH) == {"run", "brief", "levels add", "levels score", "check", "verify", "answers"}
+    assert set(cli.DISPATCH) == {"run", "brief", "levels add", "levels score", "check", "verify", "answers",
+                                 "discord check"}
+    assert parser_args(["levels", "add", "--inbox"]).inbox is True
+    assert parser_args(["discord", "check", "x.jsonl"]).file == "x.jsonl"
     parser = cli.build_parser()
     assert parser.parse_args(["answers", "AB", "CD", "--as-of", "2026-11-02T00:45:00Z"]).symbols == ["AB", "CD"]
     assert parser.parse_args(["levels", "add", "f.json", "--yes"]).yes is True

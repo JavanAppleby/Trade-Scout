@@ -19,6 +19,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "hypothesis", "tzdata"]  # tzdata only for the _et vs zoneinfo test on Windows
+# Only for tools/fetch_weekly_plan.py, run by the scheduled task scout-jason-daily (tasks/README.md);
+# the Scout program never imports it.
+weekly = ["pypdf==5.1.0"]
 
 [tool.setuptools]
 packages = ["scout", "scout_reader"]

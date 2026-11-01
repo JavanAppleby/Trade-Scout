@@ -25,8 +25,9 @@ Every exception becomes `unknown` with reason "error:<ExceptionType>"; a naive `
 ("naive_as_of"). With `now` given, an `as_of` later than `now()` is refused ("future_as_of"), since
 records for it may still arrive.
 
-`halt_open`, `jason_tags` and `market_context` hand the records to `scout_reader.halts`,
-`scout_reader.jason` and `scout_reader.macro`, imported on first use; a missing module answers
+`halt_open`, `jason_tags`, `market_context` and `scanner_alerts` (Paper Gains scanner cards, descriptive,
+for Radar's later tags) hand the records to `scout_reader.halts`, `scout_reader.jason`,
+`scout_reader.macro` and `scout_reader.scanner`, imported on first use; a missing module answers
 `unknown` ("not_built:<module>"). Gate 6 asks `scout_reader.coverage` for gaps the same way.
 """
 
@@ -45,7 +46,7 @@ from scout_reader import records as R
 
 __all__ = [
     "Reader", "event_before_next_session", "fresh_catalyst", "halt_open", "hold_allowed", "jason_tags",
-    "market_context", "news_headline",
+    "market_context", "news_headline", "scanner_alerts",
 ]
 
 Result = dict[str, Any]
@@ -56,6 +57,8 @@ HALT_LOOKBACK_DAYS = 30  # multi-day halts appear only under their first HaltDat
 MACRO_LOOKBACK_DAYS = 45  # scheduled events are first seen days or weeks ahead
 DUE_LOOKBACK_DAYS = 4  # a trading day's due records can sit in up to four ET-date files (long weekends)
 DEFAULT_LOOKBACK_DAYS = 45
+SCANNER_DEFAULT_DAYS = 7  # scanner_alerts looks back this many days unless told otherwise
+SCANNER_MAX_DAYS = 14  # Scout refuses posts older than discord_max_post_age_days (14)
 
 hold_allowed = gates.hold_allowed
 
@@ -422,6 +425,32 @@ class Reader:
         """Macro events, inflation regime and VIX at `as_of` (record only, SS 7.3, 7.6)."""
         return self._guard(lambda: self._market(as_of), lambda r: self._all(MARKET_FIELDS, r))
 
+    def _scanner(self, symbol: object, as_of: datetime, days: object) -> Result:
+        refused = self._refuse(symbol, as_of)
+        if refused is not None:
+            return dict(refused, alerts=[])
+        sym = str(symbol).strip().upper()
+        _params, beat, early = self._context(as_of)
+        if early is not None:
+            return dict(early, alerts=[])
+        module = self._module("scanner")
+        if module is None:
+            return dict(R.result("unknown", (), False, ("not_built:scanner",)), alerts=[])
+        span = days if isinstance(days, (int, float)) and not isinstance(days, bool) and 0 < days else             SCANNER_DEFAULT_DAYS
+        start = as_of - timedelta(days=min(float(span), SCANNER_MAX_DAYS))
+        scan = _Scan()
+        facts = [f for f in self._facts(scan, as_of, start=start) if f.get("kind") == "scanner"]
+        got = module.scanner_alerts_from(facts, beat, sym, as_of, start)
+        res = self._one(got, tri=True)
+        res["alerts"] = [a for a in got.get("alerts") or [] if isinstance(a, Mapping)] if isinstance(
+            got, Mapping) and isinstance(got.get("alerts"), list) else []
+        return self._finish(res, scan)
+
+    def scanner_alerts(self, symbol: str, as_of: datetime, *, days: float = SCANNER_DEFAULT_DAYS) -> Result:
+        """Paper Gains scanner cards naming `symbol` posted in the `days` before `as_of` (descriptive
+        only, never a gate input; for Radar's later tags, SS 9.1). `alerts` lists them newest first."""
+        return self._guard(lambda: self._scanner(symbol, as_of, days), lambda r: dict(r, alerts=[]))
+
 
 # --------------------------------------------------------------------------- module-level conveniences
 
@@ -463,4 +492,8 @@ def jason_tags(scout_dir: str | os.PathLike[str], symbol: str, price: float | No
 
 def market_context(scout_dir: str | os.PathLike[str], as_of: datetime) -> dict[str, Result]:
     return _safe(lambda: Reader(scout_dir).market_context(as_of), lambda r: Reader._all(MARKET_FIELDS, r))
+
+
+def scanner_alerts(scout_dir: str | os.PathLike[str], symbol: str, as_of: datetime, **kw: Any) -> Result:
+    return _safe(lambda: Reader(scout_dir).scanner_alerts(symbol, as_of, **kw), lambda r: dict(r, alerts=[]))
 

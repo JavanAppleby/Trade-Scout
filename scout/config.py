@@ -182,6 +182,11 @@ DEFAULT_LLM_PRICES: dict[str, dict[str, float]] = {  # USD per million tokens; c
     "claude-opus-5-5": dict(input_per_mtok=4.00, output_per_mtok=20.00, cache_write_per_mtok=5.00,
                             cache_read_per_mtok=0.20),
 }
+#: The Paper Gains Discord channels the capture tasks read (MARKET NEWS and MAIN STAGE, without the
+#: general chat, and the three SCANNERS channels), surveyed 2026-11-01. Names as Discord shows them.
+DISCORD_CHANNELS = ("daily-watchlist", "weekly-trade-plan", "free-analysis", "brianna-news", "stockmktnewz",
+                    "major-headlines", "earnings-whispers", "market-movers", "open-outcrier", "15m-scanner",
+                    "daily-scanner", "weekly-scanner")
 DEFAULT_FOMC_2026 = ("2026-01-28", "2026-03-18", "2026-04-29", "2026-06-17", "2026-07-29", "2026-09-16",
                      "2026-10-28", "2026-12-09")
 
@@ -305,6 +310,27 @@ class ScoutConfig:
     scout_webull_enabled: bool = False
     scout_webull_budget_per_min: int = 2
 
+    # 6.9 the inbox and Paper Gains Discord captures (owner decisions 2026-11-01; DESIGN 2.7)
+    inbox_poll_s: int = 60
+    discord_enabled: bool = True
+    discord_channels: tuple[str, ...] = DISCORD_CHANNELS
+    discord_schedule_channels: tuple[str, ...] = ("daily-watchlist", "open-outcrier", "market-movers")
+    discord_prefix_ticker_channels: tuple[str, ...] = ("brianna-news",)
+    discord_headline_channels: tuple[str, ...] = ("major-headlines", "stockmktnewz")
+    discord_catalyst_channels: tuple[str, ...] = ("brianna-news",)
+    discord_reaction_channels: tuple[str, ...] = ("earnings-whispers", "open-outcrier")
+    discord_gate5_enabled: bool = True
+    discord_text_max_chars: int = 2000
+    discord_image_text_max_chars: int = 4000
+    discord_max_post_age_days: int = 14
+    discord_posted_at_tolerance_s: int = 120
+    discord_schedule_max_ahead_days: int = 14
+    discord_max_file_bytes: int = 2_000_000
+    discord_expected_every_min: int = 60
+    discord_capture_hours_et: tuple[time, ...] = (time(7, 0), time(17, 0))
+    discord_brief_max_items: int = 10
+    discord_scanner_brief_max_tickers: int = 12
+
     def __post_init__(self) -> None:
         object.__setattr__(self, "scout_dir", Path(self.scout_dir).resolve(strict=False))
         if not self.sources:
@@ -367,6 +393,8 @@ class ScoutConfig:
                             for s in self.enabled_sources() if s.gate6 and s.kind in ("filing", "wire")},
             "fomc_dates": [d.isoformat() for d in self.fomc_dates],
             "fomc_decision_time_et": self.fomc_decision_time_et.strftime("%H:%M"),
+            # gate 5 may read Discord earnings-schedule facts, which can only add "true" (DESIGN 2.7)
+            "discord_gate5_enabled": bool(self.discord_enabled and self.discord_gate5_enabled),
         }
 
     def public_dict(self) -> dict[str, Any]:
@@ -422,6 +450,7 @@ _COERCE: dict[str, Callable[[str, Any], Any]] = {
     "active_hours_et": as_time_list,
     "answer_times_et": as_time_list,
     "nowflation_read_times_et": as_time_list,
+    "discord_capture_hours_et": as_time_list,
     "fomc_dates": as_date_list,
 }
 

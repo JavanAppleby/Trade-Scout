@@ -20,7 +20,9 @@ Spec: `docs/SCOUT_SPEC.md` (the contract). Design and module contracts: `docs/DE
   secret or `contact_email`. No prompt carries an account number, size, P&L, token or file path.
 - No look-ahead (SS 2.9): every record carries `first_seen_at` from Scout's clock; files are
   append-only; a query "as of t" sees only what was first seen by t.
-- Jason's material is gathered by hand (SS 2.10): Scout never logs in anywhere or fetches it.
+- Jason's material and the Paper Gains Discord are gathered by the owner's scheduled Claude tasks, which
+  write `inbox\` (SS 2.10, 18; `docs/INBOX.md`). The Scout program never logs in anywhere or fetches them;
+  inbox text is untrusted data, and Discord can only block a hold (gate 5), never allow one.
 - Tests never touch the network or real keys (SS 2.11): fixtures, fakes, a mocked Anthropic client,
   `ManualClock`. Never call the Anthropic API for real from tests.
 - All tunables live in `config.toml`, with `config.example.toml` documenting every key. No

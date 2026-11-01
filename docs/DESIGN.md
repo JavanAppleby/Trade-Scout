@@ -38,7 +38,7 @@ E:\Scout_dev\
   CLAUDE.md  README.md  .gitignore
   .github\workflows\ci.yml
   Start Scout.bat  Scout Brief.bat  Add Levels.bat  Update Scout.bat
-  docs\SCOUT_SPEC.md  docs\DESIGN.md
+  docs\SCOUT_SPEC.md  docs\DESIGN.md  docs\TRACEABILITY.md  docs\INBOX.md (the inbox contract)
   tools\make_calendar_fixture.py   run once against Guardian's checkout (read-only)
   scout\                    the bot (flat package, no subpackages)
   scout_reader\             separate stdlib-only distribution
@@ -46,7 +46,7 @@ E:\Scout_dev\
     README.md
     scout_reader\           the importable package
   tests\                    all tests (scout and scout_reader); fixtures under tests\fixtures\
-  state\ logs\ reports\ inbox\jason\   runtime, git-ignored, created on first run
+  state\ logs\ reports\ inbox\jason\ inbox\discord\   runtime, git-ignored, created on first run
 ```
 
 `pyproject.toml` (top level): `name = "scout"`, `version = "0.1.0"`, `requires-python = ">=3.11,<3.14"`,
@@ -82,7 +82,8 @@ their implementing module lazily so the CLI loads before every unit exists.
   `run` -> `scout.app.cli_run`; `brief` -> `scout.brief.cli_brief`; `levels add` ->
   `scout.levels_add.cli_levels_add`; `levels score` -> `scout.levels_score.cli_levels_score`;
   `check` -> `scout.verify_check.cli_check`; `verify` -> `scout.verify.cli_verify`; `answers` ->
-  `scout.answers_cli.cli_answers`. A missing module prints "not built yet: <module>" and returns 3.
+  `scout.answers_cli.cli_answers`; `discord check` -> `scout.discord_ingest.cli_discord_check`
+  (2026-11-01, section 2.7). A missing module prints "not built yet: <module>" and returns 3.
 - Exit codes: 0 ok, 1 runtime failure, 2 bad input or config, 3 not built.
 
 **`scout/config.py`** and **`scout/config_load.py`**: strict TOML loader in Radar's style (an unknown
@@ -470,7 +471,18 @@ names without the underscore. Provenance header: `ai-trading-platform` commit
 **`scout/levels_add.py`**: `add_file(paths, src: Path, now, *, confirm: Callable[[str], bool]) ->
 AddResult` (validate with `load_plan`; print warnings; ask once; copy to
 `levels\<session_date>.<source_kind>.json` plus `.meta.json`; refuse when the target exists with a
-different sha256, never overwrite or edit); `cli_levels_add(ctx, args) -> int`.
+different sha256, never overwrite or edit); `cli_levels_add(ctx, args) -> int`. Since 2026-11-01
+(section 2.7) `add_file(..., auto=True)` is the scheduled tasks' `--yes` and `--inbox`: it also
+refuses a missing or unknown `source_kind`, a file with no setup left and a `<date>.<kind>.json` name
+that disagrees with the contents (`--inbox` refuses any other name); a refusal prints a last line
+"REFUSED: ...", exits 2 and writes `<file>.rejected.txt` beside a file inside Scout's folder. The
+file is read once (`_plan_from_bytes`): the bytes validated are the bytes hashed, noted and copied;
+a read error (`OSError`: missing, locked, mid-write) refuses with no note, so it is retried.
+`add_inbox(paths, now)` adds every `inbox\jason\*.json` whose sha256 is neither added (sidecars) nor
+refused in that form (the note's sha256 line). The level file appears by a hard link of a temp file
+(a Windows rename where links are missing), which fails on an existing name, so a concurrent add
+never replaces a file and a reader never sees half of one; an add that finds its file but no
+sidecar writes the sidecar.
 
 **`scout/levels_bars.py`**: `class DailyBar(day, open, high, low, close)`; `class BarsLoader(Protocol):
 def daily(self, symbol, start: date, end: date) -> list[DailyBar]`; `RadarBars(radar_dir)` (Radar's
@@ -593,6 +605,93 @@ agree or disagree with a note; appends to `verify\checks.jsonl`).
 **`scout/jobs_brief.py`**: `build_jobs(ctx)`: `brief` (`brief_time_et`, trading days), `verify`
 (daily 20:30 ET report), `ledger_status` (updates `board.set_llm` every minute).
 
+### 2.7 The inbox and the Paper Gains Discord (owner decisions 2026-11-01)
+
+SCOUT_SPEC 18 and `docs/INBOX.md` (the file format the scheduled Claude tasks write). Record and brief
+first; the only gate input is gate 5, in the blocking direction.
+
+**`scout/discord_parse.py`** (pure): `Rules` / `rules_from(cfg)`; `parse_capture(body, *, channel,
+name, now, rules) -> Capture(posts, rejects, lines)`; `validate_line(obj, ...) -> Post | Reject`
+(exact keys, `format` 1, channel = folder and configured, snowflake `message_id`, permalink ending in
+it, `posted_at` within `discord_posted_at_tolerance_s` of the snowflake's own time, not future, not
+older than `discord_max_post_age_days`, `captured_at` sane, `kind` known, `earnings` only for
+`earnings_schedule` (required) and `levels_card`, only in `discord_schedule_channels`, dates from the
+post's ET date - 1 to + `discord_schedule_max_ahead_days`); `post_tickers(text, channel, rules)`
+(cashtags, exchange tags, and "TICKER - headline" in `discord_prefix_ticker_channels`, all through
+`tickers.normalise`); `snowflake_time`, `capture_time`, `split_capture_name`. Format limits kept in
+code: 40 entries, 400 tickers each, 100-character author.
+
+**`scout/discord_ingest.py`**: `class DiscordInbox(cfg, paths, clock, facts, raw, health, board)`;
+`poll(now) -> int` (new posts) reads every `inbox\discord\<channel>\*.jsonl` not yet read in its
+current form (`state\discord\files.jsonl`: file, size, mtime_ns, sha256, capture_at, counts), skips
+`*.tmp`, hidden files and names older than `discord_max_post_age_days` + 1 day, keeps the bytes in
+`state\raw\discord\`, writes each refused line to `state\discord\rejects\<ET date>.jsonl` and one
+health record per file (source `discord_inbox`, `gate6` false, result `ok` or `schema`, `error` the
+reasons). New posts (deduped by (channel, message_id) over the facts of the last
+`discord_max_post_age_days` + 2 days, so across restarts) become facts: `earnings_schedule` facts
+first (one per date, session, ticker; `event_kind` "earnings", `extra.earnings_date`,
+`extra.session`), then `discord` facts (one per ticker, or one with ticker null; class from
+`classify.wire_class` on the text; `extra` holds post kind, author, text, image text, captured_at,
+the earnings list and every ticker). Scout never edits, moves or deletes an inbox file (decided here:
+bookkeeping in `state` instead of a `done` folder, so the inbox stays the tasks' folder and a
+re-run that rewrites a file is read again). `publish(now)` sets the heartbeat's `discord_inbox`
+(`cadence_status`: `ok` while the trading-day time inside `discord_capture_hours_et` since the newest
+capture is at most `discord_expected_every_min`; `stale` with a reason; `disabled`). An empty capture
+file counts as a capture; a file with lines of which none was accepted (no new post, no repeat) does
+not (`capture_at` null in the bookkeeping), the reader's rule that a file whose every line is
+unreadable counts as missing. A file that raises while it is read is booked as refused
+(`ingest_error:<type>`, no capture) so it neither stops the poll nor repeats; an `OSError` leaves it
+for the next poll. `validate_line` refuses strings that do not encode as UTF-8 (`text_not_utf8`);
+reasons never carry capture text (unknown keys named only when plain, at most three; a refused
+line's `message_id` kept only when a snowflake); the brief names at most `MAX_REASONS` (6) distinct
+reasons. `cli_discord_check` checks one file (also `.jsonl.tmp`) and writes nothing.
+
+**`scout/jobs_discord.py`**: `build_jobs(ctx)`: `discord_inbox` (`EveryJob`, `inbox_poll_s`), placed
+before the answers jobs in `JOB_MODULES`; at build it publishes the status from the bookkeeping.
+
+**`scout/brief_discord.py`**: `sec_discord(inp)`, after Jason's levels: today's daily card from the
+snapshot's `daily` setups (or a note when a card post exists but no file was added); earnings lists
+for today and the next trading day by session; small-cap catalysts (`discord_catalyst_channels`,
+Radar-priced tickers at or under `scan_max_price` flagged); market headlines
+(`discord_headline_channels`); reactions (`discord_reaction_channels`) naming a Radar find or a watch
+symbol; capture health (heartbeat status, each channel's newest capture, today's refused lines by
+reason). Lists newest first, at most `discord_brief_max_items`; every string through `md_escape`.
+
+**Paper Gains scanners** (SCOUT_SPEC 18.7, INBOX 3.3; record and brief only). `discord_parse`:
+kind `scanner_alert` with a required `scanner` object (refused for every other kind), allowed only in
+the folders of `SCANNER_TIMEFRAMES` (`15m-scanner` -> `15m`, `daily-scanner` -> `daily`,
+`weekly-scanner` -> `weekly`; a format fact, not a tunable) with the timeframe agreeing; pattern 1-80
+and state 1-40 characters or null, as printed (whitespace collapsed); 1-200 tickers through
+`tickers.normalise` and the ticker pattern. `Post.scanner` holds a `ScannerAlert`. `discord_ingest`
+writes one fact of kind `scanner` per ticker **instead of** `discord` facts (class `scanner_alert`,
+title "<T>: <pattern> - <timeframe> (<state>)", `extra` post kind, timeframe, pattern, state,
+tickers, author, text, captured_at, capture file); the (channel, message_id) dedupe reads both kinds
+(`POST_KINDS`). **`scout/brief_scanner.py`**: `sec_scanners(inp)`, inside the Discord section before
+capture health: the scanner facts since the prior close grouped by timeframe, then (pattern, state),
+newest group first, at most `discord_brief_max_items` groups per timeframe and
+`discord_scanner_brief_max_tickers` tickers per group (Radar finds and watch symbols flagged and
+first, "+N more"). **`scout_reader/scout_reader/scanner.py`**: `scanner_alerts_from(facts, beat,
+symbol, as_of, start)`; `Reader.scanner_alerts(S, as_of, *, days=7)` (at most 14) for Radar's later
+tags (SCOUT_SPEC 9.1): `true` with `alerts` (timeframe, pattern, state, posted_at, channel,
+fact_id; newest first, at most 50), `false`, or `unknown` while `discord_inbox` is not `ok` in the
+governing beat (rule 6 for a descriptive answer; no gate reads it). Gates 5 and 6 never read kind
+`scanner` (`CATALYST_KINDS`, `MACRO_KINDS`, `discord_schedule.KIND` exclude it).
+
+**`scout_reader/scout_reader/discord_schedule.py`** (stdlib): `schedule_hits(facts, symbol, as_of,
+start, end)` returns `discord:<fact_id>` for visible `earnings_schedule` facts naming S whose session
+interval overlaps gate 5's window; `session_interval(day, session)`: `pre` = [00:00 ET, the 09:30
+open), `post` = [the close, 20:00 ET), `unknown` = the ET day (a non-trading day: the ET day for
+every session). Malformed records are skipped.
+
+**Gate 5** (3.6) adds the hits only when `params.discord_gate5_enabled is True` (absent in older
+params: nothing changes), with the extra reason `discord_earnings_schedule`. The source never takes
+part in `false`. Gate 5's announced-date source reads `earnings_date` facts of kind wire or filing
+only (`CATALYST_KINDS`): a `discord` post whose text the classifier calls `earnings_date` is record
+and brief only and never reaches gate 5, whatever `discord_gate5_enabled` says. **Gate 6** never
+reads `discord` facts (`CATALYST_KINDS` is wire and filing), nor
+J1, J3 or verify. `scout_reader.coverage.NOT_COVERAGE` keeps `discord_inbox` out of the beat-based
+fallback list, so no gate reads its status.
+
 ## 3. Package `scout_reader` (stdlib only, never raises)
 
 ```
@@ -606,8 +705,10 @@ scout_reader/scout_reader/
   macro.py      [macro]    market_context_from(...)
   jason.py      [levels]   jason_tags_from(...)
   datetext.py   [answers]  announced-date parser
+  discord_schedule.py      gate 5's Discord earnings-list source (2.7; block only)
+  scanner.py               Paper Gains scanner alerts, descriptive (2.7; no gate)
   gates.py      [answers]  gate 6, gate 5, news_headline
-  api.py        [answers]  the six public functions and Reader
+  api.py        [answers]  the six public functions, scanner_alerts and Reader
 ```
 
 ### 3.1 Public API (`scout_reader/api.py`, re-exported by `__init__`)
@@ -627,6 +728,8 @@ class Reader:
                    frame_prices: Mapping[str, float] | None = None,
                    near_pct: float | None = None) -> dict: ...   # one Result per tag
     def market_context(self, as_of: datetime) -> dict: ...       # Results per field
+    def scanner_alerts(self, symbol: str, as_of: datetime, *,
+                       days: float = 7) -> Result: ...          # + "alerts"; descriptive (2.7)
 
 # module-level conveniences: same names, first argument scout_dir
 def news_headline(scout_dir, symbol, as_of) -> Result: ...
@@ -635,6 +738,7 @@ def event_before_next_session(scout_dir, symbol, as_of) -> Result: ...
 def halt_open(scout_dir, symbol, as_of) -> Result: ...
 def jason_tags(scout_dir, symbol, price, as_of, **kw) -> dict: ...
 def market_context(scout_dir, as_of) -> dict: ...
+def scanner_alerts(scout_dir, symbol, as_of, **kw) -> Result: ...
 ```
 Every public function catches `BaseException` except `KeyboardInterrupt`/`SystemExit` and returns
 `unknown` with reason `"error:<ExceptionType>"`. A naive `as_of` is refused (`unknown`,
@@ -691,13 +795,15 @@ over the window (`coverage.gaps(...) == []`) and Scout is fresh. Otherwise `unkn
 `news_headline` is the same search with any class (`classes` lists what matched).
 
 ### 3.6 Gate 5 (`gates.event_before_next_session_from`, unit `answers`)
-Window `[as_of, next_open_after(as_of))`. Sources (SS 7.2): (1) visible `earnings_date` wire facts
+Window `[as_of, next_open_after(as_of))`. Sources (SS 7.2): (1) visible `earnings_date` wire or filing facts (never `discord`)
 naming S with `published_at >= as_of - earnings_lookback_days` (`first_seen_at` when `published_at`
 is null), date parsed by `datetext.announced_date(title, published_at)`: a date in the window means `true`, an unparseable matching title means
 `unknown`; (2) the latest visible `edgar\due` record for S with `computed_at` on as_of's ET trading day:
 status not `ok`, `nt_recent`, today or the next trading day inside `[due_start, due_end]`, or overdue
-means `unknown`; (3) enabled calendars (none in v1). `false` only when (1) found nothing, (2) places S
-outside its window, and `next_open_after` is not `None`. If `params.hold_block_macro_events` is true a
+means `unknown`; (3) enabled calendars (none in v1); (4) since 2026-11-01, with
+`params.discord_gate5_enabled`, Paper Gains Discord earnings lists (2.7), which add `true` only.
+`false` only when (1) found nothing, (2) places S outside its window, and `next_open_after` is not
+`None`; (4) never takes part in `false`. If `params.hold_block_macro_events` is true a
 macro event in the window also means `true` (default false).
 
 ### 3.7 `coverage.py` (unit `wire`)
@@ -720,7 +826,7 @@ rule D7 using each record's `spacing_s`; `sources_for_gate6(beat) -> list[str]`.
 
 ## 4. Folder and write rules
 `ScoutPaths(root)`; runtime folders under `root`: `state\{facts,health,answers,labels,llm,macro,
-raw,beats,edgar\due,jason,levels,verify}`, `logs`, `reports`, `inbox\jason`. `levels_dir` and
+raw,beats,edgar\due,jason,levels,verify,discord}`, `logs`, `reports`, `inbox\jason`, `inbox\discord`. `levels_dir` and
 `inbox_dir` are config, relative to `root`. Every writer takes a `ScoutPaths` and calls
 `writable()`. Reads of `radar_dir` and `pilot_dir` are open-read-close in `scout.inputs` and
 `scout.levels_bars` only. Nothing reads any `.env` but Scout's own, any `conf\`, or any token file.
@@ -732,12 +838,15 @@ trading date of the record's main time (`first_seen_at`, `start`, `at`, `as_of`)
 for an absent value; keys are never omitted.
 
 ### 5.1 Fact (`state\facts\<date>.jsonl`)
-`format, fact_id, kind ("wire"|"filing"|"halt"|"scheduled_event"|"macro_event"), ticker (str|null),
+`format, fact_id, kind ("wire"|"filing"|"halt"|"scheduled_event"|"macro_event"|"discord"|"earnings_schedule"|"scanner"), ticker (str|null),
 cik (int|null), class (str|null), source, feed, guid, url, title, published_at, first_seen_at,
 raw_sha256, exchange (str|null), form (str|null), items (list[str]), accession (str|null),
 halt_code, halt_time, resumed_at, halt_market, event_at, event_kind, event_source, sources_agree
 (bool|null), extra (dict)`. Wire `class` from SS 6.4; filing `class` from the filing table (`null`
-when no row applies). PR Newswire titles are stored; bodies never.
+when no row applies). PR Newswire titles are stored; bodies never. `discord` and
+`earnings_schedule` and `scanner` facts (2.7): source `discord:<channel>`, feed the channel, guid the message id
+(`<message_id>|<date>|<session>` for a schedule fact), url the permalink, published_at the post's
+time; `extra` as in 2.7.
 
 ### 5.2 Health (`state\health\<date>.jsonl`)
 `format, source, feed, kind, enabled, gate6, start, end, result ("ok"|"not_modified"|"http_error"|
@@ -755,7 +864,8 @@ expires}), calendar_covers_next_45d`.
 `format, first_seen_at, config_sha256, hold_catalyst_classes, earnings_lookback_days,
 earnings_due_start_days, earnings_due_end_days_quarter, earnings_due_end_days_annual,
 hold_block_macro_events, scout_stale_s, source_max_gap_s, jason_near_level_pct, gate6_sources,
-gate6_feeds, fomc_dates, fomc_decision_time_et`. `gate6_feeds` is {source: [feed, ...]} (each EDGAR
+gate6_feeds, fomc_dates, fomc_decision_time_et, discord_gate5_enabled` (the last since 2026-11-01:
+`discord_enabled and discord_gate5_enabled`). `gate6_feeds` is {source: [feed, ...]} (each EDGAR
 form; "rss" for a wire): a listed feed with no health record is a `missing_feed` coverage gap.
 
 ### 5.5 Answer (`state\answers\<date>.jsonl`)
@@ -803,6 +913,11 @@ readings: [str], ambiguous, note}]}), warnings`. Prices are decimal strings.
 ### 5.10 Verify (`state\verify\samples.jsonl`, `checks.jsonl`)
 Sample: `format, week, seed, picked_at, symbols`. Check: `format, week, symbol, as_of, gate, scout,
 owner ("agree"|"disagree"), note, checked_at`.
+
+### 5.11 Discord bookkeeping (`state\discord\files.jsonl`, `state\discord\rejects\<date>.jsonl`)
+Files: `format, file ("<channel>/<name>"), channel, size, mtime_ns, sha256, capture_at, ingested_at,
+lines, posts_new, posts_repeat, rejects`. Rejects: `format, at, file, channel, line, reason,
+message_id`. The capture files themselves are `docs/INBOX.md` section 3.
 
 ## 6. Configuration (`config.toml`; `config.example.toml` documents every key)
 
@@ -952,6 +1067,31 @@ then adds it to gate 6 from that time on. If it is refused again, three 403s in 
 | scout_webull_enabled | bool | false (true is a ConfigError in v1) |
 | scout_webull_budget_per_min | int | 2 |
 
+### 6.9 The inbox and the Paper Gains Discord (2026-11-01; section 2.7)
+| Key | Type | Default |
+|---|---|---|
+| inbox_poll_s | int | 60 |
+| discord_enabled | bool | true |
+| discord_channels | list[str] | daily-watchlist, weekly-trade-plan, free-analysis, brianna-news, stockmktnewz, major-headlines, earnings-whispers, market-movers, open-outcrier, 15m-scanner, daily-scanner, weekly-scanner |
+| discord_schedule_channels | list[str] | daily-watchlist, open-outcrier, market-movers |
+| discord_prefix_ticker_channels | list[str] | brianna-news |
+| discord_headline_channels | list[str] | major-headlines, stockmktnewz |
+| discord_catalyst_channels | list[str] | brianna-news |
+| discord_reaction_channels | list[str] | earnings-whispers, open-outcrier |
+| discord_gate5_enabled | bool | true (block only; in the params) |
+| discord_text_max_chars | int | 2000 |
+| discord_image_text_max_chars | int | 4000 |
+| discord_max_post_age_days | int | 14 |
+| discord_posted_at_tolerance_s | int | 120 |
+| discord_schedule_max_ahead_days | int | 14 |
+| discord_max_file_bytes | int | 2000000 |
+| discord_expected_every_min | int | 60 |
+| discord_capture_hours_et | list[time] | ["07:00", "17:00"] (trading days) |
+| discord_brief_max_items | int | 10 |
+| discord_scanner_brief_max_tickers | int | 12 (tickers per scanner pattern line in the brief) |
+
+Every channel list must be a subset of `discord_channels`; channel names are lower case.
+
 ## 7. Facts, health and coverage flow (one poll)
 1. The job's `due(now)` uses the source's spacing for `now` (`active_hours_et`).
 2. `fetcher.fetch(source, url)` -> `FetchResult`.
@@ -976,6 +1116,7 @@ levels file), `write_params`, then the loop of section 2.1. Jobs (owner unit):
 | fomc | start, then daily (the table in config) | macro |
 | cboe_vix | trading days after 16:30 ET | macro |
 | jason_snapshot | start; 00:05 ET; on a change in `levels\` | levels |
+| discord_inbox | every `inbox_poll_s` (60 s); status at start (2.7) | inbox |
 | answers_pilot | 19:30 and 19:45 ET (16:30, 16:45 on early closes) | answers |
 | answers_radar | after 20:00 ET (17:00) with as_of 19:45 ET (16:45) | answers |
 | llm_j1, llm_j3 | only with `llm_enabled` | llm |
@@ -987,7 +1128,8 @@ levels file), `write_params`, then the loop of section 2.1. Jobs (owner unit):
 Commands (`scout/cli.py`; global `--config PATH` default `config.toml` in Scout's folder, `--version`):
 - `run`
 - `brief [--date YYYY-MM-DD]` (writes the deterministic brief now; J4 only when the LLM is on)
-- `levels add <file> [--yes]`
+- `levels add <file> [--yes]`, `levels add --inbox` (2.4, 2.7)
+- `discord check <file>` (one capture file checked as the job reads it; writes nothing)
 - `levels score [--bars radar|csv] [--csv-dir PATH] [--since YYYY-MM-DD]`
 - `check [--week YYYY-Www]`
 - `verify [--from YYYY-MM-DD] [--to YYYY-MM-DD]`
@@ -1220,3 +1362,19 @@ counted as the read for Friday's slot, so the restart did not read it again eith
   trading day's slot, nowflation its next read time). A `stale` line (the host answered with old
   data) counts as a read.
 
+## 17. Owner decisions 2026-11-01: the inbox and the Paper Gains Discord (as built)
+
+SCOUT_SPEC 18. Built in section 2.7, format in `docs/INBOX.md`, keys in 6.9.
+
+- **Gathering stays outside Scout.** Scheduled Claude tasks write `inbox\jason\` and
+  `inbox\discord\`; Scout reads them as untrusted data and has no network path to Discord, YouTube,
+  X or the newsletter host (SCOUT_SPEC 2 rule 10; `tests/test_boundaries.py` unchanged).
+- **Auto-add** (`levels add --yes`, `--inbox`) is the 2.4 command with stricter checks, a one-line
+  refusal, a non-zero exit and a `.rejected.txt` note; safe beside a running Scout (no lock; the level
+  file appears by a link that refuses an existing name).
+- **Discord** posts are facts of kind `discord` (record and brief) and `earnings_schedule` (gate 5,
+  block only). What the gate-5 source adds: a way to remove holds into an earnings date that only a
+  Discord list named; what it removes: nothing else. It cannot add a hold. Measured later over the
+  journal and the verification period like every gate-5 source (SCOUT_SPEC 11).
+- **Not a gate:** the `discord_inbox` heartbeat status (honest capture coverage for the owner), every
+  other Discord fact, and image transcriptions.

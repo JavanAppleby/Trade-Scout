@@ -14,7 +14,10 @@ from scout import FORMAT
 
 Tri = Literal["true", "false", "unknown"]
 
-FACT_KINDS = ("wire", "filing", "halt", "scheduled_event", "macro_event")
+#: "discord" (one Paper Gains Discord post per ticker) and "earnings_schedule" (one listed earnings date per
+#: ticker) come from the inbox capture files (DESIGN 2.7); neither is a gate-6 kind. "scanner" (one Paper Gains
+#: scanner card per ticker) too, and no gate reads it at all.
+FACT_KINDS = ("wire", "filing", "halt", "scheduled_event", "macro_event", "discord", "earnings_schedule", "scanner")
 WIRE_CLASSES = ("offering", "reverse_split", "listing_notice", "fda", "trial", "contract", "earnings_result",
                 "earnings_date", "other")  # SS 6.4 order, `other` last
 FILING_CLASSES = ("contract_or_other", "earnings_result", "listing_notice", "offering", "reverse_split",

@@ -171,7 +171,23 @@ def test_reader_params(scout_dir: Path) -> None:
     assert set(p) == {"hold_catalyst_classes", "earnings_lookback_days", "earnings_due_start_days",
                       "earnings_due_end_days_quarter", "earnings_due_end_days_annual", "hold_block_macro_events",
                       "scout_stale_s", "source_max_gap_s", "jason_near_level_pct", "jason_market_symbols", "gate6_sources", "gate6_feeds", "fomc_dates",
-                      "fomc_decision_time_et"}
+                      "fomc_decision_time_et", "discord_gate5_enabled"}
+    assert p["discord_gate5_enabled"] is True
+    assert config_from_dict({"discord_enabled": False}, scout_dir).reader_params()["discord_gate5_enabled"] is False
+    assert config_from_dict({"discord_gate5_enabled": False}, scout_dir).reader_params()["discord_gate5_enabled"] is False
+
+
+@pytest.mark.parametrize("data, needle", [
+    ({"discord_channels": ["Daily Watchlist"]}, "discord_channels"),
+    ({"discord_channels": ["a", "a"]}, "discord_channels"),
+    ({"discord_schedule_channels": ["market-edge-chat"]}, "discord_schedule_channels"),
+    ({"discord_capture_hours_et": ["17:00", "07:00"]}, "discord_capture_hours_et"),
+    ({"discord_expected_every_min": 0}, "discord_expected_every_min"),
+    ({"inbox_poll_s": 1}, "inbox_poll_s"),
+])
+def test_discord_keys_are_checked(scout_dir: Path, data: dict, needle: str) -> None:
+    with pytest.raises(ConfigError, match=needle):
+        config_from_dict(data, scout_dir)
 
 
 def test_load_config_errors(tmp_path: Path) -> None:

@@ -1,0 +1,74 @@
+{
+ "_SYNTHETIC": "invented test data in the inbox format (docs/INBOX.md); not a real weekly plan",
+ "session_date": "2026-11-02",
+ "source_kind": "weekly",
+ "expires_default": "2026-11-06",
+ "source": {
+  "title": "Paper Gains Weekly Watchlist 11/2 - 11/6",
+  "channel": "weekly-trade-plan",
+  "message_id": "1566794296852484243",
+  "pdf_pages": "Technical Analysis pages 9-21"
+ },
+ "market": "Invented: SPY above 600 keeps the bull case; below 590 opens 580.",
+ "setups": [
+  {
+   "symbol": "SPY",
+   "direction": "neutral",
+   "attribution": "jason",
+   "horizon": "week",
+   "expires": "2026-11-06",
+   "levels": [
+    {
+     "kind": "trigger",
+     "price": "600",
+     "note": "PDF: 'above 600 keeps the bull case'"
+    },
+    {
+     "kind": "invalidation",
+     "price": "590",
+     "note": "PDF: 'below 590 opens 580'"
+    },
+    {
+     "kind": "target",
+     "price": "580",
+     "note": "downside objective"
+    }
+   ]
+  },
+  {
+   "symbol": "OMEG",
+   "direction": "long",
+   "attribution": "jason",
+   "horizon": "week",
+   "expires": "2026-11-06",
+   "levels": [
+    {
+     "kind": "trigger",
+     "price": "153",
+     "note": "trigger as printed"
+    },
+    {
+     "kind": "target",
+     "price": "158",
+     "note": "target 1"
+    },
+    {
+     "kind": "target",
+     "price": "162",
+     "note": "target 2"
+    },
+    {
+     "kind": "invalidation",
+     "price": "147.50",
+     "note": "invalidation as printed"
+    }
+   ],
+   "conditionals": [
+    {
+     "if": "holds 150 on the weekly",
+     "then": "trend intact (invented)"
+    }
+   ]
+  }
+ ]
+}

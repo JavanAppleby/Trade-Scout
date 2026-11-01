@@ -28,6 +28,7 @@ DISPATCH: dict[str, tuple[str, str]] = {
     "check": ("scout.verify_check", "cli_check"),
     "verify": ("scout.verify", "cli_verify"),
     "answers": ("scout.answers_cli", "cli_answers"),
+    "discord check": ("scout.discord_ingest", "cli_discord_check"),
 }
 
 __all__ = ["DEFAULT_CONFIG", "DISPATCH", "build_parser", "main"]
@@ -50,6 +51,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = lsub.add_parser("add", help="validate and add one of Jason's level files")
     p.add_argument("file", nargs="?", help="the file (default: the newest file in inbox\\jason)")
     p.add_argument("--yes", action="store_true", help="add without asking")
+    p.add_argument("--inbox", action="store_true",
+                   help="add every not-yet-added valid file in inbox\\jason (implies --yes)")
     p = lsub.add_parser("score", help="score past level files against daily bars (report only)")
     p.add_argument("--bars", choices=("radar", "csv"), default="radar")
     p.add_argument("--csv-dir", help="folder of <SYMBOL>.csv daily bars (with --bars csv)")
@@ -62,6 +65,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--from", dest="date_from", help="first date YYYY-MM-DD")
     p.add_argument("--to", dest="date_to", help="last date YYYY-MM-DD")
 
+    discord = sub.add_parser("discord", help="Paper Gains Discord capture files")
+    dsub = discord.add_subparsers(dest="discord_command", metavar="<check>")
+    p = dsub.add_parser("check", help="check one capture file as Scout would read it (writes nothing)")
+    p.add_argument("file", help="inbox\\discord\\<channel>\\<YYYYMMDDTHHMMSSZ>.jsonl (or .jsonl.tmp)")
+
     p = sub.add_parser("answers", help="print the reader's answers for symbols (writes nothing)")
     p.add_argument("symbols", nargs="+", metavar="SYMBOL")
     p.add_argument("--as-of", help="aware ISO time, e.g. 2026-11-02T00:45:00Z (default: now)")
@@ -72,6 +80,9 @@ def _command(args: argparse.Namespace) -> str | None:
     if args.command == "levels":
         sub = getattr(args, "levels_command", None)
         return f"levels {sub}" if sub else None
+    if args.command == "discord":
+        sub = getattr(args, "discord_command", None)
+        return f"discord {sub}" if sub else None
     return args.command
 
 

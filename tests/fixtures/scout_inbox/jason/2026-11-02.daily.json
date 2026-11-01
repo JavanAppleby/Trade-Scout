@@ -1,0 +1,95 @@
+{
+ "_SYNTHETIC": "invented test data in the inbox format (docs/INBOX.md); not a real Paper Gains card",
+ "session_date": "2026-11-02",
+ "source_kind": "daily",
+ "expires_default": "2026-11-02",
+ "source": {
+  "title": "Paper Gains #daily-watchlist 11/02",
+  "channel": "daily-watchlist",
+  "message_id": "1566801322311684242",
+  "permalink": "https://discord.com/channels/111111111111111111/222222222222222201/1566801322311684242",
+  "posted_at": "2026-11-02T13:09:05Z",
+  "captured_at": "2026-11-02T13:14:30Z"
+ },
+ "market": "Invented test context: indexes flat into a busy earnings week.",
+ "setups": [
+  {
+   "symbol": "ACME",
+   "direction": "neutral",
+   "attribution": "jason",
+   "horizon": "day",
+   "expires": "2026-11-02",
+   "levels": [
+    {
+     "kind": "trigger",
+     "price": "10.50",
+     "note": "long trigger (card: 'long > 10.50')"
+    },
+    {
+     "kind": "target",
+     "price": "10.90",
+     "note": "long target 1"
+    },
+    {
+     "kind": "target",
+     "price": "11.20",
+     "note": "long target 2"
+    },
+    {
+     "kind": "invalidation",
+     "price": "10.10",
+     "note": "short trigger (card: 'short < 10.10')"
+    },
+    {
+     "kind": "support",
+     "price": "9.80",
+     "note": "short target 1"
+    },
+    {
+     "kind": "support",
+     "price": "9.50",
+     "note": "short target 2"
+    }
+   ]
+  },
+  {
+   "symbol": "OMEG",
+   "direction": "neutral",
+   "attribution": "jason",
+   "horizon": "day",
+   "expires": "2026-11-02",
+   "levels": [
+    {
+     "kind": "trigger",
+     "price": "152.40",
+     "note": "long trigger"
+    },
+    {
+     "kind": "target",
+     "price": "154.00",
+     "note": "long target 1"
+    },
+    {
+     "kind": "target",
+     "price": "155.75",
+     "note": "long target 2"
+    },
+    {
+     "kind": "invalidation",
+     "price": "149.90",
+     "note": "short trigger"
+    },
+    {
+     "kind": "support",
+     "price": "148.00",
+     "note": "short target 1"
+    },
+    {
+     "kind": "support",
+     "price": "146.20",
+     "note": "short target 2"
+    }
+   ]
+  }
+ ]
+}
