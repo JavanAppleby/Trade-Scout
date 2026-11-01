@@ -1,0 +1,4 @@
+# Fixtures are compared byte for byte (sha256), so git never rewrites their line endings.
+tests/fixtures/** -text
+# Windows launchers need CRLF.
+*.bat text eol=crlf

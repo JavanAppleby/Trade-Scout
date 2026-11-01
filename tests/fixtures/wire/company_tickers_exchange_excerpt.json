@@ -1,0 +1,65 @@
+{
+ "_SYNTHETIC": "_SYNTHETIC: written by hand from the shapes in SCOUT_SPEC 4.1/6.3 and SEC's documented formats (DESIGN D11), 2026-11-01. Not a live capture; replace at build step 2.",
+ "fields": [
+  "cik",
+  "name",
+  "ticker",
+  "exchange"
+ ],
+ "data": [
+  [
+   1652044,
+   "Alphabet Inc.",
+   "GOOGL",
+   "Nasdaq"
+  ],
+  [
+   1652044,
+   "Alphabet Inc.",
+   "GOOG",
+   "Nasdaq"
+  ],
+  [
+   1234567,
+   "ACME CORP",
+   "ACME",
+   "Nasdaq"
+  ],
+  [
+   1234567,
+   "ACME CORP",
+   "ACMEW",
+   "Nasdaq"
+  ],
+  [
+   7654321,
+   "BETA THERAPEUTICS INC",
+   "BETA",
+   "NYSE"
+  ],
+  [
+   1067983,
+   "BERKSHIRE HATHAWAY INC",
+   "BRK-B",
+   "NYSE"
+  ],
+  [
+   1111111,
+   "GAMMA HOLDINGS INC",
+   "GAMA",
+   "OTC"
+  ],
+  [
+   3333333,
+   "DELTA FUND",
+   "DLTF",
+   null
+  ],
+  [
+   null,
+   "Broken row",
+   "BRKN",
+   "NYSE"
+  ]
+ ]
+}

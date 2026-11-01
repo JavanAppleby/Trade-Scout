@@ -1,0 +1,101 @@
+{
+  "_comment": "PHASE AO FIXTURE. Regan writes config/jason_levels.json; this is the same schema, transcribed by Bob from docs/jason_reads.md's 2026-09-15 Technical Tuesday section so the watch, the feed, the conflict flag and the gate could all be built and tested before that file existed. Every level here is quoted in that digest with a transcript timestamp. It is a TEST FIXTURE and is never read by the runtime.",
+  "session_date": "2026-09-15",
+  "source": "Amit Kukreja stream 2026-09-15, Technical Tuesday segment with Jason (Paper Gains); transcript docs/transcripts/tuesday_close_20260915_ta.txt; digest docs/jason_reads.md",
+  "market": "SPY",
+  "accept_minutes": 15,
+  "setups": [
+    {
+      "symbol": "SPY",
+      "direction": "neutral",
+      "attribution": "jason",
+      "confidence": "88% of the time NFP release marks the high or the low for the entire month ... there's no statistic in technical analysis that is this strong",
+      "horizon": "this week, resolved by FOMC Wednesday",
+      "expires": "2026-09-19",
+      "levels": [
+        {"price": "775", "kind": "resistance", "note": "775 is your upside resistance remains your upside resistance", "timestamp": "31:13"},
+        {"price": "770", "kind": "resistance", "note": "first level of resistance on any bounce", "timestamp": "32:11"},
+        {"price": "750", "kind": "support", "note": "first area of support; currently heading that way", "timestamp": "31:21"},
+        {"price": "730", "kind": "support", "note": "low end of support; ASR prints it 7:30", "timestamp": "32:28", "ambiguous": true, "price_alternatives": ["7.30"]},
+        {"price": "700", "kind": "support", "note": "prior-year high retest", "timestamp": "34:27"}
+      ],
+      "conditionals": [
+        {"if": "hold 750", "then": "typical charting bounce, maybe another bounce after that"},
+        {"if": "lose 750 then breach 730", "then": "that's all bad - the market rolling over, closer to 7,000"},
+        {"if": "gap down tomorrow", "then": "we could probably bounce up off of that ahead of FOMC"}
+      ]
+    },
+    {
+      "symbol": "QQQ",
+      "direction": "neutral",
+      "attribution": "jason",
+      "confidence": "the one on Q's is scary",
+      "horizon": "this week",
+      "expires": "2026-09-19",
+      "levels": [
+        {"price": "699", "kind": "support", "note": "NFP low we're looking to retest; below the 20 and 50-day SMA", "timestamp": "35:49"}
+      ],
+      "conditionals": [
+        {"if": "699 support does not hold", "then": "a pretty heavy pullback toward the 200-day retracement"}
+      ]
+    },
+    {
+      "symbol": "NVDA",
+      "direction": "long",
+      "attribution": "jason",
+      "confidence": "you're going to want to see this bounce pretty aggressively",
+      "horizon": "post-FOMC, days",
+      "expires": "2026-09-19",
+      "levels": [
+        {"price": "213", "kind": "support", "note": "I had 213 again. 213 is my support area", "timestamp": "43:38"},
+        {"price": "190", "kind": "support", "note": "support is at that 190 again - the deeper shelf", "timestamp": "43:57"},
+        {"price": "220", "kind": "trigger", "note": "want to see this bounce at least to 220 post FOMC", "timestamp": "43:43"},
+        {"price": "200", "kind": "resistance", "note": "200 will be that next resistance level", "timestamp": "44:50"},
+        {"price": "190", "kind": "invalidation", "note": "if I saw 190 or anything sub-200 - assuming the business isn't legitimately broken - I don't think I'd mind that", "timestamp": "45:24"},
+        {"price": "325", "kind": "target", "note": "street average price target, debated as 337 then settled at 325", "timestamp": "1:41:03", "ambiguous": true, "price_alternatives": ["337", "335"]}
+      ],
+      "conditionals": [
+        {"if": "look above and fail again", "then": "that would be kind of lame"}
+      ]
+    },
+    {
+      "symbol": "XOP",
+      "direction": "long",
+      "attribution": "jason",
+      "confidence": "active breakout now from 2020 highs finally",
+      "horizon": "weeks",
+      "expires": "2026-09-22",
+      "levels": [
+        {"price": "230", "kind": "target", "note": "active breakout would take you at least to 230 on XOP", "timestamp": "39:43"}
+      ],
+      "conditionals": []
+    },
+    {
+      "symbol": "IGV",
+      "direction": "neutral",
+      "attribution": "jason",
+      "confidence": "more concerning",
+      "horizon": "this week",
+      "expires": "2026-09-19",
+      "levels": [
+        {"price": "100", "kind": "support", "note": "if IGV doesn't hold 100, that's more concerning", "timestamp": "37:47"}
+      ],
+      "conditionals": []
+    },
+    {
+      "symbol": "USO",
+      "direction": "long",
+      "attribution": "unclear",
+      "confidence": "an active breakout",
+      "horizon": "weeks",
+      "expires": "2026-09-22",
+      "levels": [
+        {"price": "120", "kind": "resistance", "note": "WTI 120 is overhead resistance from a realistic perspective", "timestamp": "41:15"},
+        {"price": "126", "kind": "resistance", "note": "WTI 126 = the 2022 highs", "timestamp": "42:00"}
+      ],
+      "conditionals": [
+        {"if": "break out above 120", "then": "that would have to be a pretty heavy macro event - your black swan"}
+      ]
+    }
+  ]
+}

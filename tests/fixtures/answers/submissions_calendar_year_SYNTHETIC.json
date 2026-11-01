@@ -1,0 +1,160 @@
+{
+ "_SYNTHETIC": "Synthetic, hand-built for the answers unit (DESIGN D11): not a live EDGAR read. Shapes follow Scout's models.Filing (form, accepted, filing_date, accession, items, report_date). Earnings 8-Ks (item 2.02) are accepted 07:00 ET (before the open); 10-Q/10-K at 16:30 ET. Calendar fiscal year; Q3 10-Q (2025-11-10) to 10-K (2026-03-16) is 126 days (10-K season).",
+ "ticker": "CALY",
+ "cik": 1111111,
+ "fiscalYearEnd": "1231",
+ "filings": [
+  {
+   "form": "10-Q",
+   "accepted": "2026-11-09T21:30:00.000Z",
+   "filing_date": "2026-11-09",
+   "accession": "00001111111-26-000016",
+   "items": [],
+   "report_date": "2026-09-30"
+  },
+  {
+   "form": "8-K",
+   "accepted": "2026-11-04T12:00:00.000Z",
+   "filing_date": "2026-11-04",
+   "accession": "00001111111-26-000015",
+   "items": [
+    "2.02",
+    "9.01"
+   ],
+   "report_date": null
+  },
+  {
+   "form": "10-Q",
+   "accepted": "2026-08-10T20:30:00.000Z",
+   "filing_date": "2026-08-10",
+   "accession": "00001111111-26-000014",
+   "items": [],
+   "report_date": "2026-06-30"
+  },
+  {
+   "form": "8-K",
+   "accepted": "2026-08-05T11:00:00.000Z",
+   "filing_date": "2026-08-05",
+   "accession": "00001111111-26-000013",
+   "items": [
+    "2.02",
+    "9.01"
+   ],
+   "report_date": null
+  },
+  {
+   "form": "10-Q",
+   "accepted": "2026-05-11T20:30:00.000Z",
+   "filing_date": "2026-05-11",
+   "accession": "00001111111-26-000012",
+   "items": [],
+   "report_date": "2026-03-31"
+  },
+  {
+   "form": "8-K",
+   "accepted": "2026-05-06T11:00:00.000Z",
+   "filing_date": "2026-05-06",
+   "accession": "00001111111-26-000011",
+   "items": [
+    "2.02",
+    "9.01"
+   ],
+   "report_date": null
+  },
+  {
+   "form": "10-K",
+   "accepted": "2026-03-16T20:30:00.000Z",
+   "filing_date": "2026-03-16",
+   "accession": "00001111111-26-000010",
+   "items": [],
+   "report_date": "2025-12-31"
+  },
+  {
+   "form": "8-K",
+   "accepted": "2026-03-04T12:00:00.000Z",
+   "filing_date": "2026-03-04",
+   "accession": "00001111111-26-000009",
+   "items": [
+    "2.02",
+    "9.01"
+   ],
+   "report_date": null
+  },
+  {
+   "form": "10-Q",
+   "accepted": "2025-11-10T21:30:00.000Z",
+   "filing_date": "2025-11-10",
+   "accession": "00001111111-25-000008",
+   "items": [],
+   "report_date": "2025-09-30"
+  },
+  {
+   "form": "8-K",
+   "accepted": "2025-11-05T12:00:00.000Z",
+   "filing_date": "2025-11-05",
+   "accession": "00001111111-25-000007",
+   "items": [
+    "2.02",
+    "9.01"
+   ],
+   "report_date": null
+  },
+  {
+   "form": "10-Q",
+   "accepted": "2025-08-11T20:30:00.000Z",
+   "filing_date": "2025-08-11",
+   "accession": "00001111111-25-000006",
+   "items": [],
+   "report_date": "2025-06-30"
+  },
+  {
+   "form": "8-K",
+   "accepted": "2025-08-06T11:00:00.000Z",
+   "filing_date": "2025-08-06",
+   "accession": "00001111111-25-000005",
+   "items": [
+    "2.02",
+    "9.01"
+   ],
+   "report_date": null
+  },
+  {
+   "form": "10-Q",
+   "accepted": "2025-05-12T20:30:00.000Z",
+   "filing_date": "2025-05-12",
+   "accession": "00001111111-25-000004",
+   "items": [],
+   "report_date": "2025-03-31"
+  },
+  {
+   "form": "8-K",
+   "accepted": "2025-05-07T11:00:00.000Z",
+   "filing_date": "2025-05-07",
+   "accession": "00001111111-25-000003",
+   "items": [
+    "2.02",
+    "9.01"
+   ],
+   "report_date": null
+  },
+  {
+   "form": "10-K",
+   "accepted": "2025-03-03T21:30:00.000Z",
+   "filing_date": "2025-03-03",
+   "accession": "00001111111-25-000002",
+   "items": [],
+   "report_date": "2024-12-31"
+  },
+  {
+   "form": "8-K",
+   "accepted": "2025-02-27T12:00:00.000Z",
+   "filing_date": "2025-02-27",
+   "accession": "00001111111-25-000001",
+   "items": [
+    "2.02",
+    "9.01"
+   ],
+   "report_date": null
+  }
+ ]
+}

@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python-version: "3.11"
+          - os: ubuntu-latest
+            python-version: "3.12"
+          - os: ubuntu-latest
+            python-version: "3.13"
+          - os: windows-latest  # the lock, paths and atomic rename are Windows-sensitive
+            python-version: "3.13"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Boundary check (Scout never trades; SCOUT_SPEC 2.1)
+        shell: bash
+        run: |
+          # No webull* or trade-guardian package may be declared, installed or importable.
+          python - <<'EOF'
+          import re, sys, tomllib
+          bad = re.compile(r"^\s*(webull|trade[-_.]?guardian)", re.I)
+          for f in ("pyproject.toml", "scout_reader/pyproject.toml"):
+              p = tomllib.load(open(f, "rb"))["project"]
+              deps = list(p.get("dependencies", [])) + [d for e in p.get("optional-dependencies", {}).values() for d in e]
+              hits = [d for d in deps if bad.match(d)]
+              if hits:
+                  sys.exit(f"{f}: forbidden dependency {hits}")
+          EOF
+          if python -m pip list --format=freeze | grep -iE '^(webull|trade[-_.]?guardian)'; then
+            echo "A forbidden package is installed."; exit 1
+          fi
+          python -c "import importlib.util as u, sys; bad=[m for m in ('webull','trade_guardian') if u.find_spec(m)]; sys.exit(f'importable: {bad}' if bad else 0)"
+      - name: Test
+        shell: bash
+        run: python -m pytest -q -p no:cacheprovider

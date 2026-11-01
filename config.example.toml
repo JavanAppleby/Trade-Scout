@@ -1,0 +1,288 @@
+# Scout's settings. Copy this file to config.toml (in Scout's folder) and change what you need.
+# Every key is optional: a key you leave out keeps the value shown here. A misspelt key is an
+# error, so Scout refuses to start rather than silently ignore it. No setting is ever per ticker.
+# Times "HH:MM" are New York (ET) wall times. Plain keys must come before the [tables] below.
+
+# --------------------------------------------------------------------------- paths and identity
+radar_dir = ""            # Radar's folder (e.g. 'E:\Radar'); read only. Empty: Radar's finds are skipped.
+pilot_dir = ""            # Pilot's folder; read only. Empty: Pilot's positions are skipped.
+levels_dir = "state/levels"   # where Add Levels keeps Jason's files (must be inside Scout's folder)
+inbox_dir = "inbox"       # where the owner drops files for Scout (inbox\jason for level files)
+watch_symbols = []        # extra symbols to answer for every evening, e.g. ["ABCD"]
+contact_email = ""        # sent to the SEC and others in the User-Agent. EMPTY MEANS NO WEB REQUESTS AT ALL.
+scout_user_agent = "Scout/{version} ({contact_email})"  # only {version} and {contact_email} may be used
+
+# --------------------------------------------------------------------------- sources and HTTP
+source_max_gap_s = 180            # a pause between polls longer than this is a coverage gap
+source_backoff_max_min = 30       # after a 403/429 the wait doubles up to this many minutes
+fetch_max_bytes = 2000000         # a larger reply is refused
+fetch_timeout_s = 20.0            # seconds before a request is abandoned
+http_default_host_spacing_s = 1.0 # minimum seconds between requests to a host not listed below
+active_hours_et = ["04:00", "20:00"]  # [start, end): sources use their busy spacing inside, idle spacing outside
+refused_after_403s = 3            # GlobeNewswire: this many 403s in a row stop it for the day
+seen_guid_cap = 5000              # item ids remembered per feed for the overlap check
+fact_dedupe_days = 7              # ET days of stored facts checked for repeats (a restart re-reads feeds)
+ticker_map_retry_s = 600          # a failed read of SEC's ticker list is tried again after this many seconds
+edgar_atom_forms = ["8-K", "6-K", "S-1", "S-3", "F-1", "F-3", "424B", "EFFECT", "NT 10-Q", "NT 10-K"]  # one EDGAR feed each
+ticker_exchange_prefixes = ["NASDAQ", "Nasdaq", "NYSE", "NYSE American", "NYSE MKT", "NYSE Arca", "OTCQB", "OTCQX", "OTC", "Cboe BZX"]  # "(NASDAQ: XXX)" tags in titles
+
+# --------------------------------------------------------------------------- the hold answers
+hold_catalyst_classes = ["fda", "trial", "contract", "contract_or_other", "earnings_result"]  # news classes that count as a fresh catalyst (gate 6)
+earnings_lookback_days = 45       # how far back an "X to report results on <date>" release is searched (gate 5)
+earnings_due_start_days = 10      # EDGAR due window starts this many days after a quarter ends
+earnings_due_end_days_quarter = 50   # ... and ends this many days after a quarter ends
+earnings_due_end_days_annual = 95    # ... or after a fiscal year ends
+periodic_max_age_days = 200       # no 10-Q/10-K in this many days: the due window is unknown
+nt_recent_days = 45               # an NT 10-Q/NT 10-K this recent makes gate 5 unknown
+hold_block_macro_events = false   # true: a macro event before the next open also blocks a hold
+fomc_dates = ["2026-01-28", "2026-03-18", "2026-04-29", "2026-06-17", "2026-07-29", "2026-09-16", "2026-10-28", "2026-12-09"]  # FOMC decision days; add 2027 from federalreserve.gov
+fomc_decision_time_et = "14:00"   # FOMC statement time
+scan_max_price = 20.0             # the brief's overnight catalysts list stocks under this price (where known)
+answer_times_et = ["19:30", "19:45"]  # Pilot's answers are written at these times (3 h earlier on early closes)
+radar_answers_after_et = "20:00"  # Radar's finds are answered after this time ...
+radar_answers_as_of_et = "19:45"  # ... as of this time
+
+# --------------------------------------------------------------------------- macro (record and report only)
+nowflation_max_age_h = 30.0               # nowflation data older than this is stale
+nowflation_max_stale_weight_pct = 70.0    # more than this share of stale inputs is stale
+nowflation_fresh_after_et = "09:15"       # nowflation's daily update is expected by this time
+nowflation_read_times_et = ["08:20"]      # nowflation is read at start and at these times
+nowflation_release_day_time_et = "08:50"  # an extra read on CPI/PCE release days
+macro_agree_minutes = 5                   # nowflation and BLS times within this many minutes agree
+inflation_hot_pp = 0.25                   # provisional: set at build from history
+inflation_cooling_pp = 0.25               # provisional: set at build from history
+inflation_regime_window_days = 20         # the regime compares against this many days
+vix_read_after_et = "16:30"               # the Cboe VIX close is read after this time on trading days
+
+# --------------------------------------------------------------------------- readers and Jason
+scout_stale_s = 120               # a heartbeat older than this makes every answer unknown
+jason_near_level_pct = 0.01       # "near a Jason level" means within 1%
+jason_market_symbols = ["SPY", "QQQ"]  # Jason's market frame symbols
+levels_long_horizon_sessions = 10 # the scorer gives a "weeks", "months" or "quarter" horizon at least this many sessions
+levels_score_min_scored = 20      # the levels scorecard says INDICATIVE below this many scored levels
+levels_tolerance_atr_mult = 0.5   # a level "holds" within this many daily ATRs ...
+levels_tolerance_floor_pct = 0.0075   # ... but never less than 0.75% of price
+levels_null_draws = 60            # random levels drawn per real level for the comparison
+levels_null_window_bars = 126     # bars the random levels are drawn from
+levels_null_seed = "scout-levels-v1"  # fixed seed: the comparison is identical on every run
+
+# --------------------------------------------------------------------------- Claude API (off unless you turn it on)
+llm_enabled = false               # true needs ANTHROPIC_API_KEY in Scout's .env; labels are evidence only
+llm_daily_cost_cap_usd = 1.00     # no call that would cross this in a day (ET)
+llm_monthly_cost_cap_usd = 20.0   # ... or in a month
+j1_max_calls_per_day = 400        # J1 (headline labels) calls a day at most
+j3_max_calls_per_day = 15         # J3 (evening research) calls a day at most
+web_search_max_per_day = 30       # web searches a day at most
+llm_allowed_domains = ["sec.gov", "prnewswire.com", "globenewswire.com", "businesswire.com", "accesswire.com", "accessnewswire.com", "newsfilecorp.com", "thenewswire.com", "nasdaq.com", "fda.gov", "clinicaltrials.gov"]  # the only sites J3 may search or fetch
+llm_item_chars = 2000             # each item sent to Claude is cut to this many characters
+web_fetch_max_content_tokens = 8000   # a fetched page is cut to this many tokens
+web_search_max_uses = 3           # searches per J3 call at most
+j1_batch_size = 20                # headlines per J1 call
+j1_interval_s = 120               # J1 runs this often in PRE/CORE/POST
+j3_time_et = "19:30"              # J3 runs for open Pilot positions at this time
+j3_no_fact_after_s = 600          # J3 also runs for a Radar find with no fact after this many seconds
+llm_timeout_s = 120.0             # seconds before a Claude call is abandoned
+
+# --------------------------------------------------------------------------- schedule, verification, loop
+brief_time_et = "08:20"           # the morning brief is written at this time on trading days
+verify_days = 20                  # trading days of checks before any hold may use Scout
+verify_time_et = "20:30"          # the verification report is written at this time on trading days (3 h earlier on early closes)
+verify_sample_size = 10           # symbols in the owner's weekly hand-check sample
+verify_sample_weekday = "Mon"     # the sample is drawn on this day (Mon..Sun)
+heartbeat_interval_s = 30         # the heartbeat is rewritten this often
+loop_interval_s = 1.0             # the main loop wakes this often
+log_level = "INFO"                # DEBUG, INFO, WARNING or ERROR
+
+# --------------------------------------------------------------------------- Webull (phase 3 only; not in v1)
+scout_webull_enabled = false      # must stay false in v1: Scout sends no Webull requests
+scout_webull_budget_per_min = 2   # phase 3 only
+
+# =========================================================================== tables
+
+# Minimum seconds between two requests to one host (code also enforces hard minimums).
+[host_min_spacing_s]
+"www.sec.gov" = 0.5
+"data.sec.gov" = 0.5
+"www.nasdaqtrader.com" = 60.0
+
+# Most requests a day to one host.
+[host_max_requests_per_day]
+"nowflation.com" = 10
+
+# Words that give a wire headline its class. First match wins, in the fixed order offering,
+# reverse_split, listing_notice, fda, trial, earnings_date, contract, earnings_result; "other" is
+# everything else. earnings_date comes before contract and earnings_result so a notice that only
+# names a results date ("to Announce Financial Results for ... on November 3") is never a catalyst. Every class must be listed (an empty list is allowed).
+[class_keywords]
+offering = ["public offering", "pricing", "priced", "registered direct", "at-the-market", "ATM offering", "warrants", "private placement"]
+reverse_split = ["reverse split", "reverse stock split", "share consolidation"]
+listing_notice = ["deficiency", "delisting", "Nasdaq notice", "notice of noncompliance", "minimum bid price"]
+fda = ["FDA approval", "FDA approves", "FDA clearance", "510(k) clearance", "PDUFA", "complete response letter", "CRL", "breakthrough therapy designation", "fast track designation"]
+trial = ["topline", "top-line", "Phase 1", "Phase 2", "Phase 3", "Phase 1/2", "Phase 2/3", "pivotal trial"]
+contract = ["contract", "award", "awarded", "agreement", "partnership", "purchase order", "order"]
+earnings_result = ["reports first quarter", "reports second quarter", "reports third quarter", "reports fourth quarter", "reports full year", "financial results for", "reports results"]
+earnings_date = ["to report", "to announce", "to release", "will report", "will announce", "will release", "conference call to discuss", "to be released", "to be reported", "to be announced", "release date"]
+
+# One table per source. Keys: enabled; kind (wire, filing, reference, halt, macro, vix); url;
+# paths (extra paths on the same host); min_spacing_s (seconds between polls 04:00-20:00 ET);
+# idle_spacing_s (outside those hours; 0 = the same); allowed_hosts (the only hosts it may reach);
+# terms_note; max_items (the feed's size, for the overlap check; 0 = unknown); gate6 (its coverage
+# must be clean for a "false" fresh-catalyst answer); terms_ok (false keeps titles, links and times only).
+[sources.edgar_atom]
+enabled = true
+kind = "filing"
+url = "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type={form}&company=&dateb=&owner=include&start=0&count=100&output=atom"
+paths = []
+min_spacing_s = 60.0
+idle_spacing_s = 600.0
+allowed_hosts = ["www.sec.gov"]
+terms_note = "SEC fair access: declared User-Agent, at most 10 requests a second."
+max_items = 100
+gate6 = true
+terms_ok = true
+
+[sources.edgar_submissions]
+enabled = true
+kind = "reference"
+url = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
+paths = []
+min_spacing_s = 0.0
+idle_spacing_s = 0.0
+allowed_hosts = ["data.sec.gov"]
+terms_note = "SEC fair access; read on demand, cached per CIK per ET day."
+max_items = 0
+gate6 = false
+terms_ok = true
+
+[sources.edgar_tickers]
+enabled = true
+kind = "reference"
+url = "https://www.sec.gov/files/company_tickers_exchange.json"
+paths = []
+min_spacing_s = 86400.0
+idle_spacing_s = 86400.0
+allowed_hosts = ["www.sec.gov"]
+terms_note = "SEC fair access; once a day."
+max_items = 0
+gate6 = false
+terms_ok = true
+
+[sources.prnewswire]
+enabled = true
+kind = "wire"
+url = "https://www.prnewswire.com/rss/news-releases-list.rss"
+paths = []
+min_spacing_s = 60.0
+idle_spacing_s = 60.0
+allowed_hosts = ["www.prnewswire.com"]
+terms_note = "Titles, links and times only until the owner reads the terms (terms_ok = false)."
+max_items = 20
+gate6 = true
+terms_ok = false
+
+[sources.globenewswire]
+enabled = true
+kind = "wire"
+url = "https://www.globenewswire.com/RssFeed/orgclass/1/feedTitle/GlobeNewswire%20-%20News%20about%20Public%20Companies"
+paths = []
+min_spacing_s = 60.0
+idle_spacing_s = 60.0
+allowed_hosts = ["www.globenewswire.com"]
+terms_note = "Titles, links and times only until the owner reads the terms (terms_ok = false)."
+max_items = 20
+gate6 = true
+terms_ok = false
+
+[sources.nasdaq_halts]
+enabled = true
+kind = "halt"
+url = "https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts"
+paths = []
+min_spacing_s = 60.0
+idle_spacing_s = 0.0
+allowed_hosts = ["www.nasdaqtrader.com"]
+terms_note = "At most one read a minute; not polled 20:00-04:00 ET except the one dated read."
+max_items = 0
+gate6 = false
+terms_ok = true
+
+[sources.nowflation]
+enabled = true
+kind = "macro"
+url = "https://nowflation.com"
+paths = ["/data/release_calendar.json", "/data/realtime.json", "/forecasts/index.json", "/nowflation.ics"]
+min_spacing_s = 0.0
+idle_spacing_s = 0.0
+allowed_hosts = ["nowflation.com"]
+terms_note = "Credit Nowflation with a link; private use; schedule-driven, capped per day."
+max_items = 0
+gate6 = false
+terms_ok = true
+
+[sources.bls]
+enabled = true
+kind = "macro"
+url = "https://www.bls.gov/schedule/news_release/bls.ics"
+paths = []
+min_spacing_s = 604800.0
+idle_spacing_s = 604800.0
+allowed_hosts = ["www.bls.gov"]
+terms_note = "Public schedule; weekly. Path UNVERIFIED until build step 2."
+max_items = 0
+gate6 = false
+terms_ok = true
+
+[sources.cboe_vix]
+enabled = true
+kind = "vix"
+url = "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv"
+paths = []
+min_spacing_s = 86400.0
+idle_spacing_s = 86400.0
+allowed_hosts = ["cdn.cboe.com"]
+terms_note = "Daily close history; once a trading day after 16:30 ET."
+max_items = 0
+gate6 = false
+terms_ok = true
+
+# Claude jobs (used only when llm_enabled = true). effort: low, medium, high or max.
+[llm.jobs.J1]   # headline labels
+enabled = true
+model = "claude-haiku-5-5"
+effort = "low"
+max_tokens = 4000
+
+[llm.jobs.J3]   # evening research on open positions and unexplained Radar finds
+enabled = true
+model = "claude-sonnet-5-5"
+effort = "medium"
+max_tokens = 4000
+
+[llm.jobs.J4]   # one paragraph for the morning brief
+enabled = true
+model = "claude-sonnet-5-5"
+effort = "medium"
+max_tokens = 3000
+
+# Prices in USD per million tokens (checked against Anthropic's price list at build step 5).
+# A model with no price row here is refused by the spend ledger.
+[llm.prices]
+web_search_usd_per_1000 = 10.0
+
+[llm.prices."claude-haiku-5-5"]
+input_per_mtok = 0.10
+output_per_mtok = 0.50
+cache_write_per_mtok = 0.125
+cache_read_per_mtok = 0.01
+
+[llm.prices."claude-sonnet-5-5"]
+input_per_mtok = 2.00
+output_per_mtok = 10.00
+cache_write_per_mtok = 2.50
+cache_read_per_mtok = 0.20
+
+[llm.prices."claude-opus-5-5"]
+input_per_mtok = 4.00
+output_per_mtok = 20.00
+cache_write_per_mtok = 5.00
+cache_read_per_mtok = 0.20

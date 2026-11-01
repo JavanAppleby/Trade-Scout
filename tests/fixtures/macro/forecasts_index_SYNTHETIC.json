@@ -1,0 +1,27 @@
+{
+ "_SYNTHETIC": "hand-built; replace with a live capture at build step 2",
+ "generated_at": "2026-11-02T11:00:00Z",
+ "forecasts": [
+  {
+   "kind": "CPI",
+   "release": "2026-09-11",
+   "forecast": 0.3,
+   "actual": 0.4,
+   "graded": true
+  },
+  {
+   "kind": "CPI",
+   "release": "2026-10-15",
+   "forecast": 0.3,
+   "actual": 0.3,
+   "graded": true
+  },
+  {
+   "kind": "CPI",
+   "release": "2026-11-12",
+   "forecast": 0.2,
+   "actual": null,
+   "graded": false
+  }
+ ]
+}

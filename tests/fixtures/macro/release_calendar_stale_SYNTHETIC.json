@@ -1,0 +1,47 @@
+{
+ "_SYNTHETIC": "hand-built from SCOUT_SPEC 7.3 shapes; replace with a live capture at build step 2",
+ "generated_at": "2026-10-30T11:05:00Z",
+ "from": "2026-11-02",
+ "source": "nowflation",
+ "events": [
+  {
+   "kind": "CPI",
+   "datetime_utc": "2026-11-12T13:30:00Z",
+   "datetime_et": "Thu Nov 12, 8:30 AM ET",
+   "title": "CPI (October)",
+   "prior": 0.3,
+   "nowflation_forecast": 0.2,
+   "cleveland": 0.25
+  },
+  {
+   "kind": "NFP",
+   "datetime_utc": "2026-11-06T13:30:00Z",
+   "datetime_et": "Fri Nov 6, 8:30 AM ET",
+   "title": "Employment Situation (October)",
+   "prior": 140,
+   "street": 120
+  },
+  {
+   "kind": "PCE",
+   "datetime_utc": "2026-11-25T13:30:00Z",
+   "title": "PCE (October)",
+   "prior": 0.2,
+   "kalshi": 0.3
+  }
+ ],
+ "past": [
+  {
+   "kind": "CPI",
+   "datetime_utc": "2026-10-15T12:30:00Z",
+   "prior": 0.4,
+   "street": 0.3,
+   "nowflation_forecast": 0.3,
+   "actual": 0.3
+  }
+ ],
+ "fomc": [
+  {
+   "date": "2026-12-09"
+  }
+ ]
+}

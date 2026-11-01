@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scout"
+version = "0.1.0"
+description = "Market-context bot for the owner's trading system. Gathers facts, answers true/false/unknown. Never trades."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    # Only for the Claude jobs (imported lazily by scout.llm_client, off unless llm_enabled = true).
+    # Never add webull* or trade-guardian here (SCOUT_SPEC 2.1; tests/test_boundaries.py).
+    "anthropic==2.3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "hypothesis", "tzdata"]  # tzdata only for the _et vs zoneinfo test on Windows
+
+[tool.setuptools]
+packages = ["scout", "scout_reader"]
+
+[tool.setuptools.package-dir]
+scout = "scout"
+scout_reader = "scout_reader/scout_reader"
+
+[tool.pytest.ini_options]
+pythonpath = [".", "scout_reader", "tests"]
+testpaths = ["tests"]

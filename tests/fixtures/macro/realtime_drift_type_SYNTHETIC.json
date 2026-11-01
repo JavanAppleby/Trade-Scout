@@ -1,0 +1,25 @@
+{
+ "_SYNTHETIC": "hand-built from SCOUT_SPEC 7.3 shapes; replace with a live capture at build step 2",
+ "generated_at": "2026-11-02T11:00:00Z",
+ "run": {
+  "ok": true,
+  "checks_ok": true
+ },
+ "today": {
+  "record_type": "live",
+  "date": "2026-11-02"
+ },
+ "last_good_held": false,
+ "realtime_yoy_pct": "2.91",
+ "change_1d": 0.02,
+ "change_5d": 0.1,
+ "change_20d": 0.31,
+ "cpi_gauge_yoy_pct": 2.95,
+ "official_cpi_yoy_pct": 3.0,
+ "official_cpi_month": "2026-09",
+ "freshness": {
+  "live_share_pct": 84.0,
+  "stale_weight_pct": 16.0,
+  "avg_input_age_days": 1.3
+ }
+}

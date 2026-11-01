@@ -1,0 +1,80 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!-- _SYNTHETIC: hand-built from SCOUT_SPEC 6.3 (BOM, ndaq namespace, Market NASDAQ and letters, a 2019 row, empty resumptions, LUDP and M codes); replace with a live capture at build step 2. -->
+<rss version="2.0" xmlns:ndaq="http://www.nasdaqtrader.com/">
+<channel>
+<title>NASDAQTrader.com</title>
+<link>http://www.nasdaqtrader.com</link>
+<description>Trade Halts</description>
+<pubDate>Mon, 02 Nov 2026 15:00:00 GMT</pubDate>
+<item>
+<title>WXYZ</title>
+<pubDate>Mon, 02 Nov 2026 15:00:00 GMT</pubDate>
+<ndaq:HaltDate>11/02/2026</ndaq:HaltDate>
+<ndaq:HaltTime>09:45:00</ndaq:HaltTime>
+<ndaq:IssueSymbol>WXYZ</ndaq:IssueSymbol>
+<ndaq:IssueName>Wxyz Holdings Inc</ndaq:IssueName>
+<ndaq:Market>N</ndaq:Market>
+<ndaq:ReasonCode>M</ndaq:ReasonCode>
+<ndaq:PauseThresholdPrice></ndaq:PauseThresholdPrice>
+<ndaq:ResumptionDate></ndaq:ResumptionDate>
+<ndaq:ResumptionQuoteTime></ndaq:ResumptionQuoteTime>
+<ndaq:ResumptionTradeTime></ndaq:ResumptionTradeTime>
+</item>
+<item>
+<title>ABCD</title>
+<pubDate>Mon, 02 Nov 2026 15:00:00 GMT</pubDate>
+<ndaq:HaltDate>11/02/2026</ndaq:HaltDate>
+<ndaq:HaltTime>09:31:05.123</ndaq:HaltTime>
+<ndaq:IssueSymbol>ABCD</ndaq:IssueSymbol>
+<ndaq:IssueName>Abcd Therapeutics Inc</ndaq:IssueName>
+<ndaq:Market>NASDAQ</ndaq:Market>
+<ndaq:ReasonCode>LUDP</ndaq:ReasonCode>
+<ndaq:PauseThresholdPrice>1.2300</ndaq:PauseThresholdPrice>
+<ndaq:ResumptionDate>11/02/2026</ndaq:ResumptionDate>
+<ndaq:ResumptionQuoteTime>09:36:05</ndaq:ResumptionQuoteTime>
+<ndaq:ResumptionTradeTime>09:36:05</ndaq:ResumptionTradeTime>
+</item>
+<item>
+<title>OLDC</title>
+<pubDate>Mon, 02 Nov 2026 15:00:00 GMT</pubDate>
+<ndaq:HaltDate>04/16/2019</ndaq:HaltDate>
+<ndaq:HaltTime>16:15:01</ndaq:HaltTime>
+<ndaq:IssueSymbol>OLDC</ndaq:IssueSymbol>
+<ndaq:IssueName>Old Company Corp</ndaq:IssueName>
+<ndaq:Market>NASDAQ</ndaq:Market>
+<ndaq:ReasonCode>T12</ndaq:ReasonCode>
+<ndaq:PauseThresholdPrice></ndaq:PauseThresholdPrice>
+<ndaq:ResumptionDate></ndaq:ResumptionDate>
+<ndaq:ResumptionQuoteTime></ndaq:ResumptionQuoteTime>
+<ndaq:ResumptionTradeTime></ndaq:ResumptionTradeTime>
+</item>
+<item>
+<title>NEWS</title>
+<pubDate>Mon, 02 Nov 2026 15:00:00 GMT</pubDate>
+<ndaq:HaltDate>11/02/2026</ndaq:HaltDate>
+<ndaq:HaltTime>08:00:00</ndaq:HaltTime>
+<ndaq:IssueSymbol>NEWS</ndaq:IssueSymbol>
+<ndaq:IssueName>News Pending Ltd</ndaq:IssueName>
+<ndaq:Market>Q</ndaq:Market>
+<ndaq:ReasonCode>T1</ndaq:ReasonCode>
+<ndaq:PauseThresholdPrice></ndaq:PauseThresholdPrice>
+<ndaq:ResumptionDate>11/02/2026</ndaq:ResumptionDate>
+<ndaq:ResumptionQuoteTime>10:25:00</ndaq:ResumptionQuoteTime>
+<ndaq:ResumptionTradeTime>10:30:00</ndaq:ResumptionTradeTime>
+</item>
+<item>
+<title>ARCA</title>
+<pubDate>Mon, 02 Nov 2026 15:00:00 GMT</pubDate>
+<ndaq:HaltDate>11/02/2026</ndaq:HaltDate>
+<ndaq:HaltTime>09:58:30.1</ndaq:HaltTime>
+<ndaq:IssueSymbol>ARCA</ndaq:IssueSymbol>
+<ndaq:IssueName>Arca Listed ETF</ndaq:IssueName>
+<ndaq:Market>P</ndaq:Market>
+<ndaq:ReasonCode>LUDP</ndaq:ReasonCode>
+<ndaq:PauseThresholdPrice></ndaq:PauseThresholdPrice>
+<ndaq:ResumptionDate></ndaq:ResumptionDate>
+<ndaq:ResumptionQuoteTime></ndaq:ResumptionQuoteTime>
+<ndaq:ResumptionTradeTime>10:03:30</ndaq:ResumptionTradeTime>
+</item>
+</channel>
+</rss>

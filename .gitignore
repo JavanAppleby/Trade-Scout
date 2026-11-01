@@ -1,0 +1,22 @@
+# secrets and Scout's own runtime files: never committed
+.env
+.env.*
+conf/
+config.toml
+state/
+logs/
+reports/
+inbox/
+STOP
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.hypothesis/
+.ruff_cache/
+*.egg-info/
+build/
+dist/

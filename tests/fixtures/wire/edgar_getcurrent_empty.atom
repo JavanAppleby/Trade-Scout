@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!-- _SYNTHETIC: written by hand from the shapes in SCOUT_SPEC 4.1/6.3 and SEC's documented formats (DESIGN D11), 2026-11-01. Not a live capture; replace at build step 2. -->
+<feed xmlns="http://www.w3.org/2005/Atom">
+<title>Latest Filings - Mon, 02 Nov 2026 09:05:00 EST</title>
+<link rel="alternate" href="/cgi-bin/browse-edgar?action=getcurrent"/>
+<link rel="self" href="/cgi-bin/browse-edgar?action=getcurrent&amp;type=NT 10-K&amp;company=&amp;dateb=&amp;owner=include&amp;start=0&amp;count=100&amp;output=atom"/>
+<id>https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent</id>
+<author><name>Webmaster</name><email>webmaster@sec.gov</email></author>
+<updated>2026-11-02T09:05:00-05:00</updated>
+</feed>
