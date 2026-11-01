@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from scout.brief_sections import (
-    BriefInputs, catalysts, md_escape, open_halts, sec_calendar, sec_catalysts, sec_due_windows, sec_halts,
-    sec_header, sec_health, sec_jason, sec_llm, sec_macro, sec_regime, sec_verify,
+    MAX_CATALYSTS, BriefInputs, catalysts, fold_offering_filings, md_escape, open_halts, sec_calendar, sec_catalysts,
+    sec_due_windows, sec_halts, sec_header, sec_health, sec_jason, sec_llm, sec_macro, sec_regime, sec_verify,
 )
 from scout.calendar import previous_trading_day
 from scout.clock import et_date, et_datetime
@@ -69,7 +69,7 @@ def build_brief(ctx: Any, day: date, now: datetime) -> str:
 def j4_items(inp: BriefInputs) -> list[dict[str, Any]]:
     """Public items for J4: catalysts (C<n>), open halts (H<n>), macro event lines (M<n>)."""
     items: list[dict[str, Any]] = []
-    for n, f in enumerate(catalysts(inp)[:40], start=1):
+    for n, f in enumerate(fold_offering_filings(catalysts(inp))[0][:MAX_CATALYSTS], start=1):
         items.append({"id": f"C{n}", "ticker": f.get("ticker"), "fact_id": f.get("fact_id"),
                       "text": f"{f.get('ticker')} [{f.get('class')}] {f.get('title') or ''}"})
     for n, h in enumerate(open_halts(inp)[:10], start=1):

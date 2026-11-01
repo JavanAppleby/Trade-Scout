@@ -221,3 +221,52 @@ def test_a_financial_results_for_date_notice_blocks_the_hold_end_to_end(scout_di
     assert g6["value"] == "false"
     assert g5["value"] == "true" and g5["evidence"] == [f["fact_id"]]
     assert hold_allowed(g6, g5) is False
+
+
+@pytest.mark.parametrize("title", [
+    "Acme Bio to Report Third Quarter 2026 Financial Results and Phase 2 Topline Data on November 4, 2026",
+    "Acme Bio to Host Conference Call on November 4 to Discuss Third Quarter Results and PDUFA Update",
+])
+def test_a_biotech_date_notice_blocks_the_hold_end_to_end(scout_dir: Path, cfg: ScoutConfig, title: str) -> None:
+    """Regression (third review): fda and trial were tried before earnings_date, so these notices
+    were classed fda or trial: gate 6 said true on a notice that only names a date and gate 5 never
+    read the date. With the due window clearing S, hold_allowed was True the evening before the
+    report."""
+    from scout_reader.api import fresh_catalyst
+    from scout_reader.gates import hold_allowed
+
+    from scout.classify import wire_class
+    _world(scout_dir, cfg)
+    f = fact(S, published=AS_OF - timedelta(hours=2), cls=wire_class(title, cfg.class_keywords), title=title)
+    write_records(scout_dir, "facts", [f])
+    g6, g5 = fresh_catalyst(scout_dir, S, AS_OF), gate5(scout_dir, S, AS_OF)
+    assert f["class"] == "earnings_date"
+    assert g6["value"] == "false"
+    assert g5["value"] == "true" and g5["evidence"] == [f["fact_id"]]
+    assert hold_allowed(g6, g5) is False
+
+
+@pytest.mark.parametrize("title, value", [
+    ("Acme to Report Third Quarter 2026 Results", "unknown"),  # no date: unparsed
+    ("Acme to Report Third Quarter 2026 Results on November 4", "true"),  # year from first_seen_at
+])
+def test_an_announcement_without_published_at_is_not_skipped(scout_dir: Path, cfg: ScoutConfig, title: str,
+                                                               value: str) -> None:
+    """Regression (third review): a visible earnings_date fact with published_at null was skipped
+    before the date check, so gate 5 answered false (outside_due_window) on a matching title."""
+    _world(scout_dir, cfg)
+    f = fact(S, published=AS_OF - timedelta(days=2), cls="earnings_date", title=title)
+    f["published_at"] = None
+    write_records(scout_dir, "facts", [f])
+    res = gate5(scout_dir, S, AS_OF)
+    assert res["value"] == value
+    if value == "unknown":
+        assert f"unparsed_date:{f['fact_id']}" in res["reasons"]
+
+
+def test_an_old_announcement_without_published_at_is_outside_the_lookback(scout_dir: Path, cfg: ScoutConfig) -> None:
+    _world(scout_dir, cfg)
+    f = fact(S, published=AS_OF - timedelta(days=46), cls="earnings_date", title="Acme to Report Results")
+    f["published_at"] = None
+    write_records(scout_dir, "facts", [f])
+    assert gate5(scout_dir, S, AS_OF)["value"] == "false"

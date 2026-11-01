@@ -26,7 +26,7 @@ ticker_map_retry_s = 600          # a failed read of SEC's ticker list is tried 
 # 10-Q and 10-K are read for the gate-5 check only (a small cap that reports
 # earnings by 10-Q alone); they are never a gate-6 class and not gate-6 coverage.
 edgar_atom_forms = ["8-K", "6-K", "S-1", "S-3", "F-1", "F-3", "424B", "EFFECT", "NT 10-Q", "NT 10-K", "10-Q", "10-K"]  # one EDGAR feed each
-ticker_exchange_prefixes = ["NASDAQ", "Nasdaq", "NYSE", "NYSE American", "NYSE MKT", "NYSE Arca", "OTCQB", "OTCQX", "OTC", "Cboe BZX"]  # "(NASDAQ: XXX)" tags in titles
+ticker_exchange_prefixes = ["NASDAQ", "Nasdaq", "Nasdaq CM", "NasdaqCM", "Nasdaq GM", "NasdaqGM", "Nasdaq GS", "NasdaqGS", "NASDAQ Capital Market", "Nasdaq Global Market", "Nasdaq Global Select Market", "NYSE", "NYSE American", "NYSE MKT", "NYSE Arca", "OTCQB", "OTCQX", "OTC Pink", "OTC", "Cboe BZX"]  # "(NASDAQ: XXX)" tags in titles
 
 # --------------------------------------------------------------------------- the hold answers
 hold_catalyst_classes = ["fda", "trial", "contract", "contract_or_other", "earnings_result"]  # news classes that count as a fresh catalyst (gate 6)
@@ -111,23 +111,26 @@ scout_webull_budget_per_min = 2   # phase 3 only
 [host_max_requests_per_day]
 "nowflation.com" = 10
 
-# Words that give a wire headline its class. First match wins, in the fixed order offering,
-# reverse_split, listing_notice, fda, trial, earnings_date, contract, earnings_result; "other" is
-# everything else. earnings_date comes before contract and earnings_result so a notice that only
-# names a results date ("to Announce Financial Results for ... on November 3") is never a catalyst,
-# so its words must be narrow: " ... " inside a keyword matches any text, and each earnings_date
-# keyword pairs a scheduling phrase with "results" or "earnings" after it ("will host ... results").
+# Words that give a wire headline its class. First match wins, in the fixed order earnings_date,
+# offering, reverse_split, listing_notice, fda, trial, contract, earnings_result; "other" is
+# everything else. earnings_date comes first so a notice that only names a results date ("to
+# Announce Financial Results for ... on November 3", "to Report Q3 Results and Phase 2 Data on
+# November 12") is never a catalyst and gate 5 reads its date, so its words must be narrow: " ... "
+# inside a keyword matches any text, and each earnings_date keyword pairs a scheduling phrase with
+# "results" or "earnings" after it ("will host ... results"). Offering words include equity lines,
+# ATM sales agreements, warrant inducements and convertible notes, so "agreement" (contract) never
+# turns a dilution headline into a catalyst.
 # A bare "to release" would also catch "Agreement to Release Its Products" (a contract).
 # Matching is whole words, any case. Every class must be listed (an empty list is allowed).
 [class_keywords]
-offering = ["public offering", "pricing", "priced", "registered direct", "at-the-market", "ATM offering", "warrants", "private placement"]
+offering = ["public offering", "pricing", "priced", "registered direct", "at-the-market", "at the market", "ATM offering", "ATM program", "ATM facility", "equity distribution agreement", "equity purchase agreement", "standby equity", "equity line", "securities purchase agreement", "warrants", "warrant", "inducement agreement", "convertible note", "convertible notes", "convertible senior notes", "convertible debenture", "convertible debentures", "convertible preferred", "convertible bond", "convertible bonds", "convertible promissory", "debt exchange", "exchange of notes", "settlement of notes", "private placement"]
 reverse_split = ["reverse split", "reverse stock split", "share consolidation"]
 listing_notice = ["deficiency", "delisting", "Nasdaq notice", "notice of noncompliance", "minimum bid price"]
-fda = ["FDA approval", "FDA approves", "FDA clearance", "510(k) clearance", "PDUFA", "complete response letter", "CRL", "breakthrough therapy designation", "fast track designation"]
-trial = ["topline", "top-line", "Phase 1", "Phase 2", "Phase 3", "Phase 1/2", "Phase 2/3", "pivotal trial"]
+fda = ["FDA approval", "FDA approves", "FDA clearance", "510(k) clearance", "PDUFA", "complete response letter", "CRL", "breakthrough therapy designation", "breakthrough device designation", "fast track designation"]
+trial = ["topline", "top-line", "Phase 1", "Phase 2", "Phase 3", "Phase 1/2", "Phase 2/3", "Phase 1b", "Phase 1/2a", "Phase 2a", "Phase 2b", "Phase I", "Phase II", "Phase III", "Phase Ib", "Phase IIa", "Phase IIb", "Phase I/II", "Phase II/III", "pivotal trial"]
 contract = ["contract", "award", "awarded", "agreement", "partnership", "purchase order", "order"]
-earnings_result = ["reports first quarter", "reports second quarter", "reports third quarter", "reports fourth quarter", "reports full year", "financial results for", "reports results"]
-earnings_date = ["to report ... results", "to report ... earnings", "to announce ... results", "to announce ... earnings", "to release ... results", "to release ... earnings", "will report ... results", "will report ... earnings", "will announce ... results", "will announce ... earnings", "will release ... results", "will release ... earnings", "to host ... results", "to host ... earnings", "will host ... results", "will host ... earnings", "to hold ... results", "to hold ... earnings", "will hold ... results", "will hold ... earnings", "schedules ... results", "schedules ... earnings", "timing of ... results", "timing of ... earnings", "date for ... results", "date for ... earnings", "date of ... results", "date of ... earnings", "results to be released", "results to be reported", "results to be announced", "earnings to be released", "earnings release date"]
+earnings_result = ["reports first quarter", "reports second quarter", "reports third quarter", "reports fourth quarter", "reports full year", "reports Q1", "reports Q2", "reports Q3", "reports Q4", "reports fiscal", "financial results for", "reports results"]
+earnings_date = ["to report ... results", "to report ... earnings", "to announce ... results", "to announce ... earnings", "to release ... results", "to release ... earnings", "will report ... results", "will report ... earnings", "will announce ... results", "will announce ... earnings", "will release ... results", "will release ... earnings", "to host ... results", "to host ... earnings", "will host ... results", "will host ... earnings", "to hold ... results", "to hold ... earnings", "will hold ... results", "will hold ... earnings", "to webcast ... results", "to webcast ... earnings", "will webcast ... results", "will webcast ... earnings", "schedules ... results", "schedules ... earnings", "timing of ... results", "timing of ... earnings", "date for ... results", "date for ... earnings", "date of ... results", "date of ... earnings", "announces conference call ... results", "announces conference call ... earnings", "announces ... results conference call", "announces ... earnings conference call", "sets ... earnings call for", "sets ... conference call for", "notice of ... earnings call", "notice of ... conference call", "conference call date", "results release date", "results to be released", "results to be reported", "results to be announced", "earnings to be released", "earnings release date"]
 
 # One table per source. Keys: enabled; kind (wire, filing, reference, halt, macro, vix); url;
 # paths (extra paths on the same host); min_spacing_s (seconds between polls 04:00-20:00 ET);

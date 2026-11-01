@@ -25,6 +25,7 @@ import html
 import json
 import re
 import xml.etree.ElementTree as ET
+from xml.parsers import expat
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -293,20 +294,48 @@ def _kept_rows(forms: list[object], accepted: list[object]) -> list[int]:
 _DTD = re.compile(rb"<!(DOCTYPE|ENTITY)", re.IGNORECASE)
 
 
+class _Declared(Exception):
+    pass
+
+
+def _declared(*_args: object) -> None:
+    raise _Declared
+
+
+def refuse_dtd(data: bytes, what: str = "feed", error: type[Exception] = SchemaError) -> None:
+    """Raise `error` when `data` declares a DTD or an entity, in any encoding expat reads. The
+    byte search alone missed a UTF-16 body (two bytes a character; third review), so expat itself is
+    asked: its doctype and entity-declaration handlers raise before any entity is expanded. A body
+    expat cannot parse is left to the caller's own parse."""
+    if _DTD.search(data):
+        raise error(f"{what} declares a DTD or entities")
+    parser = expat.ParserCreate()
+    parser.StartDoctypeDeclHandler = _declared
+    parser.EntityDeclHandler = _declared
+    parser.UnparsedEntityDeclHandler = _declared
+    try:
+        parser.Parse(data, True)
+    except _Declared:
+        raise error(f"{what} declares a DTD or entities") from None
+    except (expat.ExpatError, ValueError, LookupError):
+        pass  # not well-formed: the ElementTree parse reports it
+
+
 def safe_xml_root(body: bytes) -> ET.Element:
     """Parse a feed body: BOM and leading blanks stripped; any DTD or entity declaration refused
-    (no entity expansion); SchemaError when unparseable."""
+    in any encoding (no entity expansion); SchemaError when unparseable."""
     if not isinstance(body, (bytes, bytearray)):
         raise SchemaError("feed body is not bytes")
     data = bytes(body).lstrip(b"\xef\xbb\xbf").lstrip()
     if not data:
         raise SchemaError("empty feed body")
-    if _DTD.search(data):
-        raise SchemaError("feed declares a DTD or entities")
+    refuse_dtd(data)
     try:
         return ET.fromstring(data)
     except ET.ParseError as exc:
         raise SchemaError(f"feed is not well-formed XML ({exc.code})") from exc
+    except (ValueError, LookupError) as exc:  # an encoding expat cannot read
+        raise SchemaError("feed is in an encoding that cannot be read") from exc
 
 
 # --------------------------------------------------------------------------- getcurrent Atom
@@ -406,9 +435,16 @@ def filing_class(form: str, items: Sequence[str] = (), description: str = "") ->
     the original), so it is not fresh news; its blocking classes (offering, reverse_split,
     listing_notice) are kept, since counting those errs the safe way. When an 8-K carries
     several items, the first class in this order wins: offering (3.02), reverse_split (5.03 with
-    "reverse" in the description), listing_notice (3.01), earnings_result (2.02),
+    "reverse" in the description, or 5.03 with 3.03), listing_notice (3.01), earnings_result (2.02),
     contract_or_other (1.01, 2.01, 7.01, 8.01): the same order as the wire classes, where the
-    classes that never pass gate 6 come first. None when no row applies."""
+    classes that never pass gate 6 come first. None when no row applies.
+
+    The getcurrent description is the entry title and the item captions ("Item 5.03: Amendments to
+    Articles of Incorporation or Bylaws; Change in Fiscal Year"), so "reverse" is almost never in it
+    (third review). A reverse split is filed as 5.03 with 3.03 (Material Modification to Rights) and
+    often 8.01 or 7.01 for the press release: 5.03 with 3.03 is classed reverse_split (it can also be
+    a preferred-stock designation; both are blocking, so the error is the safe way), and next to 5.03
+    or 3.03 the press-release items 7.01 and 8.01 never make the filing contract_or_other."""
     f = (form or "").strip().upper()
     amendment = f.endswith("/A")
     if amendment:
@@ -425,7 +461,7 @@ def filing_class(form: str, items: Sequence[str] = (), description: str = "") ->
     have = {str(i).strip() for i in items}
     if "3.02" in have:
         return "offering"
-    if "5.03" in have and reverse:
+    if "5.03" in have and (reverse or "3.03" in have):
         return "reverse_split"
     if "3.01" in have:
         return "listing_notice"
@@ -433,6 +469,7 @@ def filing_class(form: str, items: Sequence[str] = (), description: str = "") ->
         return None
     if "2.02" in have:
         return "earnings_result"
-    if have & {"1.01", "2.01", "7.01", "8.01"}:
+    passing = {"1.01", "2.01"} if have & {"5.03", "3.03"} else {"1.01", "2.01", "7.01", "8.01"}
+    if have & passing:
         return "contract_or_other"
     return None

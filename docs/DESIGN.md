@@ -211,7 +211,9 @@ class LlmTransport(Protocol):
 - `run(ctx, *, max_ticks: int | None = None) -> int`: lock (`scout.running`), `ensure()`, startup
   warnings (calendar coverage, empty `contact_email`, missing inputs), `write_params`, heartbeat
   `starting`, then loop: `run_due`, heartbeat, `clock.sleep(loop_interval_s)` (real sleep with
-  `SystemClock`); Ctrl+C and a `STOP` file in Scout's folder stop it; heartbeat `stopped` on exit.
+  `SystemClock`); Ctrl+C and a `STOP` (or `STOP.txt`) file in Scout's folder stop it, and Scout
+  deletes that file (one left before the start is deleted with a warning); heartbeat `stopped` on
+  exit. Returns 0, or `EXIT_ALREADY_RUNNING` (4) when another Scout holds the lock.
 - `cli_run(ctx, args) -> int`.
 
 **`scout/inputs.py`**: read-only views of the other bots' files and the owner's lists (SS 2.4).
@@ -273,7 +275,11 @@ tuple[list[Filing], str | None]` (adds `reportDate` to each filing and returns `
 company, accepted_at, filed_on, items: tuple[str, ...], link)`; raises `SchemaError` on drift),
 `filing_class(form, items, description) -> str | None` (SS 6.4 table; an 8-K/A keeps only the
 blocking classes offering, reverse_split and listing_notice: it re-files an earlier 8-K, so it is
-never `earnings_result` or `contract_or_other` and never makes gate 6 true on stale news),
+never `earnings_result` or `contract_or_other` and never makes gate 6 true on stale news; 5.03 with
+3.03 is `reverse_split`, and next to 5.03 or 3.03 the press-release items 7.01 and 8.01 never give
+`contract_or_other`, because the live description holds only item captions and never "reverse"),
+`refuse_dtd(data)` (expat's own doctype and entity handlers, so a DTD is refused in any encoding;
+used by `safe_xml_root` and the halts parser),
 `parse_ticker_rows(body)` (every row of the ticker file, duplicates kept; Radar's
 `parse_ticker_map` keeps the first row of a ticker and is built from it).
 
@@ -297,15 +303,19 @@ and `globenewswire`. A 403 on GlobeNewswire marks the source `refused` after
 `refused_after_403s` (3) consecutive 403s and stops polling it for the day.
 
 **`scout/tickers.py`**: `tickers_in(text, prefixes) -> list[tuple[str, str]]` (exchange, ticker;
-regex over "(EXCHANGE: XXX)" with `ticker_exchange_prefixes`; several per title); `normalise(sym) ->
+regex over "(EXCHANGE: XXX)" or "(EXCHANGE - XXX)" with `ticker_exchange_prefixes`; segments split on
+",", ";", "and", "&" and a "/" before another prefix; other text in the tag is skipped; several per
+title); `normalise(sym) ->
 str` (upper, `.`/`-` class separators as Radar's `normalise_ticker`).
 
 **`scout/classify.py`**: `wire_class(title, keywords: Mapping[str, list[str]]) -> str` (first match
 in `WIRE_MATCH_ORDER`, `other` last; case-insensitive word match); re-exports `filing_class`. The
-order is SS 6.4's with one change: `earnings_date` is tried before `contract` and `earnings_result`.
-A results-date notice ("to Announce Financial Results for ... on November 3") also matches "financial
-results for" and often "agreement" or "order"; classed as those it made gate 6 answer true for a
-notice that only names a date, and gate 5 (which reads dates from `earnings_date` facts) missed it.
+order is SS 6.4's with one change: `earnings_date` is tried first. A results-date notice ("to
+Announce Financial Results for ... on November 3", "to Report Q3 Results and Phase 2 Topline Data on
+November 12") also matches "financial results for", often "agreement" or "order", and for a biotech
+"Phase 2" or "PDUFA"; classed as those it made gate 6 answer true for a notice that only names a
+date, and gate 5 (which reads dates from `earnings_date` facts) missed it. `earnings_date` is in the
+reader's `NEVER_PASS`, whatever `hold_catalyst_classes` says.
 Because it goes first, the `earnings_date` keywords are narrow, as SS 6.4 words the class ("to
 report / announce / release ... results"): ` ... ` inside a keyword matches any text, and each
 default pairs a scheduling phrase with "results" or "earnings" after it ("will host ... results",
@@ -607,8 +617,8 @@ over the window (`coverage.gaps(...) == []`) and Scout is fresh. Otherwise `unkn
 
 ### 3.6 Gate 5 (`gates.event_before_next_session_from`, unit `answers`)
 Window `[as_of, next_open_after(as_of))`. Sources (SS 7.2): (1) visible `earnings_date` wire facts
-naming S with `published_at >= as_of - earnings_lookback_days`, date parsed by `datetext.announced_date
-(title, published_at)`: a date in the window means `true`, an unparseable matching title means
+naming S with `published_at >= as_of - earnings_lookback_days` (`first_seen_at` when `published_at`
+is null), date parsed by `datetext.announced_date(title, published_at)`: a date in the window means `true`, an unparseable matching title means
 `unknown`; (2) the latest visible `edgar\due` record for S with `computed_at` on as_of's ET trading day:
 status not `ok`, `nt_recent`, today or the next trading day inside `[due_start, due_end]`, or overdue
 means `unknown`; (3) enabled calendars (none in v1). `false` only when (1) found nothing, (2) places S
@@ -899,10 +909,12 @@ Commands (`scout/cli.py`; global `--config PATH` default `config.toml` in Scout'
 - `answers <SYMBOL>... [--as-of ISO-UTC]`
 
 Launchers (each `cd /d "%~dp0"`, runs `.venv\Scripts\python.exe -m scout ...`, pauses with a
-plain-English message): **Start Scout** (`run`), **Scout Brief** (`brief`, then opens the report in
+plain-English message): **Start Scout** (`run`; exit code 4 says another Scout is running in
+another window), **Scout Brief** (`brief`, then opens the report in
 Notepad), **Add Levels** (`levels add "%~1"`, or the newest file in `inbox\jason\` when no file is
-dropped on it), **Update Scout** (`python -m scout.running` stops when Scout runs; `git pull`;
-`pip install -q -e ".[dev]"`; `python -m scout --version`).
+dropped on it), **Update Scout** (`python -m scout.running` stops when Scout runs; then one
+parenthesised block ending in `exit /b`, read whole by cmd before `git pull` can replace the file:
+`git pull`; `pip install -q -e ".[dev]"`; `python -m scout --version`).
 
 ## 9. Clock and time
 - `Clock` protocol, `SystemClock`, `ManualClock` (section 2.1). Every module takes a clock; nothing
@@ -1035,3 +1047,49 @@ Still open (owner or later steps): live captures to replace every `_SYNTHETIC` f
 2), including nowflation's `realtime.json` and `forecasts/index.json` shapes, GlobeNewswire's shape
 and whether `type=424B` returns every 424B* form (D6); the LLM model ids and prices (step 5); the
 first real Claude call against `anthropic==2.3.0` (step 5).
+
+## 15. Third review (2026-11-01)
+
+A third review found 14 defects; each fix has a regression test that fails on the code before it
+(`docs/TRACEABILITY.md`, "Third review"). Behaviour that changed:
+
+- **Wire classes.** `earnings_date` is tried first of all (section 14 put it ahead of contract and
+  earnings_result only, so "to Report Q3 Results and Phase 2 Topline Data on November 12" was
+  `trial` and "... Third Quarter Results and PDUFA Update" was `fda`), and the reader never counts
+  it for gate 6 (`NEVER_PASS`). Cost, fail closed: a call notice for trial results with no date in
+  it ("to Host Call to Discuss Phase 3 Topline Results") is `earnings_date`, so gate 6 does not
+  count it and gate 5 is `unknown` for the lookback. New `earnings_date` keywords: "announces
+  conference call ... results", "announces ... results conference call", "sets ... earnings call
+  for", "to webcast ... results", "notice of ... earnings call", "conference call date", "results
+  release date" and their earnings forms. New `offering` keywords for dilution deals that
+  "agreement" (contract) caught: "at the market" (unhyphenated), ATM program and facility, equity
+  distribution, equity purchase, standby equity, equity line, securities purchase agreement,
+  "warrant" (singular), inducement agreement, convertible notes, debentures, preferred and bonds,
+  debt exchange, exchange or settlement of notes. Fail-closed misses also classed: Phase 1b, 2a,
+  2b and the roman forms (trial), breakthrough device designation (fda), "Reports Q1-Q4" and
+  "Reports Fiscal" (earnings_result). A 6-K still has no class (unchanged: no catalyst, fail closed).
+- **Filings.** The getcurrent description carries only item captions, so a reverse split never
+  matched "reverse": 5.03 with 3.03 is now `reverse_split`, and 7.01 or 8.01 beside 5.03 or 3.03 no
+  longer give `contract_or_other` (a 5.03 + 8.01 reverse split made gate 6 true).
+- **Gate 5.** An `earnings_date` fact with `published_at` null uses `first_seen_at` for the
+  lookback and the year; it was skipped, so gate 5 could answer `false` on a matching title.
+- **Tickers.** Default prefixes add Nasdaq CM/GM/GS (with and without the space), NASDAQ Capital
+  Market, Nasdaq Global Market, Nasdaq Global Select Market and OTC Pink. A "/" before another
+  prefix splits ("(CSE: ACM / OTCQB: ACMEF)"), other text in a tag is skipped instead of ending it
+  ('(the "Company", NASDAQ: ACME)'), and " - " works as the separator ("(Nasdaq - ACME)").
+- **Brief.** The brief job waits for the first live beat (`AfterLiveBeat`) and is seeded from
+  today's brief file when that was written at or after `brief_time_et` (a restart after 08:20 ET
+  rewrote a good brief from the "starting" heartbeat, STALE with no source lines, and paid for J4
+  again; a brief made by hand earlier is still replaced at 08:20). Overnight catalysts are those
+  published and first seen since the prior close, newest first, with `offering` filings folded to
+  one line per issuer ("+N more offering filings by this issuer"); the oldest 40 were shown, so an
+  after-close flood of 2.02 8-Ks and bank 424B2 notes hid the pre-market items. J4 gets the same list.
+- **STOP.** `STOP` or `STOP.txt` stops Scout, which deletes the file; one left before a start is
+  deleted with a warning. The README says how to make it.
+- **Launchers.** `run` returns 4 when another Scout holds the lock (2 is the CLI's bad-input code);
+  Start Scout says "already running in another window" for it. Update Scout runs everything after
+  the running check as one block ending in `exit /b`, so `git pull` replacing the file cannot make
+  cmd read the new text at the old offset.
+- **Logs.** Each line's time is ET with "ET" written (`logs.EtFormatter`), like the file name.
+- **XML.** The DTD and entity guard asks expat itself (`edgar_parse.refuse_dtd`), so a UTF-16 body
+  is refused too; an encoding expat cannot read is `SchemaError`, not a bare ValueError.

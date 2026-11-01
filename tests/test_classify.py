@@ -127,3 +127,92 @@ def test_a_gap_keyword_needs_both_parts_in_order():
     assert keyword_hit("Results: Acme to Announce", ["to announce ... results"]) is None
     assert keyword_hit("Acme to Announcements results", ["to announce ... results"]) is None
     assert keyword_hit("x", [" ... "]) is None
+
+
+# --------------------------------------------------------------------------- third review
+
+
+@pytest.mark.parametrize("title", [
+    "Acme Bio to Report Third Quarter 2026 Financial Results and Phase 2 Topline Data on November 12, 2026",
+    "Acme Bio to Host Conference Call on November 12 to Discuss Third Quarter Results and PDUFA Update",
+])
+def test_a_biotech_date_notice_is_earnings_date_not_fda_or_trial(title):
+    """Regression: fda and trial were tried before earnings_date, so a date notice that also names
+    trial data or a PDUFA update became a gate-6 catalyst and gate 5 never read its date."""
+    assert wire_class(title, KW) == "earnings_date"
+
+
+@pytest.mark.parametrize("title", [
+    "Acme Enters into At The Market Sales Agreement with H.C. Wainwright",
+    "Acme Enters into At-the-Market Sales Agreement with H.C. Wainwright",
+    "Acme Enters into Equity Distribution Agreement for Up to $25 Million",
+    "Acme Announces $50 Million Equity Purchase Agreement with Lincoln Park",
+    "Acme Enters into Standby Equity Purchase Agreement with Yorkville",
+    "Acme Announces Warrant Inducement Agreement for $4.2 Million Gross Proceeds",
+    "Acme Enters into Convertible Note Agreement",
+    "Acme Announces Debt Exchange Agreement and Settlement of Notes",
+    "Acme Announces Immediate Exercise of Existing Warrant",
+    "Acme Announces ATM Program",
+    "Acme Enters into Securities Purchase Agreement with Institutional Investors",
+])
+def test_dilution_agreements_are_offering_not_contract(title):
+    """Regression: "agreement" (contract) caught equity lines, ATM sales agreements, warrant
+    inducements and convertible notes, so a dilution headline made gate 6 true."""
+    assert wire_class(title, KW) == "offering"
+
+
+@pytest.mark.parametrize("title", [
+    "Acme Announces Conference Call to Discuss Financial Results for the Third Quarter 2026 on October 29",
+    "Acme Sets Third Quarter 2026 Earnings Call for October 29",
+    "Acme Announces Third Quarter 2026 Earnings Release and Conference Call Date",
+    "Acme Announces Q3 2026 Financial Results Release Date",
+    "Acme Announces Third Quarter 2026 Financial Results Conference Call and Webcast on October 29",
+    "Acme to Webcast Third Quarter 2026 Results on October 29",
+    "Acme Provides Notice of Third Quarter 2026 Earnings Call on October 29",
+])
+def test_common_date_notice_wordings_are_earnings_date(title):
+    """Regression: these fell to earnings_result ("financial results for", a gate-6 class) or to
+    other, so gate 5 lost its wire source."""
+    assert wire_class(title, KW) == "earnings_date"
+
+
+@pytest.mark.parametrize("title, cls", [
+    ("Acme Announces Positive Phase 2b Data", "trial"),
+    ("Acme Announces Positive Phase IIb Data", "trial"),
+    ("Acme Receives Breakthrough Device Designation", "fda"),
+    ("Acme Reports Q3 2026 Results", "earnings_result"),
+    ("Acme Signs Distribution Agreement with Beta", "contract"),  # a plain agreement is still a contract
+])
+def test_fail_closed_misses_are_classed(title, cls):
+    assert wire_class(title, KW) == cls
+
+
+_CAPTIONS = {
+    "3.03": "Item 3.03: Material Modification to Rights of Security Holders",
+    "5.03": "Item 5.03: Amendments to Articles of Incorporation or Bylaws; Change in Fiscal Year",
+    "7.01": "Item 7.01: Regulation FD Disclosure",
+    "8.01": "Item 8.01: Other Events",
+    "9.01": "Item 9.01: Financial Statements and Exhibits",
+    "1.01": "Item 1.01: Entry into a Material Definitive Agreement",
+}
+
+
+def _live_description(items):
+    """What edgar_atom passes: the entry title plus the summary, which carries only item captions."""
+    summary = "Filed: 2026-11-02 AccNo: 0001234567-26-000123 Size: 250 KB " + " ".join(_CAPTIONS[i] for i in items)
+    return "8-K - ACME CORP (0001234567) (Filer) " + summary
+
+
+@pytest.mark.parametrize("items, cls", [
+    (["5.03", "8.01", "9.01"], None),
+    (["5.03", "7.01", "9.01"], None),
+    (["3.03", "5.03", "9.01"], "reverse_split"),
+    (["3.03", "5.03", "8.01", "9.01"], "reverse_split"),
+    (["3.03", "8.01"], None),
+    (["1.01", "5.03"], "contract_or_other"),  # a material agreement still counts
+])
+def test_a_reverse_split_8k_from_live_captions_is_never_a_catalyst(items, cls):
+    """Regression (third review): the live description never contains "reverse", so a reverse-split
+    8-K (5.03 with 8.01 or 3.03) was classed contract_or_other through its press-release item and
+    made gate 6 true."""
+    assert filing_class("8-K", items, _live_description(items)) == cls

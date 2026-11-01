@@ -183,3 +183,26 @@ def test_module_is_pure_and_small():
 def test_filing_accepted_is_utc():
     filings, _ = parse_periodic(fixture("submissions_calendar_filer.json"))
     assert all(datetime.fromisoformat(f.accepted.replace("Z", "+00:00")).tzinfo == timezone.utc for f in filings)
+
+
+_UTF16_DTD = ('<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE rss [<!ENTITY a "PWNED">]>'
+              '<rss><channel><item><title>&a;</title></item></channel></rss>')
+
+
+@pytest.mark.parametrize("codec", ["utf-16", "utf-16-le", "utf-16-be"])
+def test_a_dtd_in_a_utf16_body_is_refused(codec: str) -> None:
+    """Regression (third review): the byte search for "<!DOCTYPE" missed a UTF-16 body, and
+    ElementTree expanded the internal entity."""
+    with pytest.raises(SchemaError, match="DTD"):
+        safe_xml_root(_UTF16_DTD.encode(codec))  # with or without a BOM
+
+
+def test_an_encoding_expat_cannot_read_is_schema_drift() -> None:
+    body = '<?xml version="1.0" encoding="UTF-16-LE"?><rss/>'.encode("utf-16-le")
+    with pytest.raises(SchemaError):
+        safe_xml_root(body)
+
+
+def test_a_utf16_body_without_a_dtd_still_parses() -> None:
+    body = '<?xml version="1.0" encoding="UTF-16"?><rss><channel/></rss>'.encode("utf-16")
+    assert safe_xml_root(body).tag == "rss"

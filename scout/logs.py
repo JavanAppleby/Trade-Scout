@@ -1,6 +1,10 @@
 """Logging (DESIGN 2.1): `logs/scout-<ET date>.log` plus the console, every record redacted.
 
 `ANTHROPIC_LOG` is removed from the environment so the SDK never logs requests (SS 2.8).
+
+Each line's time is ET with the zone written (`EtFormatter`), like the file name, the brief and the
+heartbeat; the PC's own time (Brisbane, no zone) made an 08:20 ET line read 22:20 or 23:20 on what
+looked like the next day (third review).
 """
 
 from __future__ import annotations
@@ -8,8 +12,10 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING
+
+from scout_reader._et import utc_to_et
 
 from scout.secrets import redact
 
@@ -20,7 +26,15 @@ if TYPE_CHECKING:  # pragma: no cover
 LOGGER = "scout"
 _FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
-__all__ = ["LOGGER", "DailyFileHandler", "RedactingFilter", "setup_logging"]
+__all__ = ["LOGGER", "DailyFileHandler", "EtFormatter", "RedactingFilter", "setup_logging"]
+
+
+class EtFormatter(logging.Formatter):
+    """Times as "2026-11-03 08:20:00,123 ET" (US Eastern, daylight saving applied)."""
+
+    def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:  # noqa: N802
+        et = utc_to_et(datetime.fromtimestamp(record.created, timezone.utc))
+        return f"{et:%Y-%m-%d %H:%M:%S},{int(record.msecs):03d} ET"
 
 
 class RedactingFilter(logging.Filter):
@@ -89,7 +103,7 @@ def setup_logging(paths: ScoutPaths, level: str, day: date, cfg: ScoutConfig | N
         handler.close()
     redacting = RedactingFilter(cfg)
     for handler in (DailyFileHandler(paths, day, today), logging.StreamHandler()):
-        handler.setFormatter(logging.Formatter(_FORMAT))
+        handler.setFormatter(EtFormatter(_FORMAT))
         handler.addFilter(redacting)
         logger.addHandler(handler)
     logger.propagate = False

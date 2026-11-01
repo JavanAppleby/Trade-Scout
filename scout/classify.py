@@ -2,17 +2,22 @@
 
 Wire titles: the keyword lists are config (`class_keywords`); the first class in the fixed order
 `WIRE_MATCH_ORDER` with a matching keyword wins, `other` last. The order is SS 6.4's with one change:
-`earnings_date` is tried before `contract` and `earnings_result`. A date notice such as "Acme to
-Announce Financial Results for Third Quarter 2026 on November 3" also matches "financial results
-for" (earnings_result) and often "agreement" or "order" (contract); classed that way it would make
-gate 6 answer true for a press release that only names a date, and gate 5 (which reads the date
-from `earnings_date` facts only) would never see it. Because earnings_date goes first, its keywords
+`earnings_date` is tried first. A date notice such as "Acme to Announce Financial Results for Third
+Quarter 2026 on November 3" also matches "financial results for" (earnings_result), often
+"agreement" or "order" (contract), and for a biotech "Phase 2", "topline" or "PDUFA" (trial, fda):
+"Acme Bio to Report Third Quarter 2026 Financial Results and Phase 2 Topline Data on November 12".
+Classed any of those ways it would make gate 6 answer true for a press release that only names a
+date, and gate 5 (which reads the date from `earnings_date` facts only) would never see it. A title
+that names a results date is therefore `earnings_date` whatever else it names (third review; the
+second review moved it ahead of contract and earnings_result only), and `earnings_date` never
+passes gate 6 (`scout_reader.gates.NEVER_PASS`). Because earnings_date goes first, its keywords
 must be narrow (SS 6.4: "to report / announce / release ... results"): each default keyword pairs a
 scheduling phrase with the subject that follows it, written with a `...` gap ("will host ...
 results", "timing of ... earnings"). A bare "to release" or "will announce" would also catch
 "Agreement to Release Its Products" (contract) or "Reports Q3 Results and Will Host Conference Call
 to Discuss" (earnings_result), and an earnings_date fact with no date in it makes gate 5 `unknown`
-for `earnings_lookback_days`.
+for `earnings_lookback_days` (fail closed: "Acme to Host Call to Discuss Phase 3 Topline Results"
+with no date costs holds, never allows one).
 
 A keyword matches as whole words, ignoring case ("order" matches "Purchase Order" but not
 "Reorder"). ` ... ` inside a keyword matches any text, so "to announce ... results" needs both parts
@@ -30,7 +35,7 @@ from scout.models import WIRE_CLASSES
 
 __all__ = ["WIRE_MATCH_ORDER", "filing_class", "keyword_hit", "wire_class"]
 
-WIRE_MATCH_ORDER = ("offering", "reverse_split", "listing_notice", "fda", "trial", "earnings_date", "contract",
+WIRE_MATCH_ORDER = ("earnings_date", "offering", "reverse_split", "listing_notice", "fda", "trial", "contract",
                     "earnings_result", "other")
 assert sorted(WIRE_MATCH_ORDER) == sorted(WIRE_CLASSES)
 

@@ -37,7 +37,8 @@ spend limit, put `ANTHROPIC_API_KEY=...` in a file named `.env` in Scout's folde
 
 ## Launchers (double-click in Scout's folder)
 
-- **Start Scout**: runs Scout until you press Ctrl+C in its window.
+- **Start Scout**: runs Scout until you press Ctrl+C in its window. If Scout is already running in
+  another window, it says so and starts nothing; that Scout keeps running.
 - **Scout Brief**: writes the morning brief now and opens it in Notepad. Safe while Scout runs.
 - **Add Levels**: drop one of Jason's level files on it (or put the file in `inbox\jason` and
   double-click). Scout checks the file, shows any warnings and asks before adding it. It never
@@ -62,8 +63,16 @@ All of these are built in v1. (A command whose module is missing says "not built
 
 `state\` (facts, source health, answers, heartbeat and the other files the bots read), `logs\`,
 `reports\` (the brief and the verification report), `inbox\jason\` (where you drop level files).
-All are created on first run and ignored by git. Putting a file named `STOP` in Scout's folder stops
-a running Scout.
+All are created on first run and ignored by git.
+
+To stop Scout without its window, put a file named `STOP` in Scout's folder. In Explorer, New > Text
+Document renamed to STOP is really `STOP.txt` when extensions are hidden; Scout accepts either name.
+Or in PowerShell, from Scout's folder:
+
+    New-Item STOP -ItemType File
+
+Scout stops within a few seconds and deletes the file itself, so the next Start Scout runs normally.
+A STOP file already in the folder when Scout starts is deleted (the log says so) and Scout runs.
 
 ## Tests
 

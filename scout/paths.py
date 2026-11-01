@@ -159,6 +159,11 @@ class ScoutPaths:
         return self.root / "STOP"
 
     @property
+    def stop_files(self) -> tuple[Path, ...]:
+        """`STOP` and `STOP.txt` (Explorer's New > Text Document renamed to STOP, with extensions hidden)."""
+        return (self.stop_file, self.root / "STOP.txt")
+
+    @property
     def env_file(self) -> Path:
         return self.root / ".env"
 

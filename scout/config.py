@@ -124,26 +124,39 @@ DEFAULT_SOURCES: dict[str, dict[str, Any]] = {
 }
 
 DEFAULT_CLASS_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "offering": ("public offering", "pricing", "priced", "registered direct", "at-the-market", "ATM offering",
-                 "warrants", "private placement"),
+    "offering": ("public offering", "pricing", "priced", "registered direct", "at-the-market", "at the market",
+                 "ATM offering", "ATM program", "ATM facility", "equity distribution agreement",
+                 "equity purchase agreement", "standby equity", "equity line", "securities purchase agreement",
+                 "warrants", "warrant", "inducement agreement", "convertible note", "convertible notes",
+                 "convertible senior notes", "convertible debenture", "convertible debentures",
+                 "convertible preferred", "convertible bond", "convertible bonds", "convertible promissory",
+                 "debt exchange", "exchange of notes", "settlement of notes", "private placement"),
     "reverse_split": ("reverse split", "reverse stock split", "share consolidation"),
     "listing_notice": ("deficiency", "delisting", "Nasdaq notice", "notice of noncompliance", "minimum bid price"),
     "fda": ("FDA approval", "FDA approves", "FDA clearance", "510(k) clearance", "PDUFA", "complete response letter",
-            "CRL", "breakthrough therapy designation", "fast track designation"),
-    "trial": ("topline", "top-line", "Phase 1", "Phase 2", "Phase 3", "Phase 1/2", "Phase 2/3", "pivotal trial"),
+            "CRL", "breakthrough therapy designation", "breakthrough device designation", "fast track designation"),
+    "trial": ("topline", "top-line", "Phase 1", "Phase 2", "Phase 3", "Phase 1/2", "Phase 2/3", "Phase 1b",
+              "Phase 1/2a", "Phase 2a", "Phase 2b", "Phase I", "Phase II", "Phase III", "Phase Ib", "Phase IIa",
+              "Phase IIb", "Phase I/II", "Phase II/III", "pivotal trial"),
     "contract": ("contract", "award", "awarded", "agreement", "partnership", "purchase order", "order"),
     "earnings_result": ("reports first quarter", "reports second quarter", "reports third quarter",
-                        "reports fourth quarter", "reports full year", "financial results for", "reports results"),
-    "earnings_date": (  # narrow on purpose: tried before contract and earnings_result (scout.classify)
+                        "reports fourth quarter", "reports full year", "reports Q1", "reports Q2", "reports Q3",
+                        "reports Q4", "reports fiscal", "financial results for", "reports results"),
+    "earnings_date": (  # narrow on purpose: tried first of all (scout.classify)
         "to report ... results", "to report ... earnings", "to announce ... results",
         "to announce ... earnings", "to release ... results", "to release ... earnings",
         "will report ... results", "will report ... earnings", "will announce ... results",
         "will announce ... earnings", "will release ... results", "will release ... earnings",
         "to host ... results", "to host ... earnings", "will host ... results", "will host ... earnings",
         "to hold ... results", "to hold ... earnings", "will hold ... results", "will hold ... earnings",
-        "schedules ... results", "schedules ... earnings", "timing of ... results", "timing of ... earnings",
-        "date for ... results", "date for ... earnings", "date of ... results", "date of ... earnings",
-        "results to be released", "results to be reported", "results to be announced",
+        "to webcast ... results", "to webcast ... earnings", "will webcast ... results",
+        "will webcast ... earnings", "schedules ... results", "schedules ... earnings",
+        "timing of ... results", "timing of ... earnings", "date for ... results", "date for ... earnings",
+        "date of ... results", "date of ... earnings", "announces conference call ... results",
+        "announces conference call ... earnings", "announces ... results conference call",
+        "announces ... earnings conference call", "sets ... earnings call for", "sets ... conference call for",
+        "notice of ... earnings call", "notice of ... conference call", "conference call date",
+        "results release date", "results to be released", "results to be reported", "results to be announced",
         "earnings to be released", "earnings release date",
     ),
 }
@@ -206,8 +219,11 @@ class ScoutConfig:
     ticker_map_retry_s: int = 600
     edgar_atom_forms: tuple[str, ...] = ("8-K", "6-K", "S-1", "S-3", "F-1", "F-3", "424B", "EFFECT", "NT 10-Q",
                                          "NT 10-K", "10-Q", "10-K")
-    ticker_exchange_prefixes: tuple[str, ...] = ("NASDAQ", "Nasdaq", "NYSE", "NYSE American", "NYSE MKT",
-                                                 "NYSE Arca", "OTCQB", "OTCQX", "OTC", "Cboe BZX")
+    ticker_exchange_prefixes: tuple[str, ...] = ("NASDAQ", "Nasdaq", "Nasdaq CM", "NasdaqCM", "Nasdaq GM", "NasdaqGM",
+                                                 "Nasdaq GS", "NasdaqGS", "NASDAQ Capital Market",
+                                                 "Nasdaq Global Market", "Nasdaq Global Select Market", "NYSE",
+                                                 "NYSE American", "NYSE MKT", "NYSE Arca", "OTCQB", "OTCQX",
+                                                 "OTC Pink", "OTC", "Cboe BZX")
     host_min_spacing_s: Mapping[str, float] = field(default_factory=lambda: _frozen(DEFAULT_HOST_MIN_SPACING))
     host_max_requests_per_day: Mapping[str, int] = field(default_factory=lambda: _frozen(DEFAULT_HOST_MAX_PER_DAY))
     class_keywords: Mapping[str, tuple[str, ...]] = field(default_factory=lambda: _frozen(DEFAULT_CLASS_KEYWORDS))

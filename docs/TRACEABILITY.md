@@ -133,6 +133,27 @@ Each row is a defect the second review found; its test fails on the code before 
 | 22 | SS 8.1 rule 1, 8.4 | J3's web tools are called directly only (no code-execution sandbox) | `llm_prompts.j3_tools` | `test_llm_prompts.py::test_j3_tools_only_server_web_tools` |
 | 23 | SS 8.6 | The estimate is the tool loop's worst case | `llm_ledger.estimate` | `test_llm_ledger.py::test_the_j3_estimate_covers_a_long_tool_loop`, `test_estimate_is_worst_case` |
 
+## Third review (2026-11-01)
+
+Each row is a defect the third review found; its test fails on the code before the fix.
+
+| # | Spec | Rule | Code | Tests |
+|---|---|---|---|---|
+| 1 | SS 6.4, 7.1, 7.2 | A date notice naming trial data or a PDUFA update is `earnings_date` (tried first), never a gate-6 catalyst; gate 5 reads its date | `classify.WIRE_MATCH_ORDER`, `scout_reader.gates.NEVER_PASS` | `test_classify.py::test_a_biotech_date_notice_is_earnings_date_not_fda_or_trial`, `test_reader_gate5.py::test_a_biotech_date_notice_blocks_the_hold_end_to_end`, `test_reader_gate6.py::test_never_pass_classes` |
+| 2 | SS 7.2 | An `earnings_date` fact with `published_at` null is read (first_seen_at for lookback and year), never skipped | `scout_reader.gates._announced` | `test_reader_gate5.py::test_an_announcement_without_published_at_is_not_skipped`, `test_an_old_announcement_without_published_at_is_outside_the_lookback` |
+| 3 | SS 6.4, 7.1 | A reverse-split 8-K (5.03 with 3.03, or 5.03 with 8.01/7.01) is never `contract_or_other` | `edgar_parse.filing_class` | `test_classify.py::test_a_reverse_split_8k_from_live_captions_is_never_a_catalyst` |
+| 4 | SS 6.4, 14 | ATM sales agreements, equity lines, warrant inducements, convertible notes and debt exchanges are `offering`, not `contract` | `config.DEFAULT_CLASS_KEYWORDS`, `config.example.toml` | `test_classify.py::test_dilution_agreements_are_offering_not_contract` |
+| 5 | SS 6.4, 7.1 | "Announces Conference Call to Discuss Financial Results for ... on <date>" is `earnings_date` | `config` | `test_classify.py::test_common_date_notice_wordings_are_earnings_date` |
+| 6 | SS 6.3 | Nasdaq CM, Capital Market, Global Market, OTC Pink, "/" between tags, prose in a tag and "(Nasdaq - ACME)" give the ticker | `tickers`, `config.ticker_exchange_prefixes` | `test_tickers.py::test_common_exchange_tag_spellings` |
+| 7 | SS 6.4, 7.2 | "Sets ... Earnings Call for", "Conference Call Date", "Results Release Date", "to Webcast", "Notice of ... Earnings Call" are `earnings_date`; Phase 2b/IIb, breakthrough device designation and "Reports Q3" are classed | `config` | `test_classify.py::test_common_date_notice_wordings_are_earnings_date`, `test_fail_closed_misses_are_classed` |
+| 8 | SS 10.2 brief | A restart after 08:20 ET keeps today's brief; the brief waits for a live beat | `jobs_brief` (`AfterLiveBeat`, `_seed_brief`) | `test_brief.py::test_a_restart_after_the_brief_time_keeps_todays_brief`, `test_a_start_after_the_brief_time_writes_the_brief_after_a_live_beat`, `test_a_brief_written_by_hand_before_the_brief_time_is_replaced` |
+| 9 | SS 10.2 brief | Overnight catalysts: published since the prior close, newest first, offering filings folded per issuer | `brief_sections.catalysts`, `fold_offering_filings`, `brief.j4_items` | `test_brief.py::test_overnight_catalysts_are_newest_first_and_bank_notes_are_folded` |
+| 10 | DESIGN 8 | `STOP` or `STOP.txt` stops Scout and is deleted; a leftover one is deleted at start | `app.run`, `paths.stop_files`, `README.md` | `test_app.py::test_stop_file_stops_the_loop_and_is_deleted`, `test_a_stop_file_left_before_the_start_is_deleted_and_scout_runs` |
+| 11 | DESIGN 8 | Update Scout runs `git pull` inside one block ending in `exit /b` | `Update Scout.bat` | `test_bat_files.py::test_update_runs_git_pull_inside_one_block_that_exits` |
+| 12 | DESIGN 8 | A refused second start says another Scout is running (exit code 4) | `app.EXIT_ALREADY_RUNNING`, `Start Scout.bat` | `test_bat_files.py::test_start_scout_says_when_another_scout_is_running`, `test_app.py::test_second_scout_refused` |
+| 13 | DESIGN 2.1 | Log lines show ET with the zone | `logs.EtFormatter` | `test_app.py::test_log_lines_show_et_with_the_zone` |
+| 14 | SS 2.8, DESIGN 2.2 | A DTD or entity declaration is refused in any encoding (UTF-16 included) | `edgar_parse.refuse_dtd`, `safe_xml_root`, `halts.parse_halts` | `test_edgar_parse.py::test_a_dtd_in_a_utf16_body_is_refused`, `test_an_encoding_expat_cannot_read_is_schema_drift`, `test_halts.py::test_a_dtd_in_a_utf16_halt_feed_is_refused` |
+
 ## Out of scope for this build (SS 15 steps 6-11, SS 4.2-4.4)
 Install at `E:\Scout` and the five-day operational acceptance (step 6); Radar, Pilot and Guardian
 changes (steps 7 and 9); the verification period and holds (steps 8 and 10); the Webull probe

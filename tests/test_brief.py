@@ -14,7 +14,7 @@ import pytest
 from conftest import make_config
 from helpers_fake_anthropic import FakeAnthropic, fact, make_ctx, message
 from helpers_fakes import write_records
-from scout.brief import SECTIONS, brief_path, build_brief, cli_brief, j4_items, write_brief
+from scout.brief import SECTIONS, brief_path, build_brief, cli_brief, collect, j4_items, write_brief
 from scout.clock import ManualClock
 from scout.config import ScoutConfig
 from scout.jobs_brief import build_jobs
@@ -169,6 +169,7 @@ def test_jobs_brief(cfg: ScoutConfig, paths: ScoutPaths, clock: ManualClock, sco
     ctx = make_ctx(cfg, paths, clock)
     jobs = build_jobs(ctx)
     assert [j.name for j in jobs] == ["brief", "verify", "ledger_status"]
+    ctx.live_beat_at = clock.now()
     ran = run_due(jobs, clock.now(), logging.getLogger("test"))
     assert ran == ["brief", "ledger_status"]  # 09:00 ET: the brief (08:20) is due, verify (20:30) is not
     assert (paths.reports / "scout-2026-11-02.md").exists()
@@ -200,3 +201,77 @@ def test_the_nowflation_forecast_lean_is_shown(scout_dir: Path, clock: ManualClo
     text = build_brief(make_ctx(cfg, paths, clock), DAY, clock.now())
     assert "Nowflation forecast lean (informational, untested):" in text
     assert "cpi forecast vs prior -0.1, vs street n/a; graded past prints 2" in text
+
+
+def test_a_restart_after_the_brief_time_keeps_todays_brief(cfg: ScoutConfig, paths: ScoutPaths,
+                                                           clock: ManualClock) -> None:
+    """Regression (third review): the brief job was a plain DailyJob, so a restart after 08:20 ET
+    rewrote today's good brief on the first tick, from the "starting" heartbeat."""
+    import os  # noqa: PLC0415
+
+    from scout.app import run  # noqa: PLC0415
+    from scout.clock import et_datetime  # noqa: PLC0415
+
+    ctx = make_ctx(cfg, paths, clock)
+    paths.ensure()
+    target = paths.reports / "scout-2026-11-02.md"
+    target.write_text("the 08:20 brief\n", encoding="utf-8")
+    stamp = et_datetime(DAY, cfg.brief_time_et).timestamp()
+    os.utime(target, (stamp, stamp))
+    assert run(ctx, max_ticks=3, jobs=build_jobs(ctx)) == 0
+    assert target.read_text(encoding="utf-8") == "the 08:20 brief\n"
+
+
+def test_a_brief_written_by_hand_before_the_brief_time_is_replaced(cfg: ScoutConfig, paths: ScoutPaths,
+                                                                   clock: ManualClock) -> None:
+    import os  # noqa: PLC0415
+
+    from scout.app import run  # noqa: PLC0415
+    from scout.clock import et_datetime  # noqa: PLC0415
+
+    ctx = make_ctx(cfg, paths, clock)
+    paths.ensure()
+    target = paths.reports / "scout-2026-11-02.md"
+    target.write_text("a 06:00 brief\n", encoding="utf-8")
+    stamp = et_datetime(DAY, cfg.brief_time_et).timestamp() - 2 * 3600
+    os.utime(target, (stamp, stamp))
+    assert run(ctx, max_ticks=3, jobs=build_jobs(ctx)) == 0
+    assert target.read_text(encoding="utf-8").startswith("# Scout brief")
+
+
+def test_a_start_after_the_brief_time_writes_the_brief_after_a_live_beat(cfg: ScoutConfig, paths: ScoutPaths,
+                                                                         clock: ManualClock) -> None:
+    """Regression (third review): the first-tick brief read the "starting" heartbeat and said
+    "STALE or stopped" with no source lines."""
+    from scout.app import run  # noqa: PLC0415
+
+    ctx = make_ctx(cfg, paths, clock)
+    assert run(ctx, max_ticks=3, jobs=build_jobs(ctx)) == 0
+    text = (paths.reports / "scout-2026-11-02.md").read_text(encoding="utf-8")
+    assert "STALE" not in text
+
+
+def test_overnight_catalysts_are_newest_first_and_bank_notes_are_folded(scout_dir: Path, cfg: ScoutConfig,
+                                                                          paths: ScoutPaths,
+                                                                          clock: ManualClock) -> None:
+    """Regression (third review): the list was the oldest 40 since the close, so a flood of filings
+    between 16:00 and 16:30 ET hid every overnight and pre-market release; a bank's 424B2 notes
+    filled it; and a first poll's backlog from the previous day came in with one first_seen_at."""
+    from scout.brief_sections import sec_catalysts  # noqa: PLC0415
+
+    flood = [fact("MS", f"424B2 - MORGAN STANLEY note {n}", f"2026-10-30T21:{n % 60:02d}:00Z", fid=f"ms{n:03d}",
+                  kind="filing", cls="offering") for n in range(60)]
+    for f in flood:
+        f["cik"] = 895421
+    early = [fact(f"E{n:02d}", f"Early {n} wins contract", f"2026-10-30T20:{n % 60:02d}:30Z", fid=f"e{n:03d}")
+             for n in range(45)]
+    backlog = fact("OLDP", "Published yesterday, seen on the first poll", "2026-11-02T08:00:00Z", fid="bk",
+                   published_at="2026-10-29T15:00:00Z")
+    premarket = fact("PRE", "Pre-market contract award", "2026-11-02T12:00:00Z", fid="pm")
+    write_records(scout_dir, "facts", [*flood, *early, backlog, premarket])
+    inp = collect(make_ctx(cfg, paths, clock), DAY, clock.now())
+    lines = [x for x in sec_catalysts(inp) if x.startswith("- ")]
+    assert "PRE" in lines[0]  # the newest item comes first
+    assert not any("OLDP" in x for x in lines)  # published before the prior close
+    assert sum("MORGAN STANLEY" in x for x in lines) == 1
+    assert "(+59 more offering filings by this issuer)" in "\n".join(lines)

@@ -4,10 +4,13 @@ Exchange tags look like "(NASDAQ: ACME)", "(NYSE American: ACME)", "(OTCQB: ACME
 "(NASDAQ: GOOGL, GOOG)". The prefix list is config (`ticker_exchange_prefixes`); matching is
 case-insensitive and the longest prefix wins ("NYSE American" before "NYSE"). Inside one tag a
 ticker without its own prefix takes the previous prefix ("GOOG" above is NASDAQ). Segments are split
-on ",", ";", "and" and "&" ("(Nasdaq: ACME and ACMEW)"). A segment with an unknown prefix ("TSX: ACM")
-is skipped and clears the inherited prefix, so "(TSX: ACM; NASDAQ: ACME)" still gives NASDAQ ACME
-and ACM is never taken as a NASDAQ ticker. HTML tags are removed first ("(NASDAQ: <a ...>ACME</a>)").
-Each (exchange, ticker) pair appears once, in order.
+on ",", ";", "and", "&" and a "/" that comes before another prefix ("(Nasdaq: ACME and ACMEW)",
+"(CSE: ACM / OTCQB: ACMEF)"). A segment with an unknown prefix ("TSX: ACM") or any other text
+('the "Company"') is skipped and clears the inherited prefix, so "(TSX: ACM; NASDAQ: ACME)" and
+'(the "Company", NASDAQ: ACME)' still give NASDAQ ACME and ACM is never taken as a NASDAQ ticker. The
+prefix is followed by ":" or by a dash with a space each side ("(Nasdaq - ACME)"; "Nasdaq-listed" is
+not a tag). HTML tags are removed first ("(NASDAQ: <a ...>ACME</a>)"). Each (exchange, ticker) pair
+appears once, in order.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ __all__ = ["normalise", "tickers_in"]
 _TAG = re.compile(r"\(([^()]{1,200})\)")
 _SYMBOL = r"[A-Za-z][A-Za-z0-9]{0,5}(?:[.\-/][A-Za-z0-9]{1,2})?"
 _HTML_TAG = re.compile(r"<[^<>]{0,500}>")
-_SPLIT = re.compile(r"[,;]|\s+(?:and|&)\s+", re.IGNORECASE)
+_SPLIT = re.compile(r"[,;]|\s+(?:and|&)\s+|\s*/\s*(?=[A-Za-z][A-Za-z .\-]{0,30}\s*:)", re.IGNORECASE)
 _ANY_PREFIX = re.compile(r"^\s*[A-Za-z][A-Za-z .\-]{0,30}\s*:")
 
 
@@ -35,7 +38,8 @@ def normalise(sym: str) -> str:
 def _patterns(prefixes: tuple[str, ...]) -> tuple[re.Pattern[str], re.Pattern[str]]:
     ordered = sorted({p.strip() for p in prefixes if p.strip()}, key=len, reverse=True)
     alternation = "|".join(re.escape(p).replace(r"\ ", r"\s+") for p in ordered) or r"(?!x)x"
-    with_prefix = re.compile(rf"^\s*(?P<ex>{alternation})\s*:\s*(?P<sym>{_SYMBOL})\s*$", re.IGNORECASE)
+    with_prefix = re.compile(rf"^\s*(?P<ex>{alternation})(?:\s*:|\s+[-\u2013\u2014])\s*(?P<sym>{_SYMBOL})\s*$",
+                             re.IGNORECASE)
     bare = re.compile(rf"^\s*(?P<sym>{_SYMBOL})\s*$")
     return with_prefix, bare
 
@@ -74,7 +78,8 @@ def tickers_in(text: str, prefixes: Iterable[str]) -> list[tuple[str, str]]:
             elif exchange is not None and (b := bare.match(segment)) is not None:
                 sym = b.group("sym")
             else:
-                break
+                exchange = None  # other text ('the "Company"'): skip it, keep reading the tag
+                continue
             pair = (exchange, normalise(sym))
             if pair not in out:
                 out.append(pair)

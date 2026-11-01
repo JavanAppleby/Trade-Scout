@@ -30,8 +30,9 @@ __all__ = [
 ]
 
 CATALYST_KINDS = ("wire", "filing")
-# SS 14: these classes never make gate 6 true, whatever the config says.
-NEVER_PASS = frozenset({"offering", "reverse_split", "listing_notice", "other"})
+# SS 14: these classes never make gate 6 true, whatever the config says. `earnings_date` is a
+# notice that only names a date: it is gate 5's source, never a catalyst (third review).
+NEVER_PASS = frozenset({"offering", "reverse_split", "listing_notice", "other", "earnings_date"})
 MACRO_KINDS = ("macro_event", "scheduled_event")
 _ROLLOVER = time(20, 0)
 
@@ -239,14 +240,16 @@ def gate5_window(as_of: datetime) -> tuple[datetime, datetime] | None:
 
 def _announced(facts: Iterable[Mapping[str, Any]], symbol: str, as_of: datetime, lookback_days: int,
                first: date, last: date) -> tuple[list[str], list[str]]:
-    """(fact ids whose announced date falls on an ET day of the window, fact ids not parsed)."""
+    """(fact ids whose announced date falls on an ET day of the window, fact ids not parsed). A fact
+    without `published_at` (the model allows null) uses its `first_seen_at` for the lookback and the
+    year: skipping it would turn a date notice into gate 5 `false` (third review)."""
     since = as_of - timedelta(days=lookback_days)
     hits: list[str] = []
     unparsed: list[str] = []
     for rec in facts:
         if rec.get("class") != "earnings_date" or not _ticker_is(rec, symbol) or not visible(rec, as_of):
             continue
-        published = parse_time(rec.get("published_at"))
+        published = parse_time(rec.get("published_at")) or parse_time(rec.get("first_seen_at"))
         if published is None or published < since:
             continue
         day = announced_date(rec.get("title"), published)

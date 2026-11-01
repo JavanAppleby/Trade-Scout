@@ -81,12 +81,14 @@ def test_hold_catalyst_classes_pass(world: Path, cls: str) -> None:
     assert fresh_catalyst(world, S, AS_OF)["value"] == "true"
 
 
-@pytest.mark.parametrize("cls", ["offering", "reverse_split", "listing_notice", "other"])
+@pytest.mark.parametrize("cls", ["offering", "reverse_split", "listing_notice", "other", "earnings_date"])
 def test_never_pass_classes(scout_dir: Path, cfg: ScoutConfig, cls: str) -> None:
-    """SS 14: these never make gate 6 true, even when the config lists them."""
+    """SS 14: these never make gate 6 true, even when the config lists them (earnings_date: third
+    review, a notice that only names a date is never a catalyst)."""
     good_world(scout_dir, cfg, AS_OF, params=False)
     write_params(scout_dir, cfg, AS_OF - timedelta(days=1),
-                 hold_catalyst_classes=["fda", "offering", "reverse_split", "listing_notice", "other"])
+                 hold_catalyst_classes=["fda", "offering", "reverse_split", "listing_notice", "other",
+                                        "earnings_date"])
     _facts(scout_dir, fact(S, published=AS_OF - timedelta(minutes=5), cls=cls))
     assert fresh_catalyst(scout_dir, S, AS_OF)["value"] == "false"
     head = news_headline(scout_dir, S, AS_OF)

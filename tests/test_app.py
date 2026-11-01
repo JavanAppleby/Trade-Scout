@@ -48,17 +48,36 @@ def test_params_appended_only_on_change(ctx: AppContext, scout_dir: Path, clock:
     assert [r["scout_stale_s"] for r in read_jsonl(ctx.paths.params_file)] == [120, 90]
 
 
-def test_stop_file_stops_the_loop(ctx: AppContext) -> None:
-    ctx.paths.stop_file.write_text("", encoding="utf-8")
-    assert run(ctx, max_ticks=1000, jobs=[]) == 0
+@pytest.mark.parametrize("name", ["STOP", "STOP.txt"])
+def test_stop_file_stops_the_loop_and_is_deleted(ctx: AppContext, name: str) -> None:
+    """Regression (third review): STOP was never deleted, so every later start stopped at once,
+    and the STOP.txt that Explorer makes (extensions hidden) never stopped Scout."""
+    ticks: list[object] = []
+
+    def probe(now: object) -> None:
+        ticks.append(now)
+        if len(ticks) == 3:
+            (ctx.paths.root / name).write_text("", encoding="utf-8")
+
+    assert run(ctx, max_ticks=1000, jobs=[EveryJob("probe", probe, 0)]) == 0
+    assert len(ticks) == 3
+    assert not (ctx.paths.root / name).exists()
     beats = read_jsonl(ctx.paths.beats / "2026-11-02.jsonl")
-    assert [b["stopped"] for b in beats] == [True, True]
+    assert beats[0]["stopped"] is True and beats[-1]["stopped"] is True
+
+
+def test_a_stop_file_left_before_the_start_is_deleted_and_scout_runs(ctx: AppContext) -> None:
+    """Regression (third review): a STOP left in the folder stopped every start at once."""
+    ctx.paths.stop_file.write_text("", encoding="utf-8")
+    ticks: list[object] = []
+    assert run(ctx, max_ticks=5, jobs=[EveryJob("probe", ticks.append, 0)]) == 0
+    assert len(ticks) == 5 and not ctx.paths.stop_file.exists()
 
 
 def test_second_scout_refused(ctx: AppContext, capsys: pytest.CaptureFixture[str]) -> None:
     with ScoutLock(ctx.paths):
         assert is_running(ctx.paths.root)
-        assert run(ctx, max_ticks=1, jobs=[]) == 2
+        assert run(ctx, max_ticks=1, jobs=[]) == 4
     assert "Scout did not start" in capsys.readouterr().out
     assert not is_running(ctx.paths.root)
 
@@ -149,3 +168,18 @@ def test_the_log_file_rolls_over_at_et_midnight(ctx: AppContext, clock: ManualCl
     monday = (ctx.paths.logs / "scout-2026-11-02.log").read_text(encoding="utf-8")
     tuesday = (ctx.paths.logs / "scout-2026-11-03.log").read_text(encoding="utf-8")
     assert "monday line" in monday and "tuesday line" not in monday and "tuesday line" in tuesday
+
+
+def test_log_lines_show_et_with_the_zone() -> None:
+    """Regression (third review): lines used the PC's local time (Brisbane) with no zone, while the
+    file name, the brief and the heartbeat use ET."""
+    from datetime import datetime, timezone  # noqa: PLC0415
+
+    from scout.logs import _FORMAT, EtFormatter  # noqa: PLC0415
+
+    record = logging.LogRecord("scout", logging.INFO, __file__, 1, "brief written", None, None)
+    record.created = datetime(2026, 11, 3, 13, 20, 0, tzinfo=timezone.utc).timestamp()  # 08:20 ET (EST)
+    record.msecs = 5
+    assert EtFormatter(_FORMAT).format(record).startswith("2026-11-03 08:20:00,005 ET INFO scout: brief written")
+    record.created = datetime(2026, 7, 1, 12, 20, 0, tzinfo=timezone.utc).timestamp()  # 08:20 ET (EDT)
+    assert EtFormatter(_FORMAT).format(record).startswith("2026-07-01 08:20:00,005 ET")

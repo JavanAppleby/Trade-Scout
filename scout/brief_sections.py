@@ -28,7 +28,8 @@ MAX_SETUPS = 30
 _MD = str.maketrans({c: "\\" + c for c in "\\`*_{}[]()#+!|~"})
 
 __all__ = [
-    "MAX_CATALYSTS", "NOWFLATION_CREDIT", "BriefInputs", "catalysts", "collect_facts", "iso_week", "md_escape",
+    "MAX_CATALYSTS", "NOWFLATION_CREDIT", "BriefInputs", "catalysts", "collect_facts", "fold_offering_filings",
+    "iso_week", "md_escape",
     "open_halts", "sec_calendar", "sec_catalysts", "sec_due_windows", "sec_halts", "sec_header", "sec_health",
     "sec_jason", "sec_llm", "sec_macro", "sec_regime", "sec_verify",
 ]
@@ -103,13 +104,44 @@ def _too_dear(inp: BriefInputs) -> set[str]:
     return {f.symbol for f in inp.finds if f.price is not None and f.price > inp.cfg.scan_max_price}
 
 
+def _published(rec: Mapping[str, Any]) -> datetime | None:
+    return parse_iso(rec.get("published_at"))
+
+
 def catalysts(inp: BriefInputs) -> list[dict[str, Any]]:
-    """Wire and filing facts with a ticker and a class since the prior close (DESIGN D8: a ticker is
-    left out only when a Radar find prices it above `scan_max_price`)."""
+    """Wire and filing facts with a ticker and a class, published and first seen since the prior
+    close (gate 6's rule), newest first (DESIGN D8: a ticker is left out only when a Radar find
+    prices it above `scan_max_price`). Oldest first with a cap of 40 showed the first half hour
+    after the close and hid every overnight and pre-market item (third review); the published-at
+    window keeps a first poll's backlog from the previous day out."""
     start = prior_close_before(inp.as_of)
     dear = _too_dear(inp)
-    return [f for f in collect_facts(inp, start, inp.as_of, ("wire", "filing"))
-            if f.get("ticker") and f.get("class") and str(f.get("ticker")).upper() not in dear]
+    out = []
+    for f in collect_facts(inp, start, inp.as_of, ("wire", "filing")):
+        published = _published(f)
+        if published is None or not start <= published <= inp.as_of:
+            continue
+        if f.get("ticker") and f.get("class") and str(f.get("ticker")).upper() not in dear:
+            out.append(f)
+    out.sort(key=lambda r: (_published(r), str(r.get("first_seen_at")), str(r.get("fact_id"))), reverse=True)
+    return out
+
+
+def fold_offering_filings(facts: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """One line per issuer for `offering` filings (a bank files 424B2 notes all day, one fact per
+    listed ticker): the newest is kept, and `folded[fact_id]` counts the others it stands for."""
+    shown: list[dict[str, Any]] = []
+    folded: dict[str, int] = {}
+    first: dict[str, str] = {}
+    for f in facts:
+        if f.get("kind") == "filing" and f.get("class") == "offering":
+            issuer = str(f.get("cik") or f.get("ticker"))
+            if issuer in first:
+                folded[first[issuer]] = folded.get(first[issuer], 0) + 1
+                continue
+            first[issuer] = str(f.get("fact_id"))
+        shown.append(f)
+    return shown, folded
 
 
 def open_halts(inp: BriefInputs) -> list[dict[str, Any]]:
@@ -215,15 +247,18 @@ def sec_regime(inp: BriefInputs) -> list[str]:
 
 
 def sec_catalysts(inp: BriefInputs) -> list[str]:
-    facts = catalysts(inp)
+    facts, folded = fold_offering_filings(catalysts(inp))
     labels = _labels(inp, prior_close_before(inp.as_of))
-    lines = ["## Overnight catalysts (since the prior close)", ""]
+    lines = ["## Overnight catalysts (since the prior close, newest first)", ""]
     if not facts:
         lines += ["None seen in the monitored sources (PR Newswire, GlobeNewswire, SEC EDGAR).", ""]
         return lines
     for f in facts[:MAX_CATALYSTS]:
-        text = (f"- {_when(f.get('first_seen_at'))} **{md_escape(f.get('ticker'), 12)}** "
+        text = (f"- {_when(f.get('published_at'))} **{md_escape(f.get('ticker'), 12)}** "
                 f"[{md_escape(f.get('class'), 24)}] {md_escape(f.get('title'), 160)} ({md_escape(f.get('source'), 20)})")
+        more = folded.get(str(f.get("fact_id")), 0)
+        if more:
+            text += f" (+{more} more offering filings by this issuer)"
         lab = labels.get(str(f.get("fact_id")))
         if lab and lab.get("status") == "labelled":
             state = "verified" if lab.get("verified") else "unverified"

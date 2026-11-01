@@ -28,6 +28,7 @@ from scout_reader._et import et_to_utc
 
 from scout.clock import Clock, et_date, iso
 from scout.config import ScoutConfig
+from scout.edgar_parse import refuse_dtd
 from scout.macro import SchemaError, fact_id
 from scout.models import Fact, FetchResult, HealthRecord, SourceState
 
@@ -105,12 +106,10 @@ def parse_halts(body: bytes) -> list[HaltRow]:
     data = bytes(body).lstrip()
     if data.startswith(b"\xef\xbb\xbf"):
         data = data[3:].lstrip()
-    head = data[:4096].upper()
-    if b"<!DOCTYPE" in head or b"<!ENTITY" in data.upper():
-        raise SchemaError("halts: DOCTYPE or ENTITY declarations are refused")
+    refuse_dtd(data, "halts", SchemaError)  # any encoding (a UTF-16 body passed the byte search; third review)
     try:
         root = ET.fromstring(data)
-    except ET.ParseError as exc:
+    except (ET.ParseError, ValueError, LookupError) as exc:
         raise SchemaError("halts: not well-formed XML") from exc
     if _local(root.tag)[1] != "rss":
         raise SchemaError("halts: root is not <rss>")

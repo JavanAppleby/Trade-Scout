@@ -359,3 +359,11 @@ def test_a_clock_stepped_back_does_not_stop_the_halt_polls(cfg, clock, et) -> No
     assert poller.ready(et("2026-11-02", "10:00")) is True
     poller.poll(et("2026-11-02", "10:00"))
     assert len(fetcher.calls) == 2
+
+
+def test_a_dtd_in_a_utf16_halt_feed_is_refused() -> None:
+    """Regression (third review): the DOCTYPE/ENTITY byte check missed a UTF-16 body."""
+    body = ('<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE rss [<!ENTITY a "x">]>'
+            '<rss><channel/></rss>').encode("utf-16")
+    with pytest.raises(SchemaError, match="DTD"):
+        parse_halts(body)

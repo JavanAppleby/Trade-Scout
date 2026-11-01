@@ -38,7 +38,7 @@ PREFIXES = ScoutConfig().ticker_exchange_prefixes
     ("(NYSE: BF/A)", [("NYSE", "BF-A")]),
     ("(NASDAQ: ACME) and again (NASDAQ: ACME)", [("NASDAQ", "ACME")]),
     ("(NASDAQ: ACME) (NYSE: BETA)", [("NASDAQ", "ACME"), ("NYSE", "BETA")]),
-    ("(OTC Pink: ZZZ)", []),
+    ("(LSE: ZZZ)", []),
     ("(the company)", []),
     ("NASDAQ: ACME without brackets", []),
     ("(NASDAQ: TOOLONGSYM)", []),
@@ -56,3 +56,22 @@ def test_prefix_list_is_config():
 @pytest.mark.parametrize("raw, norm", [("brk.b", "BRK-B"), ("BF/A", "BF-A"), (" acme ", "ACME")])
 def test_normalise(raw, norm):
     assert normalise(raw) == norm
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("(Nasdaq CM: ACME)", [("Nasdaq CM", "ACME")]),
+    ("(NasdaqCM: ACME)", [("NasdaqCM", "ACME")]),
+    ("(NASDAQ Capital Market: ACME)", [("NASDAQ Capital Market", "ACME")]),
+    ("(Nasdaq Global Market: ACME)", [("Nasdaq Global Market", "ACME")]),
+    ("(OTC Pink: ACME)", [("OTC Pink", "ACME")]),
+    ("(CSE: ACM / OTCQB: ACMEF)", [("OTCQB", "ACMEF")]),
+    ('(the "Company" or "Acme", NASDAQ: ACME)', [("NASDAQ", "ACME")]),
+    ("Acme, Inc. (Nasdaq - ACME)", [("Nasdaq", "ACME")]),
+    ("Acme, Inc. (Nasdaq \u2013 ACME)", [("Nasdaq", "ACME")]),
+    ("(a Nasdaq-listed company)", []),  # a dash needs a space each side
+    ("(NYSE: BF/A)", [("NYSE", "BF-A")]),  # "/" inside a symbol is not a split
+])
+def test_common_exchange_tag_spellings(text, expected):
+    """Regression (third review): these spellings gave no ticker, so the fact was stored with
+    ticker None and a date notice never reached gate 5."""
+    assert tickers_in(text, PREFIXES) == expected
