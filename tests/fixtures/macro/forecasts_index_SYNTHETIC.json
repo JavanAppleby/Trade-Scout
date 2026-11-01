@@ -1,27 +1,95 @@
 {
- "_SYNTHETIC": "hand-built; replace with a live capture at build step 2",
+ "_SYNTHETIC": "synthetic: nowflation's live layout as read 2026-10-31, every value invented; tests only",
  "generated_at": "2026-11-02T11:00:00Z",
- "forecasts": [
+ "n_graded": 3,
+ "unknown_count": 4,
+ "horizons": {
+  "2026-10": [
+   {
+    "days": 7,
+    "label": "synthetic",
+    "official_forecast": 2.7,
+    "locked_at_utc": "2026-11-05T22:30:00Z"
+   }
+  ]
+ },
+ "latest": "2026-10",
+ "receipts": [
   {
-   "kind": "CPI",
-   "release": "2026-09-11",
-   "forecast": 0.3,
-   "actual": 0.4,
-   "graded": true
-  },
-  {
-   "kind": "CPI",
-   "release": "2026-10-15",
-   "forecast": 0.3,
-   "actual": 0.3,
-   "graded": true
-  },
-  {
-   "kind": "CPI",
-   "release": "2026-11-12",
-   "forecast": 0.2,
+   "print_month": "2026-10",
+   "status": "provisional",
+   "record_type": "provisional",
+   "pre_registered": false,
+   "release_datetime_utc": "2026-11-12T13:30:00Z",
+   "official_forecast": 2.71,
+   "headline_yoy": {
+    "nowflation_forecast_ensemble": 2.71,
+    "nowflation_nowcast_inhouse": 2.66,
+    "cleveland_fed": 2.58,
+    "kalshi_implied": null,
+    "street_consensus": null
+   },
+   "graded": false,
    "actual": null,
-   "graded": false
+   "signed_error": null,
+   "unknown_receipt_key": "synthetic"
+  },
+  {
+   "print_month": "2026-09",
+   "status": "locked",
+   "record_type": "pre_registered",
+   "pre_registered": true,
+   "release_datetime_utc": "2026-10-15T12:30:00Z",
+   "official_forecast": 2.83,
+   "headline_yoy": {
+    "nowflation_forecast_ensemble": 2.83,
+    "nowflation_nowcast_inhouse": 2.79,
+    "cleveland_fed": 2.86,
+    "kalshi_implied": 2.88,
+    "street_consensus": 2.8
+   },
+   "graded": true,
+   "actual": 2.9,
+   "signed_error": -0.07,
+   "unknown_receipt_key": "synthetic"
+  },
+  {
+   "print_month": "2026-08",
+   "status": "locked",
+   "record_type": "pre_registered",
+   "pre_registered": true,
+   "release_datetime_utc": "2026-09-11T12:30:00Z",
+   "official_forecast": 2.95,
+   "headline_yoy": {
+    "nowflation_forecast_ensemble": 2.95,
+    "nowflation_nowcast_inhouse": 2.91,
+    "cleveland_fed": 2.9,
+    "kalshi_implied": 2.93,
+    "street_consensus": 3.0
+   },
+   "graded": true,
+   "actual": 2.9,
+   "signed_error": 0.05,
+   "unknown_receipt_key": "synthetic"
+  },
+  {
+   "print_month": "2026-07",
+   "status": "locked",
+   "record_type": "frozen_after_release",
+   "pre_registered": false,
+   "release_datetime_utc": "2026-08-12T12:30:00Z",
+   "official_forecast": 3.02,
+   "headline_yoy": {
+    "nowflation_forecast_ensemble": 3.02,
+    "nowflation_nowcast_inhouse": 3.05,
+    "cleveland_fed": 3.0,
+    "kalshi_implied": 2.98,
+    "street_consensus": 3.0
+   },
+   "graded": true,
+   "actual": 3.1,
+   "signed_error": -0.08,
+   "unknown_receipt_key": "synthetic"
   }
  ]
 }

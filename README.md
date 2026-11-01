@@ -19,13 +19,19 @@ answer.
     cd /d E:\Scout
     py -3.13 -m venv .venv
     .venv\Scripts\python.exe -m pip install -e ".[dev]"
-    copy config.example.toml config.toml
 
-Then open `config.toml` and set:
+Then create `config.toml` holding **only the keys you change**, for example:
+
+    contact_email = "you@example.com"
+    radar_dir = 'E:\Radar'
 
 - `contact_email`: your e-mail address, sent to the SEC and the other sources in Scout's
   User-Agent. **While it is empty Scout makes no web requests at all.**
-- `radar_dir` (for example `'E:\Radar'`) and, once Pilot exists, `pilot_dir`. Scout only reads them.
+- `radar_dir` and, once Pilot exists, `pilot_dir`. Scout only reads them.
+
+Every other key keeps the default in `config.example.toml`, which documents them all. Do not copy
+the whole example: a copied key pins today's value, so later updates to that default (keyword lists,
+source addresses) would never reach you.
 
 Never commit `config.toml` or `.env`. A misspelt key in `config.toml` stops Scout with a message
 naming the key.

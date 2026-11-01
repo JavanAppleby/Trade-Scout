@@ -10,9 +10,9 @@ from scout_reader.api import Reader, fresh_catalyst, news_headline
 
 from scout.config import ScoutConfig
 
-from conftest import et_at
+from conftest import et_at, make_config
 from helpers_answers import (
-    GATE6_SOURCES, fact, good_world, hide_module, install_coverage, write_beats, write_health, write_params,
+    fact, good_world, hide_module, install_coverage, write_beats, write_health, write_params,
 )
 from helpers_fakes import write_records
 
@@ -34,6 +34,14 @@ def world(scout_dir: Path, cfg: ScoutConfig) -> Path:
 
 def _facts(scout_dir: Path, *facts: dict) -> None:
     write_records(scout_dir, "facts", facts)
+
+
+def _config(scout_dir: Path, globenewswire: bool) -> ScoutConfig:
+    """The default config (GlobeNewswire off since 2026-11-01), or with GlobeNewswire turned on so
+    the params name two gate-6 wires."""
+    if globenewswire:
+        return make_config(scout_dir, sources={"globenewswire": {"enabled": True}})
+    return make_config(scout_dir)
 
 
 def test_no_fact_with_full_coverage_is_false(world: Path) -> None:
@@ -105,14 +113,20 @@ def test_classes_follow_the_params_in_force(scout_dir: Path, cfg: ScoutConfig) -
     assert fresh_catalyst(scout_dir, S, AS_OF - timedelta(seconds=61))["value"] == "false"  # older params
 
 
-def test_a_coverage_gap_turns_false_into_unknown(scout_dir: Path, cfg: ScoutConfig) -> None:
+@pytest.mark.parametrize("globenewswire", [True, False])
+def test_a_coverage_gap_turns_false_into_unknown(scout_dir: Path, globenewswire: bool) -> None:
+    cfg = _config(scout_dir, globenewswire)
+    gate6 = cfg.reader_params()["gate6_sources"]
+    assert ("globenewswire" in gate6) is globenewswire
     write_params(scout_dir, cfg, AS_OF - timedelta(days=5))
     write_beats(scout_dir, AS_OF - timedelta(seconds=60), AS_OF)
     write_health(scout_dir, CLOSE - timedelta(minutes=10), CLOSE + timedelta(hours=1))
-    write_health(scout_dir, CLOSE + timedelta(hours=2), AS_OF)  # an hour with no poll
+    write_health(scout_dir, CLOSE + timedelta(hours=2), AS_OF)  # an hour with no poll, every wire
     res = fresh_catalyst(scout_dir, S, AS_OF)
     assert res["value"] == "unknown"
-    assert {f"gap:{s}:interval" for s in GATE6_SOURCES} <= set(res["reasons"])
+    assert {f"gap:{s}:interval" for s in gate6} <= set(res["reasons"])
+    # a source the params do not mark as gate 6 is never checked, whatever its health says
+    assert not any(r.startswith("gap:") and r.split(":")[1] not in gate6 for r in res["reasons"])
 
 
 @pytest.mark.parametrize("result, overlap, why", [("ok", False, "no_overlap"), ("timeout", True, "failed_poll"),
@@ -131,23 +145,53 @@ def test_a_gap_does_not_hide_a_true(world: Path) -> None:
     assert fresh_catalyst(world, S, AS_OF)["value"] == "true"
 
 
+@pytest.mark.parametrize("globenewswire, failing", [(True, "globenewswire"), (True, "prnewswire"),
+                                                    (False, "prnewswire"), (False, "edgar_atom")])
 @pytest.mark.parametrize("status", ["stale", "unavailable", "refused", "starting", "disabled"])
-def test_a_source_not_ok_gives_unknown(scout_dir: Path, cfg: ScoutConfig, status: str) -> None:
+def test_a_source_not_ok_gives_unknown(scout_dir: Path, globenewswire: bool, failing: str, status: str) -> None:
+    """Any gate-6 source the params name (two wires when GlobeNewswire is on, one failing) that is
+    not ok in the beat makes gate 6 unknown, even over a fact in the window."""
+    cfg = _config(scout_dir, globenewswire)
+    gate6 = cfg.reader_params()["gate6_sources"]
+    assert failing in gate6
     good_world(scout_dir, cfg, AS_OF)
-    write_beats(scout_dir, AS_OF, AS_OF, sources={"edgar_atom": "ok", "globenewswire": status, "prnewswire": "ok"})
+    write_beats(scout_dir, AS_OF, AS_OF, sources={s: (status if s == failing else "ok") for s in gate6})
     _facts(scout_dir, fact(S, published=AS_OF - timedelta(minutes=5), cls="fda"))
     res = fresh_catalyst(scout_dir, S, AS_OF)
-    assert res["value"] == "unknown" and res["reasons"] == ["source_not_ok:globenewswire"]
+    assert res["value"] == "unknown" and res["reasons"] == [f"source_not_ok:{failing}"]
 
 
-def test_a_source_missing_from_the_beat_or_an_open_gap_gives_unknown(scout_dir: Path, cfg: ScoutConfig) -> None:
+@pytest.mark.parametrize("globenewswire, missing", [(True, "globenewswire"), (False, "prnewswire"),
+                                                    (False, "edgar_atom")])
+def test_a_source_missing_from_the_beat_or_an_open_gap_gives_unknown(scout_dir: Path, globenewswire: bool,
+                                                                     missing: str) -> None:
+    cfg = _config(scout_dir, globenewswire)
+    gate6 = cfg.reader_params()["gate6_sources"]
     good_world(scout_dir, cfg, AS_OF)
-    write_beats(scout_dir, AS_OF, AS_OF, sources={"edgar_atom": "ok", "prnewswire": "ok"})
-    assert fresh_catalyst(scout_dir, S, AS_OF)["reasons"] == ["source_missing:globenewswire"]
+    write_beats(scout_dir, AS_OF, AS_OF, sources={s: "ok" for s in gate6 if s != missing})
+    assert fresh_catalyst(scout_dir, S, AS_OF)["reasons"] == [f"source_missing:{missing}"]
     later = AS_OF + timedelta(seconds=10)
     write_beats(scout_dir, later, later, gap_open={"prnewswire": True})
     res = fresh_catalyst(scout_dir, S, later)
     assert res["value"] == "unknown" and "gap_open:prnewswire" in res["reasons"]
+
+
+@pytest.mark.parametrize("beat_status", ["disabled", "refused", None])
+def test_a_disabled_source_does_not_block_gate6(scout_dir: Path, beat_status: str | None) -> None:
+    """GlobeNewswire off (the default since 2026-11-01): the params do not name it, so its beat
+    status (disabled, a leftover refused, or absent) and its missing health never turn a clean
+    false into unknown."""
+    cfg = _config(scout_dir, globenewswire=False)
+    gate6 = cfg.reader_params()["gate6_sources"]
+    assert "globenewswire" not in gate6 and gate6
+    write_params(scout_dir, cfg, AS_OF - timedelta(days=60))
+    sources = {s: "ok" for s in gate6}
+    if beat_status is not None:
+        sources["globenewswire"] = beat_status
+    write_beats(scout_dir, AS_OF - timedelta(seconds=90), AS_OF, sources=sources)
+    write_health(scout_dir, CLOSE - timedelta(minutes=10), AS_OF, every=150.0, sources=gate6)  # no GNW polls
+    res = fresh_catalyst(scout_dir, S, AS_OF)
+    assert res["value"] == "false" and res["reasons"] == ["no_fact_full_coverage"] and res["stale"] is False
 
 
 def test_no_gate6_sources_gives_unknown(scout_dir: Path, cfg: ScoutConfig) -> None:

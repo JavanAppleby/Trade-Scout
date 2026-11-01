@@ -23,7 +23,7 @@ RT_URL = f"{NOW_BASE}/data/realtime.json"
 FC_URL = f"{NOW_BASE}/forecasts/index.json"
 ICS_URL = f"{NOW_BASE}/nowflation.ics"
 BLS_URL = "https://www.bls.gov/schedule/news_release/bls.ics"
-VIX_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv"
+VIX_URL = "https://cdn-api.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv"
 HALTS_URL = "https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts"
 
 

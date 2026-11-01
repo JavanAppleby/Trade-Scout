@@ -7,7 +7,7 @@ from datetime import timedelta
 
 import pytest
 from helpers_fakes import FakeBoard, FakeFactSink, FakeFetcher, FakeHealthSink, FakeRawSink, fetch_result
-from helpers_wire import fixture, wire_config
+from helpers_wire import GNW_ON, fixture, wire_config
 
 from scout.edgar_parse import SchemaError
 from scout.facts import make_fact_id
@@ -163,10 +163,11 @@ def test_not_modified_poll(scout_dir, clock):
 
 
 def test_refused_after_three_403s_for_the_rest_of_the_et_day(scout_dir, clock):
-    cfg = wire_config(scout_dir)
+    cfg = wire_config(scout_dir, sources=GNW_ON)
     url = cfg.source("globenewswire").url
     forbidden = fetch_result("globenewswire", url, b"", result="http_error", status=403)
-    _, _, poller, fetcher, _, facts, health, board = setup(scout_dir, clock, "globenewswire", {url: forbidden})
+    _, _, poller, fetcher, _, facts, health, board = setup(scout_dir, clock, "globenewswire", {url: forbidden},
+                                                           sources=GNW_ON)
     for _ in range(3):
         poller.poll(clock.now())
         clock.advance(120)
@@ -181,19 +182,20 @@ def test_refused_after_three_403s_for_the_rest_of_the_et_day(scout_dir, clock):
 
 
 def test_a_success_resets_the_403_count(scout_dir, clock):
-    cfg = wire_config(scout_dir)
+    cfg = wire_config(scout_dir, sources=GNW_ON)
     url = cfg.source("globenewswire").url
     forbidden = fetch_result("globenewswire", url, b"", result="http_error", status=403)
-    _, _, poller, fetcher, *_ = setup(scout_dir, clock, "globenewswire", {url: forbidden})
+    _, _, poller, fetcher, *_ = setup(scout_dir, clock, "globenewswire", {url: forbidden}, sources=GNW_ON)
     poller.poll(clock.now())
     poller.poll(clock.now())
+    assert poller.forbidden_in_a_row == 2  # the 403s were counted (the source is enabled here)
     fetcher.results[url] = fixture("globenewswire.rss")
     poller.poll(clock.now())
     assert poller.forbidden_in_a_row == 0 and poller.refused_on is None
 
 
 def test_globenewswire_tickers_from_categories(scout_dir, clock):
-    cfg, url, poller, fetcher, raw, facts, health, board = setup(scout_dir, clock, "globenewswire")
+    cfg, url, poller, fetcher, raw, facts, health, board = setup(scout_dir, clock, "globenewswire", sources=GNW_ON)
     poller.poll(clock.now())
     assert [(f.ticker, f.exchange, f.cls) for f in facts.facts] == [
         ("OMGB", "Nasdaq", "trial"), ("UPSN", "NYSE", "earnings_result"), ("CHIC", "Nasdaq", "offering")]
@@ -203,6 +205,13 @@ def test_disabled_source(scout_dir, clock):
     _, _, poller, fetcher, *_rest, board = setup(scout_dir, clock, sources={"prnewswire": {"enabled": False}})
     assert poller.poll(clock.now()) == 0 and fetcher.calls == []
     assert board.sources["prnewswire"].status == "disabled"
+
+
+def test_globenewswire_is_off_by_default(scout_dir, clock):
+    """Off since 2026-11-01 (403 to Scout's User-Agent; SCOUT_SPEC 4.1 #5): no fetch, status disabled."""
+    _, _, poller, fetcher, *_rest, board = setup(scout_dir, clock, "globenewswire")
+    assert poller.poll(clock.now()) == 0 and fetcher.calls == []
+    assert board.sources["globenewswire"].status == "disabled"
 
 
 def test_first_seen_is_when_the_feed_arrived(scout_dir, clock):

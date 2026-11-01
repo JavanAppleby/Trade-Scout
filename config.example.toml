@@ -46,7 +46,7 @@ radar_answers_as_of_et = "19:45"  # ... as of this time
 
 # --------------------------------------------------------------------------- macro (record and report only)
 nowflation_max_age_h = 30.0               # nowflation data older than this is stale
-nowflation_max_stale_weight_pct = 70.0    # more than this share of stale inputs is stale
+nowflation_max_stale_weight_pct = 20.0    # stale when more than this % of the market-sourced weight is stale
 nowflation_fresh_after_et = "09:15"       # nowflation's daily update is expected by this time
 nowflation_read_times_et = ["08:20"]      # nowflation is read at start and at these times
 nowflation_release_day_time_et = "08:50"  # an extra read on CPI/PCE release days
@@ -190,7 +190,9 @@ gate6 = true
 terms_ok = false
 
 [sources.globenewswire]
-enabled = true
+# Off: GlobeNewswire answered 403 to Scout's declared User-Agent on 2026-11-01 (SCOUT_SPEC 4.1 #5:
+# "dropped if refused"). While on and failing it keeps every gate-6 answer at unknown.
+enabled = false
 kind = "wire"
 url = "https://www.globenewswire.com/RssFeed/orgclass/1/feedTitle/GlobeNewswire%20-%20News%20about%20Public%20Companies"
 paths = []
@@ -244,11 +246,11 @@ terms_ok = true
 [sources.cboe_vix]
 enabled = true
 kind = "vix"
-url = "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv"
+url = "https://cdn-api.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv"
 paths = []
 min_spacing_s = 86400.0
 idle_spacing_s = 86400.0
-allowed_hosts = ["cdn.cboe.com"]
+allowed_hosts = ["cdn-api.cboe.com"]
 terms_note = "Daily close history; once a trading day after 16:30 ET."
 max_items = 0
 gate6 = false

@@ -28,12 +28,16 @@ def test_defaults_match_design(scout_dir: Path) -> None:
     assert set(c.sources) == {"edgar_atom", "edgar_submissions", "edgar_tickers", "prnewswire", "globenewswire",
                               "nasdaq_halts", "nowflation", "bls", "cboe_vix"}
     assert c.source("prnewswire").terms_ok is False and c.source("globenewswire").terms_ok is False
+    # GlobeNewswire answered 403 on 2026-11-01: kept in the table (gate 6 when on) but off by default
+    assert c.source("globenewswire").enabled is False and c.source("globenewswire").gate6 is True
+    assert c.source("cboe_vix").url.startswith("https://cdn-api.cboe.com/")
+    assert c.source("cboe_vix").allowed_hosts == ("cdn-api.cboe.com",)
     assert c.source("edgar_atom").max_items == 100 and c.source("edgar_atom").gate6 is True
     assert set(c.class_keywords) == set(CLASS_KEYWORD_KEYS)
     assert c.llm_job("J1").model == "claude-haiku-5-5" and c.llm_job("J4").max_tokens == 3000
     assert c.price("claude-sonnet-5-5").output_per_mtok == 10.0 and c.price("no-such-model") is None
     assert c.web_search_usd_per_1000 == 10.0
-    assert [s.name for s in c.enabled_sources("wire")] == ["prnewswire", "globenewswire"]
+    assert [s.name for s in c.enabled_sources("wire")] == ["prnewswire"]
 
 
 def test_example_loads_to_the_defaults() -> None:
@@ -158,7 +162,11 @@ def test_price_table_override_and_addition(scout_dir: Path) -> None:
 
 def test_reader_params(scout_dir: Path) -> None:
     p = config_from_dict({}, scout_dir).reader_params()
-    assert p["gate6_sources"] == ["edgar_atom", "globenewswire", "prnewswire"]
+    assert p["gate6_sources"] == ["edgar_atom", "prnewswire"]  # globenewswire is off by default
+    assert set(p["gate6_feeds"]) == {"edgar_atom", "prnewswire"}
+    on = config_from_dict({"sources": {"globenewswire": {"enabled": True}}}, scout_dir).reader_params()
+    assert on["gate6_sources"] == ["edgar_atom", "globenewswire", "prnewswire"]
+    assert "globenewswire" in on["gate6_feeds"]
     assert p["fomc_decision_time_et"] == "14:00" and p["fomc_dates"][0] == "2026-01-28"
     assert set(p) == {"hold_catalyst_classes", "earnings_lookback_days", "earnings_due_start_days",
                       "earnings_due_end_days_quarter", "earnings_due_end_days_annual", "hold_block_macro_events",

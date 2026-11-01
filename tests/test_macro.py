@@ -124,12 +124,16 @@ def test_inflation_regime(cfg, change, regime) -> None:
 
 
 def test_regime_window_and_thresholds_from_config(scout_dir) -> None:
-    rt = parse_realtime(macro_body("realtime_SYNTHETIC.json"))
-    assert inflation_regime(rt, make_config(scout_dir)) == "hot"
-    assert inflation_regime(rt, make_config(scout_dir, inflation_regime_window_days=5)) == "steady"  # 0.10
-    assert inflation_regime(rt, make_config(scout_dir, inflation_hot_pp=0.5)) == "steady"
+    rt = parse_realtime(macro_body("realtime_SYNTHETIC.json"))  # changes 1d 0.015, 5d -0.072, 20d -0.064
+    assert inflation_regime(rt, make_config(scout_dir)) == "steady"
+    assert inflation_regime(rt, make_config(scout_dir, inflation_regime_window_days=5)) == "steady"
+    assert inflation_regime(rt, make_config(scout_dir, inflation_regime_window_days=5, inflation_cooling_pp=0.05))         == "cooling"
+    assert inflation_regime(rt, make_config(scout_dir, inflation_cooling_pp=0.005)) == "cooling"
     assert inflation_regime(rt, make_config(scout_dir, inflation_regime_window_days=10)) == "unknown"
     assert inflation_regime(None, make_config(scout_dir)) == "unknown"
+    hot = parse_realtime(macro_body("realtime_SYNTHETIC.json").replace(b'"realtime_wow_pp": -0.072',
+                                                                     b'"realtime_wow_pp": 0.3'))
+    assert inflation_regime(hot, make_config(scout_dir, inflation_regime_window_days=5)) == "hot"
 
 
 def test_forecast_lean_is_informational() -> None:
@@ -137,12 +141,31 @@ def test_forecast_lean_is_informational() -> None:
     fc = parse_forecasts(macro_body("forecasts_index_SYNTHETIC.json"))
     lean = forecast_lean(cal, fc)
     assert lean == [{"kind": "cpi", "event_at": "2026-11-12T13:30:00Z", "vs_prior": -0.1, "vs_street": None,
-                     "graded_prints": 2, "note": "informational, untested"}]
+                     "graded_prints": 3, "note": "informational, untested", "forecast": 0.2, "prior": 0.3,
+                     "street": None, "vs_cleveland": -0.05, "print_month": None, "receipt_status": None}]
     assert forecast_lean(None) == []
     ev = MacroEvent(kind="cpi", event_at=NOW, source="nowflation", prior={"headline": 0.3, "core": 0.2},
                     nowflation_forecast={"headline": 0.2, "core": 0.3, "x": "a"}, street=0.1)
     out = forecast_lean(type("C", (), {"events": [ev]})())
     assert out[0]["vs_prior"] == {"core": 0.1, "headline": -0.1} and out[0]["vs_street"] is None
+
+
+def test_forecast_lean_takes_missing_values_from_the_receipt_for_the_print_month() -> None:
+    fc = parse_forecasts(macro_body("forecasts_index_SYNTHETIC.json"))
+    # a September CPI event with only a prior: forecast 2.83, street 2.8, Cleveland 2.86 from the receipt
+    ev = MacroEvent(kind="cpi", event_at=NOW, source="nowflation", prior=2.7, extra={"data_month": "2026-09"})
+    (lean,) = forecast_lean(type("C", (), {"events": [ev]})(), fc)
+    assert (lean["forecast"], lean["vs_prior"], lean["vs_street"], lean["vs_cleveland"]) == (2.83, 0.13, 0.03, -0.03)
+    assert lean["receipt_status"] == "locked" and lean["print_month"] == "2026-09"
+    # the calendar's own values win over the receipt's
+    ev2 = MacroEvent(kind="cpi", event_at=NOW, source="nowflation", prior=3.4, nowflation_forecast=3.5, street=3.5,
+                     extra={"data_month": "2026-09"})
+    (lean2,) = forecast_lean(type("C", (), {"events": [ev2]})(), fc)
+    assert (lean2["forecast"], lean2["vs_street"]) == (3.5, 0.0)
+    # no receipt for the month and no calendar forecast: left out; non-CPI kinds never use receipts
+    none = MacroEvent(kind="cpi", event_at=NOW, source="nowflation", prior=3.4, extra={"data_month": "2025-01"})
+    pce = MacroEvent(kind="pce", event_at=NOW, source="nowflation", prior=3.4, extra={"data_month": "2026-09"})
+    assert forecast_lean(type("C", (), {"events": [none, pce]})(), fc) == []
 
 
 # --------------------------------------------------------------------------- stale_after

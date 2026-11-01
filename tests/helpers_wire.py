@@ -14,6 +14,9 @@ from scout.edgar_atom import form_url
 
 WIRE = Path(__file__).parent / "fixtures" / "wire"
 FORMS = ["8-K", "424B", "NT 10-K"]  # a short form list keeps the tests readable
+# GlobeNewswire is off by default since 2026-11-01 (it answered 403); tests of its parsing, polling
+# or of two gate-6 wires turn it on explicitly with this override.
+GNW_ON: dict[str, Any] = {"globenewswire": {"enabled": True}}
 
 
 def fixture(name: str) -> bytes:

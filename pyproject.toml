@@ -12,6 +12,9 @@ dependencies = [
     # Only for the Claude jobs (imported lazily by scout.llm_client, off unless llm_enabled = true).
     # Never add webull* or trade-guardian here (SCOUT_SPEC 2.1; tests/test_boundaries.py).
     "anthropic==2.3.0",
+    # TLS verification with the OS trust store (scout.http): Python's OpenSSL with the Windows store
+    # picked an expired path for the Let's Encrypt chains of GlobeNewswire and Cboe (2026-10-31).
+    "truststore==0.10.5",
 ]
 
 [project.optional-dependencies]

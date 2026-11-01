@@ -1,7 +1,7 @@
 BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//nowflation//release calendar//EN
-X-SCOUT-NOTE:_SYNTHETIC hand-built; replace with a live capture at build step 2
+X-SCOUT-NOTE:_SYNTHETIC hand-built, values invented; stays synthetic (nowflation terms)
 BEGIN:VEVENT
 UID:cpi-2026-11@nowflation
 DTSTAMP:20261102T110000Z

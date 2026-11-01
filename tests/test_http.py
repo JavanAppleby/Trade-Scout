@@ -123,7 +123,7 @@ def test_nasdaqtrader_hard_minimum_beats_config(scout_dir, clock):
 def test_default_spacing_and_configured_spacing(scout_dir, clock):
     cfg = wire_config(scout_dir, http_default_host_spacing_s=2.5, host_min_spacing_s={"www.prnewswire.com": 47.0})
     f, _ = fetcher(cfg, clock)
-    assert f.spacing_for("cdn.cboe.com") == 2.5
+    assert f.spacing_for("cdn-api.cboe.com") == 2.5  # the Cboe VIX host: no configured spacing
     assert f.spacing_for("www.prnewswire.com") == 47.0
     assert f.spacing_for("data.sec.gov") == 2.5  # configured above the hard minimum 0.5
 
@@ -409,3 +409,55 @@ def test_wire_hosts_have_a_hard_minimum_in_code(scout_dir, clock):
     cfg = wire_config(scout_dir, host_min_spacing_s={"www.prnewswire.com": 1.0})
     f, _ = fetcher(cfg, clock)
     assert f.spacing_for("www.prnewswire.com") == 30.0 and f.spacing_for("www.globenewswire.com") == 30.0
+
+
+# --------------------------------------------------------------------------- TLS (no network)
+
+
+def test_tls_verifies_with_the_os_trust_store():
+    import ssl
+
+    import truststore  # a declared dependency: installed by `pip install -e .[dev]` (and CI)
+
+    ctx, which = H.ssl_context()
+    assert which == "os_trust_store" and isinstance(ctx, truststore.SSLContext)
+    assert ctx.verify_mode == ssl.CERT_REQUIRED and ctx.check_hostname is True
+    assert H.TLS_TRUST == "os_trust_store" and isinstance(H._SSL_CONTEXT, truststore.SSLContext)
+
+
+def test_the_opener_uses_the_verifying_context():
+    import ssl
+    import urllib.request
+
+    https = [h for h in H._OPENER.handlers if isinstance(h, urllib.request.HTTPSHandler)]
+    assert len(https) == 1 and https[0]._context is H._SSL_CONTEXT
+    assert https[0]._context.verify_mode == ssl.CERT_REQUIRED and https[0]._context.check_hostname is True
+    assert any(isinstance(h, H._NoRedirect) for h in H._OPENER.handlers)  # redirects still refused
+
+
+def test_tls_falls_back_to_pythons_default_context(monkeypatch):
+    import ssl
+    import sys
+
+    monkeypatch.setitem(sys.modules, "truststore", None)  # `import truststore` raises ImportError
+    ctx, which = H.ssl_context()
+    assert which == "python_default" and type(ctx) is ssl.SSLContext
+    assert ctx.verify_mode == ssl.CERT_REQUIRED and ctx.check_hostname is True
+
+
+def test_build_fetcher_logs_which_trust_is_used(cfg, clock, caplog):
+    ctx = SimpleNamespace(cfg=cfg, clock=clock, log=logging.getLogger("scout"), paths=ScoutPaths.from_config(cfg))
+    with caplog.at_level(logging.INFO, logger="scout"):
+        build_fetcher(ctx)
+    assert any("TLS: certificates verified with the OS trust store" in r.getMessage() for r in caplog.records)
+
+
+def test_tls_verification_is_never_disabled_in_code():
+    import re
+    from pathlib import Path
+
+    root = Path(H.__file__).resolve().parent
+    bad = re.compile(r"CERT_NONE|CERT_OPTIONAL|check_hostname\s*=\s*False|_create_unverified_context|verify\s*=\s*False")
+    hits = [f"{p.name}:{i}" for p in sorted(root.glob("*.py"))
+            for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if bad.search(line)]
+    assert hits == []

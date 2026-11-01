@@ -5,7 +5,8 @@ Monday 2026-11-02 from 03:55 to 20:40 ET on a ManualClock (the quiet core sessio
 16:00 close, so the evening answers still need clean coverage). Scout is built from a config.toml on
 disk (`build_context`), every job module is loaded strictly, and the only fakes are the HTTP
 transport (every source answered from the offline fixtures) and the Claude transport (a scripted
-fake; no key, no network). Radar and Pilot are stand-in folders. The day must produce facts, health,
+fake; no key, no network). The config keeps the defaults, so GlobeNewswire is off (it answered 403 on
+2026-11-01): gate 6 runs on EDGAR and PR Newswire, as on the owner's PC. Radar and Pilot are stand-in folders. The day must produce facts, health,
 the heartbeat, macro files, the Jason snapshot, answers, the brief (with J4) and the verify report,
 and the CLI must then answer from those files.
 """
@@ -230,10 +231,16 @@ def test_heartbeat_all_day_with_every_source(day: Day) -> None:
             if not (et_at(DAY, QUIET[0]) <= b <= et_at(DAY, QUIET[1]) + timedelta(minutes=2))]
     assert max(gaps) <= 2 * STEP_S
     noon = next(b for b in beats if parse_iso(b["at"]) >= et_at(DAY, "09:00"))
-    for source in ("edgar_atom", "prnewswire", "globenewswire", "nasdaq_halts", "edgar_tickers", "bls", "cboe_vix",
-                   "nowflation"):
+    for source in ("edgar_atom", "prnewswire", "nasdaq_halts", "edgar_tickers", "bls", "cboe_vix", "nowflation"):
         assert noon["sources"][source] == "ok", source
     assert not any(noon["gap_open"].values())
+    # GlobeNewswire is off by default (403 on 2026-11-01): reported disabled, never fetched, even
+    # though the fixture transport would serve it
+    assert noon["sources"].get("globenewswire") in (None, "disabled")
+    gnw_url = day.ctx.cfg.source("globenewswire").url
+    assert gnw_url in day.http.responses and not any(url == gnw_url for url, *_ in day.http.calls)
+    params = day.jsonl("params.jsonl")
+    assert params[0]["gate6_sources"] == ["edgar_atom", "prnewswire"]
 
 
 def test_only_known_urls_and_no_failed_source(day: Day) -> None:
@@ -260,7 +267,8 @@ def test_one_failing_source_never_stops_the_others(day: Day, tmp_path: Path) -> 
     assert run(ctx, until=et_at(DAY, "10:10"), jobs=load_jobs(ctx, strict=True)) == 0
     health = read_jsonl(folder / "state" / "health" / f"{DAY}.jsonl")
     by_source = Counter((h["source"], h["result"]) for h in health)
-    assert by_source[("globenewswire", "ok")] >= 8
+    assert by_source[("edgar_atom", "ok")] >= 8  # the other gate-6 source keeps polling
+    assert by_source[("nasdaq_halts", "ok")] >= 8
     assert not any(src == "prnewswire" and res == "ok" for src, res in by_source)
     beats = read_jsonl(folder / "state" / "beats" / f"{DAY}.jsonl")
     live = [parse_iso(b["at"]) for b in beats if not b.get("stopped")]
@@ -283,7 +291,7 @@ def test_facts_of_every_kind(day: Day) -> None:
 
 def test_macro_files(day: Day) -> None:
     daily = json.loads((day.scout_dir / "state" / "macro" / f"{DAY}.json").read_text(encoding="utf-8"))
-    assert daily["inflation_regime"] == "hot"
+    assert daily["inflation_regime"] == "steady"
     assert daily["vix"] == {"close": 17.12, "date": "2026-10-30"}
     assert {"nowflation", "bls", "fomc", "cboe_vix"} <= set(daily["sources"])
     assert day.jsonl("macro", "history.jsonl")
@@ -322,7 +330,7 @@ def test_brief_with_every_section_and_j4(day: Day) -> None:
     for heading in ("## Macro events", "## Inflation regime and VIX", "## Overnight catalysts", "## Open halts",
                     "## Jason's levels", "## Source health"):
         assert heading in text, heading
-    assert "Inflation regime: hot" in text  # the 08:20 nowflation read is in the 08:20 brief
+    assert "Inflation regime: steady" in text  # the 08:20 nowflation read is in the 08:20 brief
     assert "VIX close: 17.12" in text
     assert "nfp" in text and "sources agree" in text
     assert "**MUDV** [fda]" in text
@@ -374,4 +382,4 @@ def test_cli_answers_reads_the_days_files(day: Day, cli_clock: ManualClock,
 def test_cli_brief_rewrites_the_days_brief(day: Day, cli_clock: ManualClock) -> None:
     assert cli.main(["--config", str(day.config), "brief", "--date", DAY]) == 0
     text = (day.scout_dir / "reports" / f"scout-{DAY}.md").read_text(encoding="utf-8")
-    assert "Inflation regime: hot" in text  # rebuilt as of 08:20 from the macro history
+    assert "Inflation regime: steady" in text  # rebuilt as of 08:20 from the macro history

@@ -27,7 +27,7 @@ Plain rules for every module:
 | D8 | Scout has no price feed in v1. J1's "tickers under `scan_max_price`" uses the price where one is known (a Radar find); otherwise every wire or filing fact with an exchange-listed ticker is eligible, bounded by `j1_max_calls_per_day`. | SS 8.2 assumes a price Scout does not have. Flagged for the owner in the brief's LLM section. |
 | D9 | LLM calls send no `fallbacks` parameter; a refusal is stored as `unlabelled`. | SS 8.2: "Sonnet and Opus calls handle refusals and fallbacks as unlabelled." |
 | D10 | `jason_tags(S, price, as_of, *, frame_prices=None, near_pct=None)`: the market frame lists Jason's SPY/QQQ setups; it says above/below only for symbols whose price the caller passes. | Scout has no SPY/QQQ price; Radar does. The extra arguments are keyword-only and optional, so SS 10.3's signature holds. |
-| D11 | Fixtures that the spec says are "saved from live reads" start as **synthetic** files written from the shapes in SS 4.1, 6.3 and 7.3, each with a `_SYNTHETIC` marker (a comment line or a JSON key). The lead replaces them with live captures at build step 2 (owner-run, outside tests). | Units must not touch the network. |
+| D11 | Fixtures that the spec says are "saved from live reads" start as **synthetic** files written from the shapes in SS 4.1, 6.3 and 7.3, each with a `_SYNTHETIC` marker (a comment line or a JSON key). The lead replaces them with live captures at build step 2 (owner-run, outside tests), except nowflation's: its terms forbid redistributing its raw files, so its fixtures stay synthetic in its live layout. | Units must not touch the network. |
 
 ## 1. Repository layout
 
@@ -50,9 +50,10 @@ E:\Scout_dev\
 ```
 
 `pyproject.toml` (top level): `name = "scout"`, `version = "0.1.0"`, `requires-python = ">=3.11,<3.14"`,
-`dependencies = ["anthropic==2.3.0"]` (imported lazily, only by `scout.llm_client`; an exact pin,
-because the request shape uses `output_config.effort/format` and the `web_*_20260209` tools, which
-the 1.x SDK lacks; `tests/test_integration.py` checks the shape against the installed SDK offline), dev extra
+`dependencies = ["anthropic==2.3.0", "truststore==0.10.5"]` (`anthropic` imported lazily, only by
+`scout.llm_client`; an exact pin, because the request shape uses `output_config.effort/format` and
+the `web_*_20260209` tools, which the 1.x SDK lacks; `tests/test_integration.py` checks the shape
+against the installed SDK offline; `truststore` only by `scout.http`, see 2.2), dev extra
 `["pytest", "hypothesis", "tzdata"]` (`tzdata` only for the `_et` agreement test).
 `[tool.setuptools] packages = ["scout", "scout_reader"]`,
 `package-dir = {"scout" = "scout", "scout_reader" = "scout_reader/scout_reader"}`.
@@ -260,6 +261,17 @@ by **Update Scout**).
 - `Transport = Callable[[str, Mapping[str, str], float, int], RawResponse]`;
   `RawResponse(status: int, headers: Mapping[str, str], body: bytes)`; `urllib_transport` is the
   only real one.
+- **TLS trust (2026-11-01).** `urllib_transport` verifies certificates with the operating system's
+  trust store through `truststore` (`truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)`, pip's own
+  approach), with CERT_REQUIRED and hostname checking. On the owner's PC (first run, 2026-10-31)
+  Python's OpenSSL with the Windows store built an expired path for the new Let's Encrypt chains of
+  www.globenewswire.com and cdn.cboe.com (leaf, YE1, Root YE, ISRG Root X2, ISRG Root X1, all in
+  date) and refused them, while Windows itself accepted them. (The VIX file has since moved:
+  `cboe_vix` now reads it from cdn-api.cboe.com, as cdn.cboe.com answers 307 there and Scout follows
+  no redirect.) If `truststore` cannot be imported,
+  `ssl.create_default_context()` is used; `scout.http.TLS_TRUST` ("os_trust_store" or
+  "python_default") says which, and `build_fetcher` logs it. Verification is never turned off (a
+  test greps the package for CERT_NONE, `check_hostname = False` and unverified contexts).
 - `class HostBlocked(Exception)` is internal; `fetch` never raises: every failure is a `FetchResult`.
 
 **`scout/raw.py`**: `class RawStore(paths)` implementing `RawSink`
@@ -299,8 +311,8 @@ is built from the first row's CIK (status `ambiguous_ticker`, so gate 5 answers 
 **`scout/wire_rss.py`**: `parse_rss(body: bytes) -> list[RssItem]` (`RssItem(guid, title, link,
 published_at, raw_categories)`; strips a BOM; raises `SchemaError` on drift); `class WirePoller(cfg,
 source_name, fetcher, raw, facts, health, board, clock)`; `poll(now) -> int`. Used for `prnewswire`
-and `globenewswire`. A 403 on GlobeNewswire marks the source `refused` after
-`refused_after_403s` (3) consecutive 403s and stops polling it for the day.
+and `globenewswire` (off by default since 2026-11-01, see 6.3). A 403 on GlobeNewswire marks the
+source `refused` after `refused_after_403s` (3) consecutive 403s and stops polling it for the day.
 
 **`scout/tickers.py`**: `tickers_in(text, prefixes) -> list[tuple[str, str]]` (exchange, ticker;
 regex over "(EXCHANGE: XXX)" or "(EXCHANGE - XXX)" with `ticker_exchange_prefixes`; segments split on
@@ -354,6 +366,58 @@ NowRealtime`, `parse_forecasts(body) -> NowForecasts`, `parse_ics(body) -> list[
 (fallback); pinned schemas (`SchemaError` refuses the source, never skips rows);
 `freshness(cal, rt, now, cfg) -> tuple[str, list[str]]` (SS 7.3 fail-closed list); `class
 NowflationReader(...)`, `read(now) -> MacroRecord` (at most `[host_max_requests_per_day]` reads).
+
+**nowflation's live layout (read 2026-10-31).** The first build pinned synthetic
+shapes and the install refused both files ("realtime: missing 'last_good_held'", "forecasts:
+missing 'forecasts'"); the schemas now follow the live files. Extra keys are allowed; a missing
+required key or a wrong type refuses the source.
+- `realtime.json` required: `generated_at` (ISO UTC), `run.ok`, `run.checks_ok` (booleans),
+  `today.record_type` (string), `today.last_good_held` (boolean), `today.realtime_yoy_pct` (finite
+  number), `freshness.realtime.live_share_pct` (finite number). Optional:
+  `freshness.realtime.stale_weight_pct`; when it is missing, the documented fallback is the sum of
+  `freshness.realtime.stale[].weight_pct` (an empty list is 0); with neither, the weight is None and
+  `freshness` gives `stale_weight_missing` (stale). Live share and stale weight are not complements:
+  held components are neither (on 2026-10-31 the two together were well under half the weight), so
+  the old `100 - live share` fallback is gone.
+- **The stale-weight gate (SS 7.3) on the live layout.** The first build's threshold (70) was set
+  for `100 - live share`. nowflation's `stale_weight_pct` counts only market-sourced components whose
+  every source is older than 2x its cadence (`freshness.definitions.stale`); BLS-held components
+  count in neither figure. In the 2026-10-31 read the market-sourced (live plus stale) weight was
+  well under half the basket, so `stale_weight_pct` could never reach 70 and a threshold of 70 could
+  never fire: every market source stopping would still read "ok".
+  The gate is now the stale share of the market-sourced weight, `stale / (live + stale) * 100`,
+  against `nowflation_max_stale_weight_pct`, recalibrated from 70 to **20** (same key, so existing
+  config files still load; an install that sets 70 keeps a looser gate that still fires when every
+  market source stops). On 2026-10-31 it read well under 20 % (ok); 20 % takes several
+  market-sourced components, or one large one, going stale at once. `live + stale = 0` (every
+  component held from BLS) gives `no_live_inputs` (stale). What it adds: no new gate, it repairs the existing SS 7.3 one; what it removes: the unreachable absolute
+  70. `live_share_pct` itself is not floored: a monthly source stepping aside for a newer BLS print
+  lowers it legitimately (that weight counts as held, not stale). Also read when present: `freshness.realtime.avg_input_age_days`,
+  `today.cpi_gauge_yoy_pct`, `today.official_cpi_yoy_pct`, `today.official_cpi_month`.
+- The 1/5/20-day changes (SS 7.3): 1 day = `today.realtime_dod_pp`; 5 days = `today.realtime_wow_pp`
+  (nowflation's week: 7 calendar days, i.e. 5 trading days; both are like-for-like under the
+  current method); 20 days is not published, so Scout computes it from `history`: today's history
+  point (else `today.realtime_yoy_pct`) minus the point nearest 28 calendar days back (26 to 30 days
+  back will do). It is absent (and the regime `unknown` at the 20-day window) when no such point
+  exists, when that point is not `record_type` "live", or when its `method_version` differs from the
+  file's (a change across a method switch in nowflation's `history` is not like for like).
+  `history` is optional.
+- `forecasts/index.json` required: `generated_at`, `n_graded` (int), `receipts` (list of objects
+  with a `print_month` string). Each receipt keeps `status`, `record_type`, `pre_registered`,
+  `release_datetime_utc`, `official_forecast`, `graded`, `actual`, `signed_error`, and from
+  `headline_yoy`: forecast (`nowflation_forecast_ensemble`), nowcast, cleveland (`cleveland_fed`),
+  kalshi (`kalshi_implied`), street (`street_consensus`). `latest` is optional; `horizons` (T-14,
+  T-7, T-1 locks) is not read.
+- Forecast lean (SS 7.3, informational): per upcoming calendar event with a forecast, forecast
+  minus prior and minus street (consensus), plus minus Cleveland Fed when known, with `n_graded` as
+  the graded count. A CPI event is matched to the receipt for its `data_month`; the receipt fills a
+  forecast, street or Cleveland value the calendar lacks (the calendar wins when both have one) and
+  adds `receipt_status` ("provisional" until locked the evening before the release). A provisional
+  receipt may have `street_consensus` null; the lean then reads "n/a" vs street.
+- Thresholds: over the 2019-2026 history in the capture (reconstructed twice a month before
+  2026-09-15, daily since), 28-day changes have a median size of 0.27 pp (0.19 in calm years, 0.65
+  in 2021-22); at 0.25 / 0.25 about a third read hot, a fifth cooling and half steady. The defaults
+  stay (CLAUDE.md: no change without a journal effect).
 
 **`scout/bls_ics.py`**: `parse_bls_ics(body) -> list[IcsEvent]` (lenient: no DTSTAMP, folded lines,
 `TZID=US-Eastern` or `America/New_York` converted once via `_et`); `class BlsReader`, `read(now)`.
@@ -776,13 +840,23 @@ Keys: `enabled` (bool), `kind` (str: wire, filing, reference, halt, macro, vix),
 | edgar_submissions | true | reference | https://data.sec.gov/submissions/CIK{cik:010d}.json | 0 / 0 (on demand) | data.sec.gov | 0 | false |
 | edgar_tickers | true | reference | https://www.sec.gov/files/company_tickers_exchange.json | 86400 / 86400 | www.sec.gov | 0 | false |
 | prnewswire | true | wire | https://www.prnewswire.com/rss/news-releases-list.rss | 60 / 60 | www.prnewswire.com | 20 | true |
-| globenewswire | true | wire | https://www.globenewswire.com/RssFeed/orgclass/1/feedTitle/GlobeNewswire%20-%20News%20about%20Public%20Companies | 60 / 60 | www.globenewswire.com | 20 | true |
+| globenewswire | false (since 2026-11-01) | wire | https://www.globenewswire.com/RssFeed/orgclass/1/feedTitle/GlobeNewswire%20-%20News%20about%20Public%20Companies | 60 / 60 | www.globenewswire.com | 20 | true |
 | nasdaq_halts | true | halt | https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts | 60 / 0 (not polled 20:00-04:00 except the one dated read) | www.nasdaqtrader.com | 0 | false |
 | nowflation | true | macro | https://nowflation.com, paths ["/data/release_calendar.json", "/data/realtime.json", "/forecasts/index.json", "/nowflation.ics"] | schedule-driven | nowflation.com | 0 | false |
 | bls | true | macro | https://www.bls.gov/schedule/news_release/bls.ics (UNVERIFIED path; confirm at build step 2) | 604800 | www.bls.gov | 0 | false |
-| cboe_vix | true | vix | https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv | 86400 | cdn.cboe.com | 0 | false |
+| cboe_vix | true | vix | https://cdn-api.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv | 86400 | cdn-api.cboe.com | 0 | false |
 
 `terms_ok` is false for `prnewswire` and `globenewswire` until the owner reads their terms.
+
+**GlobeNewswire is off by default (2026-11-01).** Its feed answered 403 to Scout's declared
+User-Agent on 2026-11-01, and SCOUT_SPEC 4.1 #5 says the source is dropped if refused. It also has to
+be off, not merely failing: an enabled gate-6 source that never answers keeps every gate-6 answer at
+`unknown` (`source_not_ok` / coverage gaps). While off, the params do not name it in `gate6_sources`,
+so gate 6 rests on `edgar_atom` and `prnewswire`. To turn it back on once a later check passes (a
+manual fetch of the feed URL with Scout's User-Agent returns 200 and an RSS body), set
+`[sources.globenewswire] enabled = true` in `config.toml` and restart Scout; the new params record
+then adds it to gate 6 from that time on. If it is refused again, three 403s in a row mark it
+`refused` for the rest of the ET day (and gate 6 answers `unknown` meanwhile), so turn it off again.
 
 ### 6.4 Answers
 | Key | Type | Default |
@@ -806,7 +880,7 @@ Keys: `enabled` (bool), `kind` (str: wire, filing, reference, halt, macro, vix),
 | Key | Type | Default |
 |---|---|---|
 | nowflation_max_age_h | float | 30 |
-| nowflation_max_stale_weight_pct | float | 70 |
+| nowflation_max_stale_weight_pct | float | 20 (% of the market-sourced weight; 2.3) |
 | nowflation_fresh_after_et * | time | "09:15" |
 | nowflation_read_times_et * | list[time] | ["08:20"] |
 | nowflation_release_day_time_et * | time | "08:50" |
@@ -1043,8 +1117,10 @@ A second review found 23 defects; each fix has a regression test that fails on t
   rule 1); the estimate is the tool loop's worst case; every call is reserved in the ledger before
   it is sent; an unreadable ledger refuses calls; a timed-out call counts its searches.
 
-Still open (owner or later steps): live captures to replace every `_SYNTHETIC` fixture (SS 15 step
-2), including nowflation's `realtime.json` and `forecasts/index.json` shapes, GlobeNewswire's shape
+Still open (owner or later steps): live captures to replace the `_SYNTHETIC` fixtures (SS 15 step
+2) except nowflation's, which stay synthetic in its live layout because its terms forbid
+redistributing its raw files (live captures stay only in the install's `state\raw`, see
+`tests/fixtures/macro/README.md`), GlobeNewswire's shape
 and whether `type=424B` returns every 424B* form (D6); the LLM model ids and prices (step 5); the
 first real Claude call against `anthropic==2.3.0` (step 5).
 

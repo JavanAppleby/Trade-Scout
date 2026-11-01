@@ -203,6 +203,38 @@ def test_the_nowflation_forecast_lean_is_shown(scout_dir: Path, clock: ManualClo
     assert "cpi forecast vs prior -0.1, vs street n/a; graded past prints 2" in text
 
 
+def test_the_lean_shows_cleveland_and_the_receipt_status_when_given(scout_dir: Path, clock: ManualClock,
+                                                                     cfg: ScoutConfig, paths: ScoutPaths) -> None:
+    write_records(scout_dir, "macro", [{
+        "source": "nowflation", "first_seen_at": "2026-11-02T13:20:00Z", "fetched_at": "2026-11-02T13:20:00Z",
+        "status": "ok", "reasons": [], "source_generated_at": "2026-11-02T11:05:00Z", "sha256": None,
+        "stale_after": "2026-11-03T14:15:00Z", "inflation_regime": "steady", "vix": None, "realtime": None,
+        "attribution": "Nowflation https://nowflation.com", "events": [],
+        "forecast_lean": [{"kind": "cpi", "event_at": "2026-11-03T13:30:00Z", "vs_prior": -0.19, "vs_street": None,
+                           "vs_cleveland": 0.13, "receipt_status": "provisional", "graded_prints": 3,
+                           "note": "informational, untested"}]}])
+    text = build_brief(make_ctx(cfg, paths, clock), DAY, clock.now())
+    assert ("cpi forecast vs prior -0.19, vs street n/a, vs Cleveland Fed +0.13 (receipt provisional); "
+            "graded past prints 3") in text
+
+
+def test_a_lean_without_a_cleveland_value_leaves_cleveland_out(scout_dir: Path, clock: ManualClock,
+                                                                cfg: ScoutConfig, paths: ScoutPaths) -> None:
+    """Review: forecast_lean always writes `vs_cleveland` (None when neither the calendar nor the
+    receipt has a Cleveland value), so a presence check printed 'vs Cleveland Fed n/a' every time."""
+    write_records(scout_dir, "macro", [{
+        "source": "nowflation", "first_seen_at": "2026-11-02T13:20:00Z", "fetched_at": "2026-11-02T13:20:00Z",
+        "status": "ok", "reasons": [], "source_generated_at": "2026-11-02T11:05:00Z", "sha256": None,
+        "stale_after": "2026-11-03T14:15:00Z", "inflation_regime": "steady", "vix": None, "realtime": None,
+        "attribution": "Nowflation https://nowflation.com", "events": [],
+        "forecast_lean": [{"kind": "cpi", "event_at": "2026-11-03T13:30:00Z", "vs_prior": -0.19, "vs_street": None,
+                           "vs_cleveland": None, "receipt_status": "provisional", "graded_prints": 3,
+                           "note": "informational, untested"}]}])
+    text = build_brief(make_ctx(cfg, paths, clock), DAY, clock.now())
+    assert "cpi forecast vs prior -0.19, vs street n/a (receipt provisional); graded past prints 3" in text
+    assert "Cleveland" not in text
+
+
 def test_a_restart_after_the_brief_time_keeps_todays_brief(cfg: ScoutConfig, paths: ScoutPaths,
                                                            clock: ManualClock) -> None:
     """Regression (third review): the brief job was a plain DailyJob, so a restart after 08:20 ET

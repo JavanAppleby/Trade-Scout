@@ -28,12 +28,20 @@ one of `models.HEALTH_RESULTS`. In order:
 9. Given a state file, the per-host day count, last request time and backoff, and the last request
    time per source, are kept in `state/http_hosts.json` (`scout.http_state`), so a restart never
    resets a cap, a spacing or a backoff.
+10. TLS certificates are verified against the operating system's trust store through `truststore`
+   (pip's own approach): on Windows, Python's OpenSSL with the Windows store picked an expired path
+   for the Let's Encrypt chains of www.globenewswire.com and cdn.cboe.com (2026-10-31) while Windows
+   itself accepted them (the VIX file has since moved to cdn-api.cboe.com: cdn.cboe.com answers 307
+   there, and no redirect is followed). Hostname checking and CERT_REQUIRED are always on; verification is never
+   turned off. Without `truststore` importable, Python's default context is used (`TLS_TRUST` says
+   which; `build_fetcher` logs it).
 """
 
 from __future__ import annotations
 
 import logging
 import socket
+import ssl
 import time as _time
 import urllib.error
 import urllib.parse
@@ -49,8 +57,8 @@ from scout.config import ScoutConfig
 from scout.http_state import FILE_NAME, HostLimits, HostStateFile, cap_key, hard_cap
 from scout.models import FetchResult
 
-__all__ = ["HARD_MIN_SPACING_S", "HttpFetcher", "RawResponse", "Transport", "build_fetcher", "decompress",
-           "urllib_transport"]
+__all__ = ["HARD_MIN_SPACING_S", "TLS_TRUST", "HttpFetcher", "RawResponse", "Transport", "build_fetcher",
+           "decompress", "ssl_context", "urllib_transport"]
 
 # Per-host minimums no config can lower (SS 12: "enforced per host in code"): Nasdaq Trader one read a
 # minute, SEC fair access, and the RSS wires at least 30 s apart.
@@ -91,7 +99,22 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_OPENER = urllib.request.build_opener(_NoRedirect)
+def ssl_context() -> tuple[ssl.SSLContext, str]:
+    """(context, which): the OS trust store through `truststore` ("os_trust_store"), else Python's
+    default context ("python_default"). Either way CERT_REQUIRED with hostname checking."""
+    try:
+        import truststore  # noqa: PLC0415 - optional at import: the fallback below covers its absence
+    except ImportError:
+        ctx, which = ssl.create_default_context(), "python_default"
+    else:
+        ctx, which = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT), "os_trust_store"
+    ctx.verify_mode = ssl.CERT_REQUIRED
+    ctx.check_hostname = True
+    return ctx, which
+
+
+_SSL_CONTEXT, TLS_TRUST = ssl_context()
+_OPENER = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=_SSL_CONTEXT))
 
 
 def urllib_transport(url: str, headers: Mapping[str, str], timeout_s: float, max_bytes: int) -> RawResponse:
@@ -378,5 +401,7 @@ def build_fetcher(ctx: Any) -> HttpFetcher:
     """AppContext service (DESIGN 2.1): the one fetcher of a Scout run; its per-host limits are
     kept in `state/http_hosts.json` across restarts."""
     log = ctx.log.getChild("http")
+    log.info("TLS: certificates verified with %s", "the OS trust store (truststore)" if TLS_TRUST == "os_trust_store"
+             else "Python's default context (truststore not importable)")
     state = HostStateFile(ctx.paths, ctx.paths.state / FILE_NAME, log)
     return HttpFetcher(ctx.cfg, ctx.clock, log=log, state=state)

@@ -2,7 +2,9 @@
 (SCOUT_SPEC 4.1 #7, 7.3; DESIGN 2.3).
 
 Pinned schemas: a body that does not match raises `SchemaError` and Scout refuses the source
-(status `unavailable`) rather than skipping rows. Extra keys are allowed (keys may be added). Times
+(status `unavailable`) rather than skipping rows. Extra keys are allowed (keys may be added). The
+`realtime.json` and `forecasts/index.json` schemas follow the live files read on 2026-10-31
+(DESIGN 2.3 "nowflation's live layout"). Times
 come from `datetime_utc`; the ET text is never parsed. Optional per-event values (`prior`, `street`,
 `nowflation_forecast`, `cleveland`, `kalshi`) are stored when present and never assumed.
 
@@ -20,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -83,8 +86,12 @@ class NowRealtime:
 @dataclass(frozen=True)
 class NowForecasts:
     generated_at: datetime | None
-    items: tuple[dict[str, Any], ...]
-    graded: int
+    items: tuple[dict[str, Any], ...]  # one per receipt (print month), newest first as published
+    graded: int  # `n_graded`
+    latest: str | None = None  # the latest print month
+
+    def receipt(self, print_month: Any) -> dict[str, Any] | None:
+        return next((r for r in self.items if r.get("print_month") == print_month), None)
 
 
 # --------------------------------------------------------------------------- parsing helpers
@@ -121,7 +128,7 @@ def _utc(value: Any, where: str) -> datetime:
 
 
 def _num(value: Any) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         return None
     return float(value)
 
@@ -185,10 +192,14 @@ def parse_release_calendar(body: bytes, *, fomc_time: Any | None = None) -> NowC
 
 
 def parse_realtime(body: bytes) -> NowRealtime:
-    """`/data/realtime.json`: `generated_at`, `run {ok, checks_ok}`, `today {record_type}`,
-    `last_good_held`, `realtime_yoy_pct`, `freshness {live_share_pct}` required; the 1/5/20-day
-    changes (`change_<n>d`), CPI gauge, official CPI and month, `stale_weight_pct` and
-    `avg_input_age_days` optional."""
+    """`/data/realtime.json`, pinned to the live layout read 2026-10-31. Required (a
+    missing key or a wrong type refuses the source): `generated_at`, `run {ok, checks_ok}`,
+    `today {record_type, last_good_held, realtime_yoy_pct}`, `freshness.realtime {live_share_pct}`.
+    Optional: `freshness.realtime.stale_weight_pct` (fallback: the sum of
+    `freshness.realtime.stale[].weight_pct`; neither -> None, which `freshness` treats as stale),
+    `avg_input_age_days`, `today.cpi_gauge_yoy_pct`, `official_cpi_yoy_pct`, `official_cpi_month`.
+    Changes: 1 day = `today.realtime_dod_pp`, 5 = `today.realtime_wow_pp` (nowflation's week: 7
+    calendar days, 5 trading days), 20 = from `history` (see `_change_from_history`)."""
     obj = _load(body, "realtime")
     gen = _utc(_req(obj, "generated_at", str, "realtime"), "realtime.generated_at")
     run = _req(obj, "run", dict, "realtime")
@@ -196,40 +207,108 @@ def parse_realtime(body: bytes) -> NowRealtime:
     checks_ok = _req(run, "checks_ok", bool, "realtime.run")
     today = _req(obj, "today", dict, "realtime")
     record_type = _req(today, "record_type", str, "realtime.today")
-    held = _req(obj, "last_good_held", bool, "realtime")
-    yoy = _req(obj, "realtime_yoy_pct", (int, float), "realtime")
-    fresh = _req(obj, "freshness", dict, "realtime")
-    live = _req(fresh, "live_share_pct", (int, float), "realtime.freshness")
-    stale_w = _num(fresh.get("stale_weight_pct", obj.get("stale_weight_pct")))
-    if stale_w is None and _num(live) is not None:
-        stale_w = round(100.0 - float(live), 6)
+    held = _req(today, "last_good_held", bool, "realtime.today")
+    yoy = _req(today, "realtime_yoy_pct", (int, float), "realtime.today")
+    fresh = _req(_req(obj, "freshness", dict, "realtime"), "realtime", dict, "realtime.freshness")
+    live = _req(fresh, "live_share_pct", (int, float), "realtime.freshness.realtime")
+    if _num(yoy) is None or _num(live) is None:
+        raise SchemaError("realtime: realtime_yoy_pct or live_share_pct is not a finite number")
+    stale_w = _num(fresh.get("stale_weight_pct"))
+    if stale_w is None:
+        stale_w = _stale_weight_from_list(fresh.get("stale"))
     changes: dict[int, float] = {}
-    for key, value in obj.items():
-        if key.startswith("change_") and key.endswith("d") and key[7:-1].isdigit() and _num(value) is not None:
-            changes[int(key[7:-1])] = float(value)
+    for n, key in ((1, "realtime_dod_pp"), (5, "realtime_wow_pp")):
+        if _num(today.get(key)) is not None:
+            changes[n] = float(today[key])
+    c20 = _change_from_history(obj, today)
+    if c20 is not None:
+        changes[20] = c20
+    month = today.get("official_cpi_month")
     values = {
-        "realtime_yoy_pct": float(yoy), "cpi_gauge_yoy_pct": _num(obj.get("cpi_gauge_yoy_pct")),
-        "official_cpi_yoy_pct": _num(obj.get("official_cpi_yoy_pct")),
-        "official_cpi_month": obj.get("official_cpi_month") if isinstance(obj.get("official_cpi_month"), str) else None,
-        "live_share_pct": float(live),
-        "avg_input_age_days": _num(fresh.get("avg_input_age_days", obj.get("avg_input_age_days"))),
+        "realtime_yoy_pct": float(yoy), "cpi_gauge_yoy_pct": _num(today.get("cpi_gauge_yoy_pct")),
+        "official_cpi_yoy_pct": _num(today.get("official_cpi_yoy_pct")),
+        "official_cpi_month": month if isinstance(month, str) else None,
+        "live_share_pct": float(live), "avg_input_age_days": _num(fresh.get("avg_input_age_days")),
     }
     return NowRealtime(generated_at=gen, run_ok=run_ok, checks_ok=checks_ok, record_type=record_type,
                        last_good_held=held, stale_weight_pct=stale_w, values=values, changes=changes)
 
 
+def _stale_weight_from_list(stale: Any) -> float | None:
+    """The documented fallback for `stale_weight_pct`: the sum of `stale[].weight_pct` (an empty
+    list is 0). Anything unreadable gives None (stale)."""
+    if not isinstance(stale, list):
+        return None
+    total = 0.0
+    for item in stale:
+        w = _num(item.get("weight_pct")) if isinstance(item, dict) else None
+        if w is None:
+            return None
+        total += w
+    return round(total, 6)
+
+
+HISTORY_20D_DAYS = 28  # 20 trading days ~ 28 calendar days
+HISTORY_20D_SLACK = 2  # a history point 26..30 calendar days back will do (the nearest to 28 wins)
+
+
+def _change_from_history(obj: Mapping[str, Any], today: Mapping[str, Any]) -> float | None:
+    """The 20-trading-day change: today's history point (else `today.realtime_yoy_pct`) minus the
+    `history` point nearest 28 calendar days back (within 26..30). None when there is no such
+    point, or it is not `record_type` "live", or its `method_version` differs from the file's
+    (a change across a method switch is not like for like). `history` is optional."""
+    hist, method = obj.get("history"), obj.get("method_version")
+    try:
+        day = date.fromisoformat(str(today.get("date")))
+    except ValueError:
+        return None
+    if not isinstance(hist, list) or not isinstance(method, str):
+        return None
+    points: dict[date, Mapping[str, Any]] = {}
+    for p in hist:
+        if isinstance(p, dict) and isinstance(p.get("date"), str) and _num(p.get("realtime")) is not None:
+            try:
+                points[date.fromisoformat(p["date"])] = p
+            except ValueError:
+                continue
+    base = _num(points[day]["realtime"]) if day in points else _num(today.get("realtime_yoy_pct"))
+    for k in sorted(range(HISTORY_20D_DAYS - HISTORY_20D_SLACK, HISTORY_20D_DAYS + HISTORY_20D_SLACK + 1),
+                    key=lambda k: (abs(k - HISTORY_20D_DAYS), k)):
+        p = points.get(day - timedelta(days=k))
+        if p is None:
+            continue
+        if p.get("record_type") != "live" or p.get("method_version") != method or base is None:
+            return None
+        return round(base - float(p["realtime"]), 6)
+    return None
+
+
+_HEADLINE = {"nowflation_forecast_ensemble": "forecast", "nowflation_nowcast_inhouse": "nowcast",
+             "cleveland_fed": "cleveland", "kalshi_implied": "kalshi", "street_consensus": "street"}
+_RECEIPT_KEYS = ("print_month", "status", "record_type", "pre_registered", "release_datetime_utc",
+                 "official_forecast", "graded", "actual", "signed_error")
+
+
 def parse_forecasts(body: bytes) -> NowForecasts:
-    """`/forecasts/index.json`: an object with a `forecasts` list of objects, each with `kind`.
-    `graded` counts entries marked `graded: true`."""
+    """`/forecasts/index.json`, pinned to the live layout read 2026-10-31. Required: `generated_at`,
+    `n_graded` (int), `receipts` (a list of objects, each with a `print_month` string). Each receipt
+    keeps `_RECEIPT_KEYS` and its `headline_yoy` values (forecast, nowcast, cleveland, kalshi,
+    street) when present; `latest` and `horizons` are optional. Informational only (SS 7.3)."""
     obj = _load(body, "forecasts")
-    items = _req(obj, "forecasts", list, "forecasts")
+    gen = _utc(_req(obj, "generated_at", str, "forecasts"), "forecasts.generated_at")
+    graded = _req(obj, "n_graded", int, "forecasts")
+    receipts = _req(obj, "receipts", list, "forecasts")
     out: list[dict[str, Any]] = []
-    for i, it in enumerate(items):
-        if not isinstance(it, dict) or not isinstance(it.get("kind"), str):
-            raise SchemaError(f"forecasts[{i}]: not an object with 'kind'")
-        out.append({k: v for k, v in it.items() if isinstance(v, (str, int, float, bool)) or v is None})
-    gen = parse_iso(obj.get("generated_at"))
-    return NowForecasts(generated_at=gen, items=tuple(out), graded=sum(1 for it in out if it.get("graded") is True))
+    for i, r in enumerate(receipts):
+        if not isinstance(r, dict) or not isinstance(r.get("print_month"), str):
+            raise SchemaError(f"receipts[{i}]: not an object with 'print_month'")
+        item = {k: r.get(k) for k in _RECEIPT_KEYS if isinstance(r.get(k), (str, int, float, bool))}
+        head = r.get("headline_yoy")
+        if isinstance(head, dict):
+            item.update({name: _num(head.get(key)) for key, name in _HEADLINE.items()})
+        out.append(item)
+    latest = obj.get("latest") if isinstance(obj.get("latest"), str) else None
+    return NowForecasts(generated_at=gen, items=tuple(out), graded=graded, latest=latest)
 
 
 def parse_ics(body: bytes) -> list[IcsEvent]:
@@ -277,8 +356,8 @@ def freshness(cal: NowCalendar | None, rt: NowRealtime | None, now: datetime, cf
     """("ok" | "stale" | "unavailable", reasons). SCOUT_SPEC 7.3: unavailable without both files;
     stale when `generated_at` is older than `nowflation_max_age_h` or, after
     `nowflation_fresh_after_et`, not today's ET date; `run.ok` or `run.checks_ok` false;
-    `today.record_type` not "live"; `last_good_held` true; stale weight above
-    `nowflation_max_stale_weight_pct` (or not given)."""
+    `today.record_type` not "live"; `last_good_held` true; the stale share of the market-sourced
+    weight above `nowflation_max_stale_weight_pct` (or not given; see `_stale_weight_reasons`)."""
     reasons: list[str] = []
     if cal is None:
         reasons.append("no_release_calendar")
@@ -306,11 +385,26 @@ def freshness(cal: NowCalendar | None, rt: NowRealtime | None, now: datetime, cf
         reasons.append(f"record_type:{rt.record_type[:20]}")
     if rt.last_good_held:
         reasons.append("last_good_held")
-    if rt.stale_weight_pct is None:
-        reasons.append("stale_weight_missing")
-    elif rt.stale_weight_pct > cfg.nowflation_max_stale_weight_pct:
-        reasons.append(f"stale_weight:{rt.stale_weight_pct:g}")
+    reasons.extend(_stale_weight_reasons(rt, cfg.nowflation_max_stale_weight_pct))
     return ("stale" if reasons else "ok"), reasons
+
+
+def _stale_weight_reasons(rt: NowRealtime, limit_pct: float) -> list[str]:
+    """The SS 7.3 stale-weight gate on the live layout. nowflation's `stale_weight_pct` counts only
+    market-sourced components whose sources went stale, and `live_share_pct` only the fresh ones;
+    BLS-held components are neither. So the gate is the stale share of the market-sourced weight,
+    `stale / (live + stale) * 100`, against `nowflation_max_stale_weight_pct`. No market-sourced
+    weight at all (a nowcast of held BLS data only) is stale too."""
+    if rt.stale_weight_pct is None:
+        return ["stale_weight_missing"]
+    live = _num(rt.values.get("live_share_pct"))
+    if live is None:
+        return ["live_share_missing"]
+    market = live + rt.stale_weight_pct
+    if market <= 0:
+        return ["no_live_inputs"]
+    share = 100.0 * rt.stale_weight_pct / market
+    return [f"stale_weight:{share:.1f}"] if share > limit_pct else []
 
 
 def is_release_day(events: Any, day: date) -> bool:

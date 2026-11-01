@@ -342,7 +342,8 @@ each quarter.
   pinned schema; Scout refuses the source rather than skipping rows), `generated_at` older than
   `nowflation_max_age_h` (30) or not today's ET date after 09:15 ET, `run.ok` or `run.checks_ok`
   false, `today.record_type` not "live", `last_good_held` true, or stale weight above
-  `nowflation_max_stale_weight_pct`. Then `inflation_regime = unknown`, and macro events fall back to
+  `nowflation_max_stale_weight_pct` (as a share of the market-sourced weight, `stale / (live +
+  stale)`; recalibrated from 70 to 20 on 2026-11-01 for nowflation's live layout, DESIGN 2.3). Then `inflation_regime = unknown`, and macro events fall back to
   the BLS file and the FOMC table; if neither is fresh, `macro_event_next_session = unknown`.
 - **Do macro events block a hold?** Default **no** (`hold_block_macro_events = false`; §16 Q4).
   They are recorded against every find and plan so the journal can show an effect first (CLAUDE.md).
@@ -639,7 +640,7 @@ and never raises: every exception becomes `unknown` with a reason.
 - **Answers:** `hold_catalyst_classes` (§7.1), `earnings_lookback_days` (45),
   `earnings_due_start_days` (10), `earnings_due_end_days_quarter` (50), `earnings_due_end_days_annual`
   (95), `hold_block_macro_events` (false), `fomc_dates`, `scan_max_price` (20.0).
-- **Macro:** `nowflation_max_age_h` (30), `nowflation_max_stale_weight_pct` (70),
+- **Macro:** `nowflation_max_age_h` (30), `nowflation_max_stale_weight_pct` (20),
   `inflation_hot_pp`, `inflation_cooling_pp` (set at build from history).
 - **Readers:** `scout_stale_s` (120), `jason_near_level_pct` (0.01; Radar's key).
 - **LLM:** `llm_enabled` (false), `[llm.jobs.<J>]` with `enabled`, `model`, `effort`, `max_tokens`;

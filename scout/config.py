@@ -94,8 +94,10 @@ DEFAULT_SOURCES: dict[str, dict[str, Any]] = {
         enabled=True, kind="wire", url="https://www.prnewswire.com/rss/news-releases-list.rss", paths=[],
         min_spacing_s=60.0, idle_spacing_s=60.0, allowed_hosts=["www.prnewswire.com"], terms_note=_WIRE_TERMS,
         max_items=20, gate6=True, terms_ok=False),
+    # Off: GlobeNewswire refused Scout's declared User-Agent with 403 on 2026-11-01 (SCOUT_SPEC 4.1 #5:
+    # "dropped if refused"). An enabled gate-6 source that never answers keeps gate 6 at unknown.
     "globenewswire": dict(
-        enabled=True, kind="wire",
+        enabled=False, kind="wire",
         url=("https://www.globenewswire.com/RssFeed/orgclass/1/feedTitle/"
              "GlobeNewswire%20-%20News%20about%20Public%20Companies"),
         paths=[], min_spacing_s=60.0, idle_spacing_s=60.0, allowed_hosts=["www.globenewswire.com"],
@@ -117,8 +119,8 @@ DEFAULT_SOURCES: dict[str, dict[str, Any]] = {
         terms_note="Public schedule; weekly. Path UNVERIFIED until build step 2.", max_items=0, gate6=False,
         terms_ok=True),
     "cboe_vix": dict(
-        enabled=True, kind="vix", url="https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv",
-        paths=[], min_spacing_s=86400.0, idle_spacing_s=86400.0, allowed_hosts=["cdn.cboe.com"],
+        enabled=True, kind="vix", url="https://cdn-api.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv",
+        paths=[], min_spacing_s=86400.0, idle_spacing_s=86400.0, allowed_hosts=["cdn-api.cboe.com"],
         terms_note="Daily close history; once a trading day after 16:30 ET.", max_items=0, gate6=False,
         terms_ok=True),
 }
@@ -247,7 +249,7 @@ class ScoutConfig:
 
     # 6.5 macro
     nowflation_max_age_h: float = 30.0
-    nowflation_max_stale_weight_pct: float = 70.0
+    nowflation_max_stale_weight_pct: float = 20.0
     nowflation_fresh_after_et: time = time(9, 15)
     nowflation_read_times_et: tuple[time, ...] = (time(8, 20),)
     nowflation_release_day_time_et: time = time(8, 50)

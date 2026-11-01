@@ -57,7 +57,7 @@ def test_fresh_context(cfg, clock, et) -> None:
     assert nxt["value"] == "true" and nxt["event"]["kind"] == "nfp"
     assert nxt["event"]["event_at"] == "2026-11-06T13:30:00Z" and nxt["event"]["event_at_et"] == "2026-11-06 08:30"
     reg = out["inflation_regime"]
-    assert reg["value"] == "true" and reg["regime"] == "hot" and reg["attribution"] == "Nowflation https://nowflation.com"
+    assert reg["value"] == "true" and reg["regime"] == "steady" and reg["attribution"] == "Nowflation https://nowflation.com"
     vix = out["vix"]
     assert vix["value"] == "true" and (vix["close"], vix["date"]) == (17.12, "2026-10-30")
     assert all(r["stale"] is False for r in out.values())
@@ -90,7 +90,8 @@ def test_nowflation_stale_and_no_bls_is_unknown(cfg, clock, et) -> None:
 
 
 @pytest.mark.parametrize("rt", ["realtime_run_not_ok_SYNTHETIC.json", "realtime_last_good_held_SYNTHETIC.json",
-                                "realtime_not_live_SYNTHETIC.json", "realtime_stale_weight_SYNTHETIC.json"])
+                                "realtime_not_live_SYNTHETIC.json", "realtime_stale_weight_SYNTHETIC.json",
+                                "realtime_all_stale_SYNTHETIC.json"])
 def test_nowflation_fail_closed_gives_unknown_regime(cfg, clock, et, rt) -> None:
     _state(cfg, clock, et, nowflation_results(rt=rt))
     out = _ctx_at(cfg, et("2026-11-02", "10:00"))
@@ -177,7 +178,7 @@ def test_corrupt_unknown_format_and_partial_lines(cfg, clock, et) -> None:
     with open(path, "a", encoding="utf-8") as fh:
         fh.write("{not json\n" + json.dumps(bad) + "\n" + '{"format": 1, "source": "nowflation"')
     out = _ctx_at(cfg, et("2026-11-02", "10:00"))
-    assert out["inflation_regime"]["regime"] == "hot"
+    assert out["inflation_regime"]["regime"] == "steady"
 
 
 def test_never_raises(cfg, et) -> None:

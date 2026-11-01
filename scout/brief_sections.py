@@ -225,9 +225,12 @@ def _lean_lines(leans: list[Any], as_of: datetime, horizon: datetime) -> list[st
         if at is None or not (as_of - timedelta(hours=12) <= at <= horizon):
             continue
         graded = lean.get("graded_prints")
+        extra = f", vs Cleveland Fed {_signed(lean['vs_cleveland'])}" if lean.get("vs_cleveland") is not None else ""
+        status = lean.get("receipt_status")
+        extra += f" (receipt {md_escape(status, 20)})" if isinstance(status, str) and status else ""
         out.append(f"- {_when_day(lean.get('event_at'))}: {md_escape(lean.get('kind'), 30)} forecast vs prior "
-                   f"{_signed(lean.get('vs_prior'))}, vs street {_signed(lean.get('vs_street'))}; graded past prints "
-                   f"{graded if isinstance(graded, int) and not isinstance(graded, bool) else 'n/a'}")
+                   f"{_signed(lean.get('vs_prior'))}, vs street {_signed(lean.get('vs_street'))}{extra}; graded past "
+                   f"prints {graded if isinstance(graded, int) and not isinstance(graded, bool) else 'n/a'}")
     if not out:
         return []
     return ["", f"Nowflation forecast lean ({LEAN_NOTE}):", *out]

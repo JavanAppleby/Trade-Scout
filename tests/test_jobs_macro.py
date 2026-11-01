@@ -58,7 +58,7 @@ def test_first_tick_reads_every_source_once(cfg, clock, et) -> None:
     sources = [h["source"] for h in _history(ctx)]
     assert sources.count("nowflation") == 1 and set(sources) == {"fomc", "bls", "nowflation", "cboe_vix"}
     daily = json.loads((ctx.paths.macro / "2026-11-02.json").read_text("utf-8"))
-    assert daily["inflation_regime"] == "hot"
+    assert daily["inflation_regime"] == "steady"
     assert {f.kind for f in ctx.fact_sink.facts} == {"halt", "macro_event"}
     assert ctx.board.sources["nowflation"].status == "ok"
     # the next minute: only the halt poll

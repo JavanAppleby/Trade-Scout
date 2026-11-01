@@ -8,7 +8,8 @@ Record and report only: nothing here gates a hold (`hold_block_macro_events` is 
   `sources_agree = None`. When sources disagree the earlier time is used.
 - `inflation_regime`: hot / cooling / steady / unknown from nowflation's realtime change over
   `inflation_regime_window_days` against `inflation_hot_pp` / `inflation_cooling_pp`.
-- `forecast_lean`: forecast minus prior and minus street, labelled "informational, untested".
+- `forecast_lean`: forecast minus prior and minus street (from the calendar, filled from the
+  forecasts receipt for the print month), labelled "informational, untested".
 - `MacroWriter`: appends `state/macro/history.jsonl`, rewrites `state/macro/<ET date>.json` and adds
   `macro_event` facts for new events. Each history line also carries `stale_after` (an additive key,
   DESIGN 5.8 + this unit): the instant after which the reader stops treating the record as fresh.
@@ -232,17 +233,31 @@ def _diff(a: Any, b: Any) -> Any:
 
 
 def forecast_lean(cal: Any, forecasts: Any = None) -> list[dict[str, Any]]:
-    """Per upcoming event with a nowflation forecast: forecast minus prior and minus street, with
-    the count of graded past prints. Shown as "informational, untested" (SCOUT_SPEC 7.3)."""
+    """Per upcoming calendar event with a nowflation forecast: forecast minus prior and minus street
+    (consensus), with nowflation's graded count (`n_graded`). Shown as "informational, untested"
+    (SCOUT_SPEC 7.3). A CPI event is matched to the forecasts receipt for its `data_month`: the
+    receipt fills a forecast, street or Cleveland value the calendar lacks (the calendar wins when
+    both have one) and adds the receipt's status ("provisional" until locked the evening before the
+    release). An event with no forecast from either is left out; a missing street gives
+    `vs_street = None`."""
     events = getattr(cal, "events", None) if cal is not None else None
     graded = getattr(forecasts, "graded", None) if forecasts is not None else None
+    find = getattr(forecasts, "receipt", None)
     out: list[dict[str, Any]] = []
     for ev in events or ():
-        if ev.nowflation_forecast is None:
+        rc = find(ev.extra.get("data_month")) if callable(find) and ev.kind == "cpi" else None
+        rc = rc if isinstance(rc, Mapping) else {}
+        forecast = ev.nowflation_forecast if ev.nowflation_forecast is not None else rc.get("forecast")
+        if forecast is None:
             continue
-        out.append({"kind": ev.kind, "event_at": iso(ev.event_at), "vs_prior": _diff(ev.nowflation_forecast, ev.prior),
-                    "vs_street": _diff(ev.nowflation_forecast, ev.street), "graded_prints": graded,
-                    "note": LEAN_NOTE})
+        street = ev.street if ev.street is not None else rc.get("street")
+        cleveland = ev.cleveland if ev.cleveland is not None else rc.get("cleveland")
+        out.append({"kind": ev.kind, "event_at": iso(ev.event_at), "vs_prior": _diff(forecast, ev.prior),
+                    "vs_street": _diff(forecast, street), "graded_prints": graded, "note": LEAN_NOTE,
+                    "forecast": forecast, "prior": ev.prior, "street": street,
+                    "vs_cleveland": _diff(forecast, cleveland),
+                    "print_month": ev.extra.get("data_month") if isinstance(ev.extra.get("data_month"), str) else None,
+                    "receipt_status": rc.get("status") if isinstance(rc.get("status"), str) else None})
     return out
 
 

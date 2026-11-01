@@ -1,0 +1,56 @@
+{
+ "_SYNTHETIC": "synthetic: nowflation's live layout as read 2026-10-31, every value invented; tests only",
+ "generated_at": "2026-11-02T11:05:00Z",
+ "from": "2026-11-02",
+ "source": "synthetic",
+ "events": [
+  {
+   "kind": "nfp",
+   "date": "2026-11-06",
+   "datetime_utc": "2026-11-06T13:30:00Z",
+   "data_month": "2026-10",
+   "street": 110,
+   "prior": 95,
+   "unit": "K",
+   "summary": "synthetic"
+  },
+  {
+   "kind": "cpi",
+   "date": "2026-11-12",
+   "datetime_utc": "2026-11-12T13:30:00Z",
+   "data_month": "2026-10",
+   "prior": 2.9,
+   "unit": "%",
+   "receipt_status": "provisional",
+   "summary": "synthetic"
+  },
+  {
+   "kind": "pce",
+   "date": "2026-11-25",
+   "datetime_utc": "2026-11-25T13:30:00Z",
+   "data_month": "2026-10",
+   "prior": 2.7,
+   "unit": "%",
+   "summary": "synthetic"
+  }
+ ],
+ "past": [
+  {
+   "kind": "cpi",
+   "date": "2026-10-15",
+   "datetime_utc": "2026-10-15T12:30:00Z",
+   "data_month": "2026-09",
+   "prior": 2.8,
+   "street": 2.8,
+   "unit": "%"
+  }
+ ],
+ "fomc": [
+  {
+   "kind": "fomc",
+   "date": "2026-12-09",
+   "datetime_utc": "2026-12-09T19:00:00Z",
+   "rate_upper_pct": null
+  }
+ ]
+}

@@ -7,7 +7,7 @@ import logging
 from datetime import timedelta
 
 from helpers_fakes import FakeTransport
-from helpers_wire import FORMS, full_transport, wire_config
+from helpers_wire import FORMS, GNW_ON, full_transport, wire_config
 from scout_reader.coverage import gaps
 from scout_reader.records import read_jsonl
 
@@ -29,13 +29,21 @@ def context(cfg, clock, transport):
 
 
 def test_jobs_and_intervals(scout_dir, clock):
-    cfg = wire_config(scout_dir)
+    cfg = wire_config(scout_dir, sources=GNW_ON)
     jobs = build_jobs(context(cfg, clock, FakeTransport()))
     assert [j.name for j in jobs] == ["edgar_tickers", "edgar_atom", "prnewswire", "globenewswire"]
     by = {j.name: j for j in jobs}
     assert all(isinstance(j, EveryJob) for j in jobs)
     assert by["edgar_atom"].interval_s == 60 and by["edgar_atom"].idle_interval_s == 600
     assert by["prnewswire"].interval_s == 60 and by["edgar_tickers"].interval_s == 60
+    assert by["globenewswire"].interval_s == 60
+
+
+def test_globenewswire_is_off_by_default(scout_dir, clock):
+    """Off since 2026-11-01 (it answered 403): no job, and the board says disabled."""
+    ctx = context(wire_config(scout_dir), clock, FakeTransport())
+    assert [j.name for j in build_jobs(ctx)] == ["edgar_tickers", "edgar_atom", "prnewswire"]
+    assert ctx.board.sources["globenewswire"].status == "disabled"
 
 
 def test_disabled_sources_get_no_job(scout_dir, clock):
@@ -46,7 +54,7 @@ def test_disabled_sources_get_no_job(scout_dir, clock):
 
 
 def test_end_to_end_polls_write_facts_health_and_raw(scout_dir, clock, write_audit):
-    cfg = wire_config(scout_dir)
+    cfg = wire_config(scout_dir, sources=GNW_ON)  # two gate-6 wires
     transport = full_transport(cfg)
     ctx = context(cfg, clock, transport)
     jobs = build_jobs(ctx)
@@ -82,7 +90,7 @@ def test_end_to_end_polls_write_facts_health_and_raw(scout_dir, clock, write_aud
 
 
 def test_globenewswire_short_feed_overlaps_from_the_first_poll(scout_dir, clock):
-    cfg = wire_config(scout_dir)
+    cfg = wire_config(scout_dir, sources=GNW_ON)
     ctx = context(cfg, clock, full_transport(cfg))
     jobs = build_jobs(ctx)
     run_due(jobs, clock.now(), LOG)
