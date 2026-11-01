@@ -39,7 +39,7 @@ at the end. Run every test with `.venv\Scripts\python -m pytest -q` from Scout's
 | SS 4.1 #1-3 | EDGAR getcurrent Atom (per form), submissions, ticker list | `edgar_parse`, `edgar_atom`, `edgar_submissions` | `test_edgar_parse.py` (also checks Radar's own results), `test_edgar_atom.py`, `test_edgar_submissions.py` |
 | SS 4.1 #4-5 | PR Newswire, GlobeNewswire (403 stops it for the day) | `wire_rss` | `test_wire_rss.py` |
 | SS 4.1 #6, 7.5 | Nasdaq halts (BOM, letters, 2019 row, empty resumption, LUDP, M; 60 s minimum) | `halts`, `scout_reader.halts` | `test_halts.py`, `test_reader_halts.py` |
-| SS 4.1 #7-10, 7.3 | nowflation (fail closed on every SS 7.3 condition, schema pinned), BLS `.ics`, FOMC table, Cboe VIX | `nowflation`, `bls_ics`, `fomc`, `cboe_vix`, `macro`, `jobs_macro` | `test_nowflation.py`, `test_bls_ics.py`, `test_fomc.py`, `test_cboe_vix.py`, `test_macro.py`, `test_jobs_macro.py` |
+| SS 4.1 #7-10, 7.3 | nowflation (fail closed on every SS 7.3 condition, schema pinned), BLS `.ics`, FOMC table, Cboe VIX | `nowflation`, `bls_ics`, `fomc`, `cboe_vix`, `macro`, `jobs_macro`, `macro_seed` | `test_nowflation.py`, `test_bls_ics.py`, `test_fomc.py`, `test_cboe_vix.py`, `test_macro.py`, `test_jobs_macro.py`, `test_macro_seed.py` |
 | SS 6.2 | Coverage: a gap or a poll without overlap turns `false` into `unknown` | `health` (`CoverageTracker`), `scout_reader.coverage` | `test_health.py`, `test_reader_coverage.py`, `test_reader_gate6.py::test_a_coverage_gap_turns_false_into_unknown` |
 | SS 6.3 | Tickers: exchange tags, one fact per ticker, CIK map | `tickers`, `edgar_parse`, `facts` | `test_tickers.py`, `test_facts.py` |
 | SS 6.4 | Class from title and form only (keywords in config) | `classify` | `test_classify.py` |
@@ -153,6 +153,17 @@ Each row is a defect the third review found; its test fails on the code before t
 | 12 | DESIGN 8 | A refused second start says another Scout is running (exit code 4) | `app.EXIT_ALREADY_RUNNING`, `Start Scout.bat` | `test_bat_files.py::test_start_scout_says_when_another_scout_is_running`, `test_app.py::test_second_scout_refused` |
 | 13 | DESIGN 2.1 | Log lines show ET with the zone | `logs.EtFormatter` | `test_app.py::test_log_lines_show_et_with_the_zone` |
 | 14 | SS 2.8, DESIGN 2.2 | A DTD or entity declaration is refused in any encoding (UTF-16 included) | `edgar_parse.refuse_dtd`, `safe_xml_root`, `halts.parse_halts` | `test_edgar_parse.py::test_a_dtd_in_a_utf16_body_is_refused`, `test_an_encoding_expat_cannot_read_is_schema_drift`, `test_halts.py::test_a_dtd_in_a_utf16_halt_feed_is_refused` |
+
+## Restart: the macro sources on the board (2026-11-01, DESIGN 16)
+
+Seen live after a restart; each test fails on the code before the fix.
+
+| # | Spec | Rule | Code | Tests |
+|---|---|---|---|---|
+| 1 | SS 10.1, 4.1 | After a restart the board shows BLS, Cboe and nowflation from their latest history line, `ok` only while still fresh by the source's rules, never "starting" until the next read | `macro_seed.seed_board`, `recheck`, `seeded_state`, `macro.MacroWriter.last_ok`, `jobs_macro.build_jobs` | `test_macro_seed.py::test_a_restart_mid_week_after_a_good_bls_read_shows_ok`, `test_a_restart_after_the_bls_record_expired_is_stale_never_ok`, `test_a_bls_record_with_no_nfp_ahead_is_stale_on_restart`, `test_a_restart_after_the_cboe_read_time_on_a_trading_day`, `test_a_weekend_restart_after_fridays_read_shows_ok`, `test_nowflation_is_seeded_and_rechecked`, `test_a_stale_line_stays_stale_and_polled_feeds_are_not_seeded`, `test_a_disabled_source_is_not_seeded` |
+| 2 | SS 4.1, 12 | A failed latest read does not use up BLS's week, Cboe's slot or nowflation's day: a restart reads once at start; the board shows it `unavailable`, never `ok` | `macro_seed.last_read`, `jobs_macro` | `test_macro_seed.py::test_a_failed_saturday_night_cboe_read_does_not_block_the_restart`, `test_a_restart_after_a_failed_bls_read_shows_unavailable_and_reads_once`, `test_a_failed_read_after_the_daily_time_does_not_mark_the_daily_job_done` |
+| 3 | SS 10.1, 7.3 | End to end: the first beat after a restart has bls, cboe_vix and nowflation `ok` with no new fetch, and `market_context` answers VIX and the regime | `app.run`, `jobs_macro`, `macro_seed` | `test_macro_seed.py::test_e2e_a_restart_publishes_the_macro_sources_as_ok_and_answers_stay_known` |
+| 4 | SS 10.1, 7.3 | A history line from after now (clock went back), without `stale_after`, or damaged is never seeded `ok`; a damaged line never stops the start | `macro_seed.recheck`, `seed_board` | `test_macro_seed.py::test_a_history_line_from_after_now_is_never_ok`, `test_a_damaged_history_line_is_stale_and_scout_still_starts` |
 
 ## Out of scope for this build (SS 15 steps 6-11, SS 4.2-4.4)
 Install at `E:\Scout` and the five-day operational acceptance (step 6); Radar, Pilot and Guardian

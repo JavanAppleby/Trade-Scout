@@ -322,13 +322,21 @@ class MacroWriter:
     def __init__(self, paths: ScoutPaths, facts: Any, cfg: ScoutConfig, clock: Clock) -> None:
         self.paths, self.facts, self.cfg, self.clock = paths, facts, cfg, clock
         self.latest: dict[str, dict[str, Any]] = {}
+        self.last_ok: dict[str, str] = {}  # source -> first_seen_at of its latest `ok` line
         self._reload()
 
+    def _keep(self, line: dict[str, Any]) -> None:
+        source = str(line["source"])
+        self.latest[source] = line
+        if line.get("status") == "ok" and isinstance(line.get("first_seen_at"), str):
+            self.last_ok[source] = line["first_seen_at"]
+
     def _reload(self) -> None:
-        """The last history line per source, so a restart merges with what was read before it."""
+        """The last history line per source, so a restart merges with what was read before it, and
+        the last `ok` line's time per source (the board's `last_ok` after a restart)."""
         for rec in read_jsonl(self.paths.macro / "history.jsonl"):
             if rec.get("format") == FORMAT and rec.get("source") in MACRO_SOURCES:
-                self.latest[str(rec["source"])] = rec
+                self._keep(rec)
 
     def write(self, record: MacroRecord) -> int:
         """Append the history line, rewrite today's daily file, add facts for new events.
@@ -336,7 +344,7 @@ class MacroWriter:
         line = record.to_record()
         line["stale_after"] = stale_after(record, self.cfg)
         append_jsonl(self.paths, self.paths.macro / "history.jsonl", line)
-        self.latest[record.source] = line
+        self._keep(line)
         merged = self.merged()
         now = self.clock.now()
         self._write_daily(now, merged)

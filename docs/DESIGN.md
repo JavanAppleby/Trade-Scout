@@ -254,7 +254,11 @@ by **Update Scout**).
   today's read (Cboe: the latest scheduled read) is already in the history, and the daily jobs are
   seeded from the history too (a restart after 16:30 or 08:20 ET does not read again); the halts
   poller waits for the fetcher's own last send time (no immediate poll after a restart, no sleep in
-  the loop), and its job is checked every second so the 60 s holds from the real send.
+  the loop), and its job is checked every second so the 60 s holds from the real send. Only a read
+  the host answered (`ok` or `stale`) counts for these spacings (`macro_seed.last_read`): a latest
+  history line that is `unavailable` does not use up the week or the slot, so a restart reads again
+  once at start. At start the board is seeded for BLS, Cboe and nowflation from the same history
+  (`scout/macro_seed.py`, section 16), so they do not sit at "starting" until their next read.
 - A stored time in the future (the wall clock stepped back) never makes a fetch sleep for hours: a
   negative elapsed time counts as the spacing passed, the wait is at most the spacing, and times in
   `state\http_hosts.json` later than now are clamped on load (a backoff to its longest length).
@@ -436,7 +440,14 @@ required key or a wrong type refuses the source.
 
 **`scout/jobs_macro.py`**: `build_jobs(ctx)`: `nasdaq_halts` (60 s, 04:00-20:00 ET, plus the
 after-20:00 read), `nowflation` (at start, 08:20 ET, 08:50 ET on release days), `bls` (weekly),
-`cboe_vix` (daily after 16:30 ET), `macro_merge` (after each of those).
+`cboe_vix` (daily after 16:30 ET), `macro_merge` (after each of those). At build time it calls
+`macro_seed.seed_board` (below).
+
+**`scout/macro_seed.py`**: `last_read(writer, source)` (the last read that counts for the spacing:
+the latest history line when its status is `ok` or `stale`, else None); `recheck(cfg, rec, now)`
+(why an `ok` line is no longer fresh); `seeded_state(cfg, rec, last_ok, now) -> SourceState`;
+`seed_board(board, cfg, writer, now, readers)`. `MacroWriter.last_ok` keeps each source's latest
+`ok` line time. Rules: section 16.
 
 ### 2.4 Jason's levels (unit `levels`)
 
@@ -1169,3 +1180,43 @@ A third review found 14 defects; each fix has a regression test that fails on th
 - **Logs.** Each line's time is ET with "ET" written (`logs.EtFormatter`), like the file name.
 - **XML.** The DTD and entity guard asks expat itself (`edgar_parse.refuse_dtd`), so a UTF-16 body
   is refused too; an encoding expat cannot read is `SchemaError`, not a bare ValueError.
+
+## 16. Restart: the macro sources on the board (2026-11-01)
+
+Seen live after a restart on Sunday 2026-11-01 02:12 ET: the heartbeat showed `bls` and `cboe_vix`
+as "starting". Their jobs were seeded done from `macro\history.jsonl` (sections 2.2, 15), so they
+were not read again, but the board was not seeded, so "starting" lasted until the next read: up to
+a week for BLS, until Monday 16:30 ET for Cboe. SS 10.1 makes every answer that depends on a source
+not `ok` unknown, so after any restart the macro fallback (BLS) and the VIX context stayed unknown
+for days. Cboe's own start read on Saturday 23:18 ET had failed (network), and that failed line
+counted as the read for Friday's slot, so the restart did not read it again either.
+
+- **Seed** (`macro_seed.seed_board`, called by `jobs_macro.build_jobs`): for each enabled source
+  in `SEEDED` (bls, cboe_vix, nowflation; fomc has no board entry) with a history line, the board
+  gets that line's status, first reason and the time of the source's latest `ok` line as
+  `last_ok`; each reader's own `last_ok` is set to it too. An `ok` line stays `ok` only while it is
+  still fresh by the source's own rules, re-checked against now (`recheck`): `stale_after` not
+  passed (all); a CPI and an NFP release still after now (BLS); the close not older than the
+  previous trading day, with the calendar covering today (Cboe); `source_generated_at` not older
+  than `nowflation_max_age_h` and, after `nowflation_fresh_after_et`, today's (nowflation). Else it
+  is `stale` with the failing reason. A seed never turns a line that was not `ok` into `ok`.
+- **Never `ok` from a line it cannot trust** (review, 2026-11-01): a line read (`first_seen_at`,
+  `fetched_at`) or generated (`source_generated_at`) more than `FUTURE_SLACK` (1 h, as nowflation's
+  own `generated_in_future`) after now, as after the clock went back or with a copied history, is
+  `stale` (`read_after_now`, `generated_in_future`); an `ok` line without `stale_after` is `stale`
+  (`no_stale_after`); a line with a field of the wrong type is `stale` (`history_unreadable`) and
+  never stops `build_jobs`, so a damaged history cannot keep Scout from starting.
+- **Not seeded:** the polled feeds (EDGAR Atom, the wires, the halt feed, the ticker map,
+  EDGAR submissions). They poll within a minute or two of the start, and their gap rules (D7) must
+  start from a real poll.
+- **Retry rule** (`macro_seed.last_read`). SS 12 says "BLS weekly; Cboe daily"; the spacing limits
+  how often the host is asked for data it answered. A read the host did not answer (`unavailable`:
+  network, timeout, HTTP error, refused, schema drift) gives nothing to space from, so it does not
+  use up the week (BLS), the trading-day slot (Cboe) or the day (nowflation's start read), and a
+  failed latest line never marks a daily job done (`_seed`). A restart therefore reads such a
+  source again once, at start; that costs one request per start, and the fetcher's backoff after a
+  403 or 429 and nowflation's daily cap still apply. Within one run nothing changes: a failed read
+  is not retried before its next scheduled time (BLS a week after the attempt, Cboe the next
+  trading day's slot, nowflation its next read time). A `stale` line (the host answered with old
+  data) counts as a read.
+
