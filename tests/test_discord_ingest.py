@@ -158,14 +158,15 @@ def test_an_empty_capture_counts_for_the_cadence(cfg: ScoutConfig, paths: ScoutP
 
 
 def test_cadence_counts_capture_hours_on_trading_days_only(cfg: ScoutConfig) -> None:
-    # defaults: 07:00-17:00 ET, every 60 minutes
+    # defaults: 07:00-17:00 ET, every 90 minutes (hourly task plus dispatch delay)
     fri_1650 = datetime(2026, 10, 30, 20, 50, tzinfo=timezone.utc)  # Friday 16:50 ET (EDT)
     mon_0730 = datetime(2026, 11, 2, 12, 30, tzinfo=timezone.utc)  # Monday 07:30 ET (EST)
     assert in_window_seconds(fri_1650, mon_0730, cfg) == pytest.approx(40 * 60)
     assert cadence_status(fri_1650, mon_0730, cfg) == ("ok", None)
-    mon_0815 = mon_0730 + timedelta(minutes=45)
-    status, why = cadence_status(fri_1650, mon_0815, cfg)
-    assert status == "stale" and why == "no_capture_for_85_min_of_capture_hours"
+    assert cadence_status(fri_1650, mon_0730 + timedelta(minutes=45), cfg) == ("ok", None)  # 85 min
+    mon_0825 = mon_0730 + timedelta(minutes=55)
+    status, why = cadence_status(fri_1650, mon_0825, cfg)
+    assert status == "stale" and why == "no_capture_for_95_min_of_capture_hours"
     sat = datetime(2026, 10, 31, 16, 0, tzinfo=timezone.utc)
     assert cadence_status(fri_1650, sat, cfg) == ("ok", None)
     off = config_from_dict({"discord_enabled": False}, cfg.scout_dir)

@@ -22,7 +22,7 @@ a few minutes to recurring tasks; the schedules leave room for it.
 |---|---|---|---|---|
 | `scout-jason-daily` | `20,50 22-23 * * 1-5` | 07:20-08:50 / 08:20-09:50 ET, Mon-Fri | Discord #daily-watchlist, #weekly-trade-plan, #free-analysis (MAIN STAGE); the weekly-plan PDF via `tools/fetch_weekly_plan.py` | `inbox\jason\<date>.daily.json`, `inbox\jason\<monday>.weekly.json`, `inbox\jason\raw\<monday>.weekly.txt`, capture files `inbox\discord\{daily-watchlist,weekly-trade-plan,free-analysis}\<stamp>.jsonl`, `inbox\discord\_cursor_jason.json` |
 | `scout-jason-tuesday` | `0 13,19 * * 3` | Tue 22:00 + Wed 04:00 EST / Tue 23:00 + Wed 05:00 EDT | WebSearch/WebFetch (and Chrome on YouTube for the transcript panel) | `inbox\jason\<tuesday>.tuesday.json`, `inbox\jason\raw\<tuesday>.tuesday.txt` |
-| `scout-discord-news` | `5,35 0-10,18-23 * * 1-6` | every 30 min, 04:00-20:00 ET Mon-Fri (both) | Discord #brianna-news, #stockmktnewz, #major-headlines, #earnings-whispers, #market-movers, #open-outcrier (MARKET NEWS); #15m-scanner, #daily-scanner, #weekly-scanner (SCANNERS) | capture files `inbox\discord\<channel>\<stamp>.jsonl`, `inbox\discord\_cursor.json` |
+| `scout-discord-news` | `5 0-10,18-23 * * 1-6` | hourly, 04:00-20:00 ET Mon-Fri (both) | Discord #brianna-news, #stockmktnewz, #major-headlines, #earnings-whispers, #market-movers, #open-outcrier (MARKET NEWS); #15m-scanner, #daily-scanner, #weekly-scanner (SCANNERS) | capture files `inbox\discord\<channel>\<stamp>.jsonl`, `inbox\discord\_cursor.json` |
 
 All paths are under `E:\Scout` (the install the owner runs). The tasks run only these commands, from
 `E:\Scout` with `E:\Scout\.venv\Scripts\python.exe`: `-m scout discord check <file.tmp>`,
@@ -48,7 +48,8 @@ segment as `<tuesday>.tuesday.json` with his words and a transcript timestamp on
 shape of the 2026-09-15 reference read. No transcript means no file: it never builds levels from a
 title or description. The 19:00 run is a retry and skips when the file exists.
 
-**scout-discord-news.** One poll every 30 minutes. The cron covers Brisbane 18:05-10:35, which
+**scout-discord-news.** One poll an hour (the desktop app allows scheduled tasks at most hourly;
+the heartbeat limit of 90 minutes allows for the dispatch delay). The cron covers Brisbane 18:05-10:05, which
 contains 04:00-20:00 ET in both EST (19:00-11:00 Brisbane) and EDT (18:00-10:00 Brisbane); runs that
 fall outside 04:00-20:00 ET on a weekday (the edge hours, Monday morning Brisbane = Sunday ET,
 Saturday evening Brisbane = Saturday ET) exit at once without opening anything. It reads each
@@ -57,7 +58,7 @@ run reads back over the weekend; a channel with more than 300 new posts is caugh
 over the next runs, and the cursor never moves past a post that was not read), and writes one
 capture file per channel it actually read (an empty file when nothing is new; no file at all for a
 channel it could not read, so an outage shows as `stale`: Scout's `discord_inbox` heartbeat source
-needs a capture at least every `discord_expected_every_min` = 60 minutes during
+needs a capture at least every `discord_expected_every_min` = 90 minutes during
 `discord_capture_hours_et` = 07:00-17:00 ET; the defaults fit this schedule). open-outcrier "Top Earnings ..." lines and legible
 market-movers earnings calendars become `earnings_schedule` lines; each "PaperGains Scanner" card in
 the three SCANNERS channels (added 2026-11-01) becomes a `scanner_alert` line (timeframe from the
@@ -88,7 +89,7 @@ owner); run only the commands above; end with a short report.
    "REFUSED: pypdf is not installed" and skips the weekly plan; everything else still works.
 3. **Create each task** in the Claude Code desktop app (Scheduled tasks), or ask Claude in a session:
    "create a scheduled task from E:\Scout\tasks\scout-discord-news\SKILL.md with cron
-   `5,35 0-10,18-23 * * 1-6`". Use the folder name as the task id, the frontmatter `description` as
+   `5 0-10,18-23 * * 1-6`". Use the folder name as the task id, the frontmatter `description` as
    the description, everything after the frontmatter as the prompt, and the cron from the table.
    The task's copy lives in `C:\Users\<you>\.claude\scheduled-tasks\<task-id>\SKILL.md`; when the
    file here changes, update the task's prompt too.

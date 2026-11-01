@@ -95,7 +95,7 @@ untrusted data. The file format and the commands the tasks run are in `docs/INBO
   answer, and only to block a hold. Nothing from Discord can allow a hold. Scanner cards (#15m-scanner,
   #daily-scanner, #weekly-scanner) are listed in the brief's "Paper Gains scanners" lines and reach no answer.
 - **Is it working?** The brief and the heartbeat show `discord_inbox`: `ok` while a capture arrives at
-  least every `discord_expected_every_min` (60) minutes between `discord_capture_hours_et` (07:00 and
+  least every `discord_expected_every_min` (90) minutes between `discord_capture_hours_et` (07:00 and
   17:00 ET) on trading days, else `stale`, with each channel's last capture and today's refused lines.
 
 To stop Scout without its window, put a file named `STOP` in Scout's folder. In Explorer, New > Text

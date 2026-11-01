@@ -1,6 +1,6 @@
 ---
 name: scout-discord-news
-description: Every 30 minutes in US pre-market to after-hours, copy new posts from six Paper Gains Discord MARKET NEWS channels and the three SCANNERS channels into Scout's inbox as capture files (read-only on Discord)
+description: Every hour in US pre-market to after-hours, copy new posts from six Paper Gains Discord MARKET NEWS channels and the three SCANNERS channels into Scout's inbox as capture files (read-only on Discord)
 ---
 
 Capture new posts from nine channels of the Paper Gains (Jason's School of Gains) Discord into Scout's
@@ -114,7 +114,7 @@ by clicking a name. For each channel:
      `https://discord.com/channels/784810634906435594/<channel_id>/<last_message_id>` (Discord loads
      the messages around it), read FORWARD from the cursor (scroll down), and capture the 300 OLDEST
      posts newer than the cursor. Step 6 then moves the cursor only to the newest of those, so the
-     next run (30 minutes later) continues from there until it has caught up. Report "catching up".
+     next run (an hour later) continues from there until it has caught up. Report "catching up".
    - If the cursor's message is older than 13 days (or its link does not load), start from the posts
      of 13 days ago and report the gap ("cursor older than 13 days").
 4. Keep only posts newer than the cursor (or the first-capture limit). Oldest first. What you keep

@@ -667,7 +667,7 @@ and never raises: every exception becomes `unknown` with a reason.
   `discord_gate5_enabled` (true), `discord_text_max_chars` (2000), `discord_image_text_max_chars`
   (4000), `discord_max_post_age_days` (14), `discord_posted_at_tolerance_s` (120),
   `discord_schedule_max_ahead_days` (14), `discord_max_file_bytes` (2000000),
-  `discord_expected_every_min` (60), `discord_capture_hours_et` (["07:00", "17:00"]),
+  `discord_expected_every_min` (90), `discord_capture_hours_et` (["07:00", "17:00"]),
   `discord_brief_max_items` (10). DESIGN 6.9 documents them.
 
 Radar gains `scout_dir` and `jason_near_level_pct`. Pilot gains `scout_dir` and `pilot_hold_check_et`

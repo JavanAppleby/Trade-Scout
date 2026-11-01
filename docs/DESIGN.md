@@ -1085,7 +1085,7 @@ then adds it to gate 6 from that time on. If it is refused again, three 403s in 
 | discord_posted_at_tolerance_s | int | 120 |
 | discord_schedule_max_ahead_days | int | 14 |
 | discord_max_file_bytes | int | 2000000 |
-| discord_expected_every_min | int | 60 |
+| discord_expected_every_min | int | 90 |
 | discord_capture_hours_et | list[time] | ["07:00", "17:00"] (trading days) |
 | discord_brief_max_items | int | 10 |
 | discord_scanner_brief_max_tickers | int | 12 (tickers per scanner pattern line in the brief) |
