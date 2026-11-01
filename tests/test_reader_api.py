@@ -224,7 +224,7 @@ def test_market_context_gets_visible_history_and_macro_facts(scout_dir: Path, cf
     _world(scout_dir, cfg)
     seen: list[tuple] = []
 
-    def market_context_from(history: list, facts: list, params: dict, as_of: datetime) -> dict:
+    def market_context_from(history: list, facts: list, params: dict, as_of: datetime, beat: Any = None) -> dict:
         seen.append(([h["source"] for h in history], [f["kind"] for f in facts], params["scout_stale_s"]))
         return {"macro_event_next_session": tri("false"), "inflation_regime": tri("hot"), "vix": tri("unknown"),
                 "next_macro_event": tri("unknown"), "extra_field": 7}
@@ -467,3 +467,40 @@ def test_property_random_bytes_never_raise(files: dict[str, bytes]) -> None:
             path.write_bytes(body)
         answers = _six(root)
         assert _values(answers) == {"unknown"}
+
+
+def test_jason_tags_note_damage_in_the_snapshot_file(scout_dir: Path, cfg: ScoutConfig,
+                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: the jason snapshot scan was thrown away, so a newer snapshot in a future format
+    (or a torn newest line) silently fell back to the older snapshot and the tags said false."""
+    _world(scout_dir, cfg)
+    seen: list[Any] = []
+
+    def jason_tags_from(snapshot: Any, *args: Any, **kw: Any) -> dict:
+        seen.append(snapshot and snapshot["files"])
+        return {k: tri("false") for k in JASON_TAGS}
+    install_module(monkeypatch, "jason", jason_tags_from=jason_tags_from)
+    snap = {"today_et": "2026-11-03", "setups": [], "warnings": []}
+    write_records(scout_dir, "jason", [{"first_seen_at": iso(AS_OF - timedelta(days=1)), "files": ["old"], **snap},
+                                       {"format": 2, "first_seen_at": iso(AS_OF - timedelta(hours=1)),
+                                        "files": ["new"], **snap}])
+    got = Reader(scout_dir).jason_tags(S, 1.0, AS_OF)
+    assert seen[-1] == ["old"]
+    assert all(got[k]["value"] == "unknown" for k in JASON_TAGS)
+    assert all("unknown_format:jason/snapshots.jsonl" in got[k]["reasons"] for k in JASON_TAGS)
+
+
+def test_market_context_passes_the_beat_for_rule_6(scout_dir: Path, cfg: ScoutConfig,
+                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: Reader._market dropped the beat, so a macro source in error in the beat still
+    answered true/false from a history line whose stale_after had not passed."""
+    _world(scout_dir, cfg)
+    seen: list[Any] = []
+
+    def market_context_from(history: list, facts: list, params: dict, as_of: datetime, beat: Any = None) -> dict:
+        seen.append(beat)
+        return {k: tri("unknown") for k in ("macro_event_next_session", "inflation_regime", "vix",
+                                            "next_macro_event")}
+    install_module(monkeypatch, "macro", market_context_from=market_context_from)
+    Reader(scout_dir).market_context(AS_OF)
+    assert isinstance(seen[-1], dict) and "sources" in seen[-1]

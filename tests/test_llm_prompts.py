@@ -81,7 +81,10 @@ def test_j3_tools_only_server_web_tools(cfg: ScoutConfig) -> None:
     assert [t["type"] for t in p["tools"]] == [WEB_SEARCH_TOOL, WEB_FETCH_TOOL]
     search, fetch = p["tools"]
     assert search == {"type": WEB_SEARCH_TOOL, "name": "web_search", "max_uses": cfg.web_search_max_uses,
-                      "allowed_domains": list(cfg.llm_allowed_domains)}
+                      "allowed_domains": list(cfg.llm_allowed_domains), "allowed_callers": ["direct"]}
+    # regression: without allowed_callers the _20260209 tools may run from the code-execution
+    # sandbox, whose filtered output carries no web_*_tool_result blocks for the citation checks
+    assert fetch["allowed_callers"] == ["direct"]
     assert fetch["allowed_domains"] == list(cfg.llm_allowed_domains)
     assert fetch["max_content_tokens"] == cfg.web_fetch_max_content_tokens and fetch["max_uses"] == 3
     for banned in ("fallbacks", "mcp_servers", "container", "tool_choice", "betas"):

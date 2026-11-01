@@ -57,7 +57,8 @@ def test_end_to_end_polls_write_facts_health_and_raw(scout_dir, clock, write_aud
             heartbeat.beat(clock.now())
             clock.advance(60)
     facts = read_jsonl(ctx.paths.facts / "2026-11-02.jsonl")
-    assert len({f["fact_id"] for f in facts}) == len(facts) == 9 + 21 + 3
+    # 9 filings, one fact per ticker under the CIK (ACME/ACMEW, GOOGL/GOOG add 4), 21 + 3 wire facts
+    assert len({f["fact_id"] for f in facts}) == len(facts) == 9 + 4 + 21 + 3
     assert {f["source"] for f in facts} == {"edgar_atom", "prnewswire", "globenewswire"}
     acme = [f for f in facts if f["source"] == "edgar_atom" and f["ticker"] == "ACME"]
     assert acme and acme[0]["exchange"] == "Nasdaq"

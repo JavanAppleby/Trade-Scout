@@ -52,7 +52,10 @@ from scout.models import FetchResult
 __all__ = ["HARD_MIN_SPACING_S", "HttpFetcher", "RawResponse", "Transport", "build_fetcher", "decompress",
            "urllib_transport"]
 
-HARD_MIN_SPACING_S: Mapping[str, float] = {"www.nasdaqtrader.com": 60.0, "www.sec.gov": 0.5, "data.sec.gov": 0.5}
+# Per-host minimums no config can lower (SS 12: "enforced per host in code"): Nasdaq Trader one read a
+# minute, SEC fair access, and the RSS wires at least 30 s apart.
+HARD_MIN_SPACING_S: Mapping[str, float] = {"www.nasdaqtrader.com": 60.0, "www.sec.gov": 0.5, "data.sec.gov": 0.5,
+                                           "www.prnewswire.com": 30.0, "www.globenewswire.com": 30.0}
 _BACKOFF_STATUSES = (403, 429)
 
 
@@ -158,8 +161,21 @@ class HttpFetcher:
         self._blocked_until: dict[str, datetime] = self._limits.blocked_until
         self._day_count: dict[str, tuple[date, int]] = self._limits.day_count
         self._source_last: dict[str, datetime] = self._limits.source_last_request
+        self._clamp_future(self.clock.now())
         self._validators: dict[str, tuple[str | None, str | None]] = {}  # url -> (etag, last-modified)
         self.requests = 0
+
+    def _clamp_future(self, now: datetime) -> None:
+        """Times stored in the future (the wall clock stepped back since they were saved) would make
+        a fetch sleep for hours: a last request is clamped to now, a backoff to its longest length."""
+        for times in (self._last_request, self._source_last):
+            for key, at in list(times.items()):
+                if at > now:
+                    times[key] = now
+        longest = now + timedelta(minutes=float(self.cfg.source_backoff_max_min))
+        for host, until in list(self._blocked_until.items()):
+            if until > longest:
+                self._blocked_until[host] = longest
 
     def __repr__(self) -> str:  # never show the User-Agent or contact email
         return f"HttpFetcher(requests={self.requests})"
@@ -228,7 +244,11 @@ class HttpFetcher:
         last = self._last_request.get(host)
         if last is None:
             return
-        wait = self.spacing_for(host) - (self.clock.now() - last).total_seconds()
+        spacing = self.spacing_for(host)
+        elapsed = (self.clock.now() - last).total_seconds()
+        if elapsed < 0:  # the wall clock stepped back: the spacing counts as passed, never a long sleep
+            return
+        wait = min(spacing, spacing - elapsed)
         if wait > 0:
             sleep = getattr(self.clock, "sleep", None)
             (sleep or _time.sleep)(wait)

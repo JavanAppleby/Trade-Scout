@@ -211,3 +211,34 @@ def test_builders_use_context_services(scout_dir, paths, clock):
     ctx.ticker_map = lambda: tmap
     subs = build_submissions(ctx)
     assert isinstance(tmap, TickerMapClient) and isinstance(subs, SubmissionsClient) and subs.ticker_map is tmap
+
+
+def test_a_ticker_under_two_ciks_is_ambiguous_and_gets_no_due_window(scout_dir, paths, clock):
+    """Regression: the first row of a ticker listed under two CIKs won silently, so the due window
+    (gate 5) could be built from the wrong company's 10-Q cycle and answer a confident false."""
+    import json
+
+    from scout.due_window import due_window
+
+    body = json.dumps({"fields": ["cik", "name", "ticker", "exchange"], "data": [
+        [1000001, "A CORP", "S", "Nasdaq"], [1000002, "S CORP", "S", "Nasdaq"], [7654321, "BETA", "BETA", "NYSE"],
+    ]}).encode()
+    cfg = wire_config(scout_dir)
+    tmap, *_ = map_client(cfg, paths, clock, {tickers_url(cfg): body})
+    assert tmap.refresh(clock.now())
+    assert tmap.ambiguous("s") and not tmap.ambiguous("BETA")
+    fetcher = FakeFetcher({})
+    client = SubmissionsClient(cfg, fetcher, tmap, clock)
+    info = client.periodic_info("S", clock.now())
+    assert info.status == "ambiguous_ticker" and info.cik is None and fetcher.calls == []
+    assert due_window(info, cfg, clock.now()).status == "ambiguous_ticker"
+    assert tmap.tickers_for_cik(1000002) == [("S", "Nasdaq")]  # the second CIK keeps its ticker
+
+
+def test_every_ticker_under_a_cik_is_kept_in_file_order(scout_dir, paths, clock):
+    cfg = wire_config(scout_dir)
+    client, *_ = map_client(cfg, paths, clock, {tickers_url(cfg): fixture("company_tickers_exchange_excerpt.json")})
+    client.refresh(clock.now())
+    assert client.tickers_for_cik(1234567) == [("ACME", "Nasdaq"), ("ACMEW", "Nasdaq")]
+    assert client.tickers_for_cik(1652044) == [("GOOGL", "Nasdaq"), ("GOOG", "Nasdaq")]
+    assert client.tickers_for_cik(42) == [] and not client.ambiguous("ACME")

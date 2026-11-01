@@ -37,7 +37,7 @@ from scout.models import Filing
 __all__ = [
     "AtomEntry", "AtomPage", "EdgarFlags", "RadarConfigAdapter", "RadarFiling", "SchemaError", "filing_class",
     "flags_from_filings", "normalise_ticker", "parse_getcurrent_atom", "parse_json", "parse_periodic",
-    "parse_submissions", "parse_ticker_map", "safe_xml_root",
+    "parse_submissions", "parse_ticker_map", "parse_ticker_rows", "safe_xml_root",
 ]
 
 
@@ -97,11 +97,11 @@ def _cik(value: object) -> int | None:
     return cik if cik > 0 else None
 
 
-def parse_ticker_map(body: object) -> dict[str, tuple[int, str | None]]:
-    """`company_tickers_exchange.json` ({"fields": [...], "data": [[cik, name, ticker, exchange]]})
-    -> {TICKER: (cik, exchange)}. Also reads the older `company_tickers.json` shape. Tolerant:
-    unreadable rows are skipped; the first row of a duplicated ticker wins."""
-    out: dict[str, tuple[int, str | None]] = {}
+def parse_ticker_rows(body: object) -> list[tuple[str, int, str | None]]:
+    """Every readable row of `company_tickers_exchange.json` ({"fields": [...], "data": [[cik, name,
+    ticker, exchange]]}) or the older `company_tickers.json` shape, in file order, as (TICKER, cik,
+    exchange). Tolerant: unreadable rows are skipped. A ticker may appear more than once."""
+    out: list[tuple[str, int, str | None]] = []
 
     def add(ticker: object, cik: object, exchange: object) -> None:
         if not isinstance(ticker, str) or not ticker.strip():
@@ -110,7 +110,7 @@ def parse_ticker_map(body: object) -> dict[str, tuple[int, str | None]]:
         if number is None:
             return
         exch = exchange.strip() if isinstance(exchange, str) and exchange.strip() else None
-        out.setdefault(normalise_ticker(ticker), (number, exch))
+        out.append((normalise_ticker(ticker), number, exch))
 
     if not isinstance(body, Mapping):
         return out
@@ -130,6 +130,15 @@ def parse_ticker_map(body: object) -> dict[str, tuple[int, str | None]]:
     for row in body.values():  # company_tickers.json: {"0": {"cik_str", "ticker", "title"}}
         if isinstance(row, Mapping):
             add(row.get("ticker"), row.get("cik_str", row.get("cik")), row.get("exchange"))
+    return out
+
+
+def parse_ticker_map(body: object) -> dict[str, tuple[int, str | None]]:
+    """{TICKER: (cik, exchange)} from `parse_ticker_rows`; the first row of a duplicated ticker wins
+    (Radar's rule). Scout's own `TickerMapClient` also keeps the duplicates (`parse_ticker_rows`)."""
+    out: dict[str, tuple[int, str | None]] = {}
+    for ticker, cik, exch in parse_ticker_rows(body):
+        out.setdefault(ticker, (cik, exch))
     return out
 
 
@@ -391,13 +400,18 @@ _OFFERING_FORMS = ("S-1", "S-3", "F-1", "F-3")
 
 
 def filing_class(form: str, items: Sequence[str] = (), description: str = "") -> str | None:
-    """The SS 6.4 filing table. An amendment ("/A") classes as its base form. When an 8-K carries
+    """The SS 6.4 filing table. An amendment ("/A") classes as its base form, except that an 8-K/A
+    never gets a class that can pass gate 6 (earnings_result, contract_or_other): it re-files or
+    corrects an earlier 8-K (most often the financial statements for a 2.01 acquisition weeks after
+    the original), so it is not fresh news; its blocking classes (offering, reverse_split,
+    listing_notice) are kept, since counting those errs the safe way. When an 8-K carries
     several items, the first class in this order wins: offering (3.02), reverse_split (5.03 with
     "reverse" in the description), listing_notice (3.01), earnings_result (2.02),
     contract_or_other (1.01, 2.01, 7.01, 8.01): the same order as the wire classes, where the
     classes that never pass gate 6 come first. None when no row applies."""
     f = (form or "").strip().upper()
-    if f.endswith("/A"):
+    amendment = f.endswith("/A")
+    if amendment:
         f = f[:-2]
     reverse = "reverse" in (description or "").lower()
     if f in ("NT 10-Q", "NT 10-K"):
@@ -415,6 +429,8 @@ def filing_class(form: str, items: Sequence[str] = (), description: str = "") ->
         return "reverse_split"
     if "3.01" in have:
         return "listing_notice"
+    if amendment:
+        return None
     if "2.02" in have:
         return "earnings_result"
     if have & {"1.01", "2.01", "7.01", "8.01"}:

@@ -25,6 +25,7 @@ from helpers_fakes import write_records
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "answers"
 GATE6_SOURCES = ("edgar_atom", "globenewswire", "prnewswire")
+BEAT_ONLY_SOURCES = ("nasdaq_halts", "nowflation", "bls", "cboe_vix")
 OK_RESULTS = ("ok", "not_modified")
 
 
@@ -66,7 +67,8 @@ def write_params(scout_dir: Path, cfg: ScoutConfig, at: datetime, **override: An
 def write_beats(scout_dir: Path, start: datetime, end: datetime, *, every: float = 30.0,
                 sources: Mapping[str, str] | None = None, gap_open: Mapping[str, bool] | None = None,
                 stopped: bool = False) -> None:
-    statuses = dict(sources) if sources is not None else {s: "ok" for s in GATE6_SOURCES}
+    # the macro and halt sources too: the reader checks their beat status (DESIGN 3.2 rule 6)
+    statuses = dict(sources) if sources is not None else {s: "ok" for s in (*GATE6_SOURCES, *BEAT_ONLY_SOURCES)}
     gaps = dict(gap_open) if gap_open is not None else {s: False for s in statuses}
     rows = []
     at = start
@@ -169,7 +171,8 @@ def install_all_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
         return {"on_jason_list": tri("true" if on else "false"), "near_jason_level": tri("unknown"),
                 "jason_conflict": tri("false"), "jason_market_frame": tri("unknown")}
 
-    def market_context_from(history: list[Any], facts: list[Any], params: Any, as_of: datetime) -> dict[str, Any]:
+    def market_context_from(history: list[Any], facts: list[Any], params: Any, as_of: datetime,
+                            beat: Any = None) -> dict[str, Any]:
         events = [f for f in facts if f.get("kind") == "macro_event"]
         return {"macro_event_next_session": tri("true" if events else "false"),
                 "inflation_regime": tri("unknown"), "vix": tri("unknown"), "next_macro_event": tri("unknown")}

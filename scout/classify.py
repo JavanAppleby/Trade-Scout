@@ -6,9 +6,17 @@ Wire titles: the keyword lists are config (`class_keywords`); the first class in
 Announce Financial Results for Third Quarter 2026 on November 3" also matches "financial results
 for" (earnings_result) and often "agreement" or "order" (contract); classed that way it would make
 gate 6 answer true for a press release that only names a date, and gate 5 (which reads the date
-from `earnings_date` facts only) would never see it. A keyword matches as whole words, ignoring case
-("order" matches "Purchase Order" but not "Reorder"). Filings: `filing_class` (the SS 6.4 table, in
-`scout.edgar_parse`).
+from `earnings_date` facts only) would never see it. Because earnings_date goes first, its keywords
+must be narrow (SS 6.4: "to report / announce / release ... results"): each default keyword pairs a
+scheduling phrase with the subject that follows it, written with a `...` gap ("will host ...
+results", "timing of ... earnings"). A bare "to release" or "will announce" would also catch
+"Agreement to Release Its Products" (contract) or "Reports Q3 Results and Will Host Conference Call
+to Discuss" (earnings_result), and an earnings_date fact with no date in it makes gate 5 `unknown`
+for `earnings_lookback_days`.
+
+A keyword matches as whole words, ignoring case ("order" matches "Purchase Order" but not
+"Reorder"). ` ... ` inside a keyword matches any text, so "to announce ... results" needs both parts
+in that order. Filings: `filing_class` (the SS 6.4 table, in `scout.edgar_parse`).
 """
 
 from __future__ import annotations
@@ -27,16 +35,24 @@ WIRE_MATCH_ORDER = ("offering", "reverse_split", "listing_notice", "fda", "trial
 assert sorted(WIRE_MATCH_ORDER) == sorted(WIRE_CLASSES)
 
 
+GAP = "..."
+
+
+def _phrase(part: str) -> str:
+    words = r"\s+".join(re.escape(w) for w in part.split())
+    return rf"(?<![A-Za-z0-9]){words}(?![A-Za-z0-9])"
+
+
 @functools.lru_cache(maxsize=1024)
 def _pattern(keyword: str) -> re.Pattern[str]:
-    words = r"\s+".join(re.escape(w) for w in keyword.split())
-    return re.compile(rf"(?<![A-Za-z0-9]){words}(?![A-Za-z0-9])", re.IGNORECASE)
+    parts = [p for p in (x.strip() for x in keyword.split(GAP)) if p]
+    return re.compile(".*?".join(_phrase(p) for p in parts), re.IGNORECASE | re.DOTALL)
 
 
 def keyword_hit(title: str, keywords: Sequence[str]) -> str | None:
-    """The first keyword of `keywords` found in `title` (whole words, any case), or None."""
+    """The first keyword of `keywords` found in `title` (whole words, any case; ` ... ` is a gap), or None."""
     for kw in keywords:
-        if kw.strip() and _pattern(kw.strip()).search(title or ""):
+        if kw.strip(" .") and _pattern(kw.strip()).search(title or ""):
             return kw
     return None
 

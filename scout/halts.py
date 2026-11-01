@@ -171,6 +171,7 @@ class HaltPoller:
         self.last_result: str | None = None
         self.seen_halts: set[str] = set()
         self.seen_resumed: set[str] = set()
+        self.refetch_full = False  # a fact write failed: the next read is unconditional, to see it again
 
     def _last_sent(self) -> datetime | None:
         """The later of this poller's last request and the fetcher's last send to the host. The
@@ -189,9 +190,13 @@ class HaltPoller:
         return max(found) if found else None
 
     def ready(self, now: datetime) -> bool:
-        """The 60 s hard minimum (in code) since the last request."""
+        """The 60 s hard minimum (in code) since the last request. A last request in the future (the
+        wall clock stepped back) counts as long past, so halts do not stop until the clock catches up."""
         last = self._last_sent()
-        return last is None or (now - last).total_seconds() >= self.spacing_s - 1e-6
+        if last is None:
+            return True
+        elapsed = (now - last).total_seconds()
+        return elapsed < 0 or elapsed >= self.spacing_s - 1e-6
 
     def poll(self, now: datetime) -> int:
         """One read of the live feed; the number of new facts."""
@@ -215,7 +220,7 @@ class HaltPoller:
         if not self.ready(now):
             return 0
         previous, self.last_request = self.last_request, now
-        got: FetchResult = self.fetcher.fetch(SOURCE, url, conditional=feed == FEED_LIVE)
+        got: FetchResult = self.fetcher.fetch(SOURCE, url, conditional=feed == FEED_LIVE and not self.refetch_full)
         gap = previous is not None and (now - previous).total_seconds() > max(
             float(self.cfg.source_max_gap_s), 2 * self.spacing_s)
         rows: list[HaltRow] = []
@@ -228,7 +233,13 @@ class HaltPoller:
                 result, error = "schema", str(exc)[:200]
             else:
                 sha = self.raw.save(SOURCE, f"{feed}.xml", got.body, now) if self._changed(got.body) else self.last_sha
-        new = self._facts(now, rows, sha, url, feed) if result == "ok" else 0
+        try:
+            new = self._facts(now, rows, sha, url, feed) if result == "ok" else 0
+        except Exception:
+            self.refetch_full = True  # a 304 would hide the rows whose write failed
+            raise
+        if result == "ok":
+            self.refetch_full = False
         self.last_result = result
         self._health(got, feed, result, len(rows), new, gap, error)
         good = result in ("ok", "not_modified")
@@ -256,23 +267,26 @@ class HaltPoller:
                     extra={"halt_key": row.key, "row": dict(row.row)})
 
     def _facts(self, now: datetime, rows: list[HaltRow], sha: str | None, url: str, feed: str) -> int:
+        """A key is marked seen only after `facts.add` returns: a failed write raises, and the next
+        poll tries the row again (the FactSink contract the wire and EDGAR pollers keep)."""
         new = 0
         for row in rows:
             key = row.key
             rkey = f"{key}|{iso(row.resumed_at)}" if row.resumed_at is not None else None
             if key not in self.seen_halts:
+                stored = self.facts.add(self._fact(now, row, key, sha, url, feed, row.resumed_at))
                 self.seen_halts.add(key)
-                if self.facts.add(self._fact(now, row, key, sha, url, feed, row.resumed_at)):
+                if stored:
                     new += 1
                     if rkey is not None:
                         self.seen_resumed.add(rkey)  # the halt fact already carries it
                 # else: stored before (e.g. before a restart), maybe without this resumption
             if rkey is None or rkey in self.seen_resumed:
                 continue
-            self.seen_resumed.add(rkey)
             fact = self._fact(now, row, f"{key}|resumed|{iso(row.resumed_at)}", sha, url, feed, row.resumed_at)
             if self.facts.add(fact):
                 new += 1
+            self.seen_resumed.add(rkey)
         return new
 
     def _health(self, got: FetchResult, feed: str, result: str, items: int, new: int, gap: bool,

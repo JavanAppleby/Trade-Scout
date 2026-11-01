@@ -222,3 +222,86 @@ def test_a_timeout_is_charged_its_estimate(llm_cfg: ScoutConfig, lpaths: ScoutPa
         assert ledger.spent_today() == pytest.approx(rec["estimate_usd"]) and out.cost_usd == pytest.approx(rec["cost_usd"])
     else:
         assert rec["cost_usd"] == 0 and ledger.spent_today() == 0
+
+
+def test_a_timed_out_j3_call_counts_its_searches(llm_cfg: ScoutConfig, lpaths: ScoutPaths,
+                                                 clock: ManualClock) -> None:
+    """Regression: a maybe-billed api_error was recorded with all-zero usage, so the server-side
+    searches of a timed-out J3 call counted 0 against web_search_max_per_day."""
+    from scout.llm_prompts import build_j3
+
+    req = build_j3("ABC", None, [], llm_cfg)
+    ledger = Ledger(lpaths, llm_cfg, clock)
+    execute(FakeAnthropic(TimeoutError("t")), req, ledger, lpaths, clock)
+    rec, = calls_on(lpaths, clock.now().date())
+    assert rec["validation"] == "api_error" and rec["usage"]["web_search_requests"] == req.web_search_uses()
+    assert ledger.searches_today() == req.web_search_uses()
+    execute(FakeAnthropic(LlmApiError("BadRequestError")), req, ledger, lpaths, clock)  # not billed: no searches
+    assert ledger.searches_today() == req.web_search_uses()
+
+
+def test_a_call_whose_record_cannot_be_written_still_counts(scout_dir: Path, clock: ManualClock,
+                                                            monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: the call record was written only after the billed call, so with a full disk every
+    call went out and none was counted: the cost and call caps never triggered. A reservation is now
+    written first; when the final record fails it stands at the worst case."""
+    import scout.llm_records as records
+
+    real = records.append_jsonl
+
+    def full_disk_after_reservation(paths: Any, target: Any, rec: dict) -> None:
+        if rec.get("validation") != "reserved":
+            raise OSError(28, "No space left on device")
+        real(paths, target, rec)
+
+    monkeypatch.setattr(records, "append_jsonl", full_disk_after_reservation)
+    llm_cfg = make_config(scout_dir, llm_enabled=True, llm_daily_cost_cap_usd=0.01)
+    lpaths = ScoutPaths.from_config(llm_cfg)
+    ledger = Ledger(lpaths, llm_cfg, clock)
+    req = build_j1([fact("ABC", "ABC wins", T)], llm_cfg)
+    sent = 0
+    for _ in range(50):
+        tr = FakeAnthropic(*[j1_reply(("F1", label("ABC", ["F1"])))] * 2)
+        out = execute(tr, req, ledger, lpaths, clock)
+        sent += len(tr.calls)
+        if out.status == "refused":
+            break
+    assert ledger.calls_today("J1") == sent and ledger.spent_today() == pytest.approx(sent * ledger.estimate(req))
+    assert ledger.spent_today() <= llm_cfg.llm_daily_cost_cap_usd
+    assert sent < 50  # the daily cap stopped the calls
+
+
+def test_no_reservation_no_call(llm_cfg: ScoutConfig, lpaths: ScoutPaths, clock: ManualClock,
+                                monkeypatch: pytest.MonkeyPatch) -> None:
+    import scout.llm_records as records
+
+    def full_disk(*_a: Any) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(records, "append_jsonl", full_disk)
+    out, tr = _run(llm_cfg, lpaths, clock, j1_reply(("F1", label("ABC", ["F1"]))))
+    assert out.status == "refused" and out.reason == "ledger_unwritable" and tr.calls == []
+
+
+def test_an_unreadable_ledger_refuses_every_call(llm_cfg: ScoutConfig, lpaths: ScoutPaths, clock: ManualClock,
+                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: an OSError opening the day file read as "nothing spent today"."""
+    import builtins
+
+    import scout.llm_ledger as L
+
+    out, _tr = _run(llm_cfg, lpaths, clock, j1_reply(("F1", label("ABC", ["F1"]))))
+    assert out.ok
+    day_file = str(lpaths.day_file(lpaths.llm, clock.now().date()))
+    real_open = builtins.open
+
+    def locked(file: Any, *a: Any, **kw: Any) -> Any:
+        if str(file) == day_file:
+            raise PermissionError(13, "sharing violation")
+        return real_open(file, *a, **kw)
+
+    monkeypatch.setattr(builtins, "open", locked)
+    ledger = L.Ledger(lpaths, llm_cfg, clock)
+    req = build_j1([fact("ABC", "ABC wins", T)], llm_cfg)
+    assert ledger.allow("J1", req) == (False, "ledger_unreadable")
+    assert ledger.cap_reached() is True and ledger.status()["cap_reached"] is True

@@ -233,7 +233,7 @@ class PeriodicInfo(Record):
 
     ticker: str
     cik: int | None
-    status: str  # ok | no_cik | fetch_failed | schema | no_http
+    status: str  # ok | no_cik | ambiguous_ticker | fetch_failed | schema | no_http
     filings: tuple[Filing, ...] = ()
     fiscal_year_end: str | None = None
     fetched_at: str | None = None

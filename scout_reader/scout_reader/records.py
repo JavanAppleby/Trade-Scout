@@ -64,7 +64,7 @@ def read_jsonl(path: str | os.PathLike[str]) -> list[dict[str, Any]]:
             continue
         try:
             rec = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError):
+        except (UnicodeDecodeError, ValueError, RecursionError):
             continue
         if isinstance(rec, dict):
             out.append(rec)
@@ -76,7 +76,7 @@ def read_json(path: str | os.PathLike[str]) -> dict[str, Any] | None:
     try:
         with open(path, "rb") as fh:
             rec = json.loads(fh.read().decode("utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError):
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError):
         return None
     return rec if isinstance(rec, dict) else None
 

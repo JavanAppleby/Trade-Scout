@@ -9,6 +9,12 @@ Every `heartbeat_interval_s` (30) the main loop calls `Heartbeat.beat(now)`, whi
 sources, and append a stopped beat, so no reader accepts a crashed or finished run's last beat.
 Nothing here raises: a failed write is logged once per failure streak and retried next beat.
 
+Every beat ages the board (`SourceStatusBoard.states_at`): a polled feed (kind wire, filing or
+halt) whose `last_ok` is older than its gap limit (`health.gap_limit_s` of the spacing in force)
+is published with `gap_open: true`, so a beat written while the main loop is busy (the Pulse, below)
+never claims coverage the loop is not polling. The halt feed is aged inside `active_hours_et` only,
+the hours it is polled.
+
 `Pulse` keeps the beat going while one job runs long (a host that accepts connections but does not
 answer, a slow Claude call): a daemon thread writes a live beat whenever one is due, but only after
 the main loop has written its first live beat (so a beat never claims sources Scout has not polled
@@ -23,9 +29,10 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from scout import __version__
-from scout.calendar import calendar_covers
-from scout.clock import Clock, et_date, iso
+from scout.calendar import calendar_covers, in_active_hours
+from scout.clock import Clock, et_date, iso, parse_iso
 from scout.config import ScoutConfig
+from scout.health import gap_limit_s, spacing_in_force
 from scout.models import Beat, HeartbeatBody, SourceState
 from scout.paths import ScoutPaths
 from scout.store import append_jsonl, atomic_write_json
@@ -39,6 +46,7 @@ class SourceStatusBoard:
     """In-memory state the heartbeat publishes (implements interfaces.StatusBoard)."""
 
     def __init__(self, cfg: ScoutConfig) -> None:
+        self.cfg = cfg
         self.sources: dict[str, SourceState] = {
             s.name: SourceState(enabled=s.enabled, status="starting" if s.enabled else "disabled")
             for s in cfg.sources.values()
@@ -56,14 +64,42 @@ class SourceStatusBoard:
     def set_levels(self, current_files: list[str], expires: str | None) -> None:
         self.levels = {"current_files": sorted(current_files), "expires": expires}
 
+    def states_at(self, now: datetime) -> dict[str, SourceState]:
+        """The sources as a beat at `now` publishes them: a polled feed whose last good poll is older
+        than its gap limit gets `gap_open: true` (see the module doc)."""
+        return {n: _aged(self.cfg, n, s, now) for n, s in sorted(self.sources.items())}
+
+
+AGED_KINDS = frozenset({"wire", "filing", "halt"})
+
+
+def _aged(cfg: ScoutConfig | None, name: str, state: SourceState, now: datetime) -> SourceState:
+    if cfg is None or state.gap_open or state.status != "ok":
+        return state
+    src = cfg.sources.get(name)
+    if src is None or src.kind not in AGED_KINDS:
+        return state
+    if src.kind == "halt" and not in_active_hours(now, cfg):
+        return state
+    last = parse_iso(state.last_ok) if state.last_ok else None
+    if last is not None and (now - last).total_seconds() <= gap_limit_s(cfg, spacing_in_force(src, now, cfg)):
+        return state
+    return SourceState(enabled=state.enabled, status=state.status, last_ok=state.last_ok,
+                       last_error=state.last_error, gap_open=True)
+
 
 def build_body(now: datetime, board: SourceStatusBoard, *, stopped: bool = False) -> HeartbeatBody:
     """The heartbeat body (pure). A stopped body carries no sources."""
     today = et_date(now)
     covers = calendar_covers(today) and calendar_covers(today + timedelta(days=45))
-    sources = {} if stopped else {n: s.to_record() for n, s in sorted(board.sources.items())}
+    sources = {} if stopped else {n: s.to_record() for n, s in _states(board, now).items()}
     return HeartbeatBody(at=iso(now), version=__version__, stopped=stopped, sources=sources, llm=dict(board.llm),
                          levels=dict(board.levels), calendar_covers_next_45d=covers)
+
+
+def _states(board: Any, now: datetime) -> dict[str, SourceState]:
+    states_at = getattr(board, "states_at", None)
+    return states_at(now) if callable(states_at) else dict(sorted(board.sources.items()))
 
 
 class Heartbeat:
@@ -100,9 +136,9 @@ class Heartbeat:
     def _write_locked(self, now: datetime, *, stopped: bool) -> bool:
         try:
             body = build_body(now, self.board, stopped=stopped)
-            beat = Beat(at=body.at, stopped=stopped,
-                        sources={} if stopped else {n: s.status for n, s in sorted(self.board.sources.items())},
-                        gap_open={} if stopped else {n: s.gap_open for n, s in sorted(self.board.sources.items())})
+            states = {} if stopped else _states(self.board, now)
+            beat = Beat(at=body.at, stopped=stopped, sources={n: s.status for n, s in states.items()},
+                        gap_open={n: s.gap_open for n, s in states.items()})
             atomic_write_json(self.paths, self.paths.heartbeat_file, body.to_record())
             append_jsonl(self.paths, self.paths.day_file(self.paths.beats, et_date(now)), beat.to_record())
         except Exception as exc:  # noqa: BLE001 - the heartbeat never breaks the loop

@@ -2,8 +2,13 @@
 
 - `weekly_sample`: 10 answered symbols a week, picked with a stored seed (`state/verify/
   samples.jsonl`), so the pick can be repeated; the owner hand-checks them (`scout.verify_check`).
+  A week whose sample is short (a thin Monday) is topped up from symbols answered later that week;
+  symbols already picked are never dropped.
 - `gate5_checks` / `auto_check`: every gate-5 `false` answer against the filings and wires first
   seen after its as-of and before the next session's close; an earnings report there is a miss.
+  Scout answers a symbol up to three times an evening (19:30, 19:45, Radar's finds after 20:00), all
+  for the same window, so the rows are merged per (symbol, ET day of as_of) before counting: one
+  symbol-day is one check, and a miss in any of its rows is a miss.
 - `report`: `reports/scout-verify-<date>.md` with per-answer counts, unknown share, hand-check
   agreement, false positives, misses, per-source coverage gaps and the SS 11 pass criteria:
   at least `verify_days` trading days, at least 30 checked gate-5 `false` answers with zero misses,
@@ -84,23 +89,25 @@ def samples(paths: ScoutPaths) -> list[dict[str, Any]]:
 
 def weekly_sample(paths: ScoutPaths, week: str, seed: str | None = None, *, now: datetime,
                   size: int = 10) -> list[str]:
-    """This week's sample: the stored one, else `size` symbols answered during the week up to
-    `now`, picked with `seed` (new random when None) and stored with it. [] when nothing was
-    answered yet (nothing is stored then)."""
-    for rec in samples(paths):
-        if rec.get("week") == week:
-            return [str(s) for s in rec.get("symbols") or []]
+    """This week's sample: the stored one (the latest record for the week), topped up to `size`
+    from symbols answered later in the week up to `now`; else `size` symbols answered during the
+    week, picked with `seed` (new random when None). Each new or larger pick is stored with its
+    seed. [] when nothing was answered yet (nothing is stored then)."""
+    stored = [rec for rec in samples(paths) if rec.get("week") == week]
+    have = [str(s) for s in (stored[-1].get("symbols") or [])] if stored else []
+    if stored and len(have) >= size:
+        return have
     monday, sunday = week_bounds(week)
     last = min(sunday, et_date(now))
     if last < monday:
-        return []
+        return have
     symbols = sorted({str(r["symbol"]).upper() for r in answers_between(paths, monday, last)
-                      if (parse_iso(r.get("written_at")) or now) <= now})
+                      if (parse_iso(r.get("written_at")) or now) <= now} - set(have))
     if not symbols:
-        return []
-    seed = seed or secrets.token_hex(8)
-    rng = random.Random(int(hashlib.sha256(f"{seed}|{week}".encode()).hexdigest(), 16))
-    picked = sorted(rng.sample(symbols, min(size, len(symbols))))
+        return have
+    seed = str(stored[-1].get("seed")) if stored and stored[-1].get("seed") else (seed or secrets.token_hex(8))
+    rng = random.Random(int(hashlib.sha256(f"{seed}|{week}|{len(have)}".encode()).hexdigest(), 16)) if have         else random.Random(int(hashlib.sha256(f"{seed}|{week}".encode()).hexdigest(), 16))
+    picked = sorted([*have, *rng.sample(symbols, min(size - len(have), len(symbols)))])
     append_jsonl(paths, paths.verify / "samples.jsonl",
                  {"format": FORMAT, "week": week, "seed": seed, "picked_at": iso(now), "symbols": picked})
     return picked
@@ -127,29 +134,44 @@ def _is_earnings(fact: dict[str, Any]) -> bool:
 
 
 def gate5_checks(paths: ScoutPaths, start: date, end: date, now: datetime) -> list[dict[str, Any]]:
-    """Every gate-5 `false` answer in [start, end]: status `miss`, `ok` or `pending` (the next
-    session has not closed by `now`), with the evidence of a miss."""
-    out = []
+    """Every gate-5 `false` answer in [start, end], one row per (symbol, ET day of as_of): status
+    `miss`, `ok` or `pending` (the next session has not closed by `now`), with the evidence of a
+    miss. The rows Scout writes for the same symbol the same evening cover the same window, so they
+    are one check: a miss in any of them is a miss; otherwise the latest as_of stands."""
+    by_day: dict[tuple[str, date], list[dict[str, Any]]] = {}
     for ans in answers_between(paths, start, end):
         if ans.get("event_before_next_session") != "false":
             continue
         as_of = parse_iso(ans.get("as_of"))
         if as_of is None:
             continue
-        nxt = next_open_after(as_of)
-        close = core_close(et_date(nxt)) if nxt else None
-        row: dict[str, Any] = {"symbol": str(ans["symbol"]).upper(), "as_of": ans.get("as_of"), "status": "pending",
-                               "misses": []}
-        if close is None or close > now:
-            out.append(row)
-            continue
-        for f in _facts_between(paths, as_of, close):
-            if str(f.get("ticker") or "").upper() == row["symbol"] and _is_earnings(f):
-                row["misses"].append(Miss(row["symbol"], str(ans.get("as_of")), str(f.get("fact_id")), f.get("title"),
-                                          str(f.get("first_seen_at")), str(f.get("kind"))))
-        row["status"] = "miss" if row["misses"] else "ok"
-        out.append(row)
+        by_day.setdefault((str(ans["symbol"]).upper(), et_date(as_of)), []).append(_gate5_row(paths, ans, as_of, now))
+    out = []
+    for rows in by_day.values():
+        rows.sort(key=lambda r: str(r["as_of"]))
+        missed = [r for r in rows if r["status"] == "miss"]
+        if missed:
+            seen: set[str] = set()
+            misses = [m for r in missed for m in r["misses"] if not (m.fact_id in seen or seen.add(m.fact_id))]
+            out.append(dict(missed[-1], misses=misses))
+        else:
+            out.append(rows[-1])
     return out
+
+
+def _gate5_row(paths: ScoutPaths, ans: dict[str, Any], as_of: datetime, now: datetime) -> dict[str, Any]:
+    nxt = next_open_after(as_of)
+    close = core_close(et_date(nxt)) if nxt else None
+    row: dict[str, Any] = {"symbol": str(ans["symbol"]).upper(), "as_of": ans.get("as_of"), "status": "pending",
+                           "misses": []}
+    if close is None or close > now:
+        return row
+    for f in _facts_between(paths, as_of, close):
+        if str(f.get("ticker") or "").upper() == row["symbol"] and _is_earnings(f):
+            row["misses"].append(Miss(row["symbol"], str(ans.get("as_of")), str(f.get("fact_id")), f.get("title"),
+                                      str(f.get("first_seen_at")), str(f.get("kind"))))
+    row["status"] = "miss" if row["misses"] else "ok"
+    return row
 
 
 def auto_check(paths: ScoutPaths, day: date, now: datetime | None = None) -> list[Miss]:

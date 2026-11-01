@@ -180,3 +180,13 @@ def test_load_config_tolerates_bom_and_sets_scout_dir(tmp_path: Path) -> None:
     path.write_bytes("\ufeffwatch_symbols = [\"ABCD\"]\n".encode("utf-8"))
     c = load_config(path)
     assert c.watch_symbols == ("ABCD",) and c.scout_dir == tmp_path.resolve()
+
+
+def test_wire_idle_spacing_must_be_zero_or_at_least_30(tmp_path) -> None:
+    """Regression: idle_spacing_s was only checked >= 0, so 5 s polled a wire every 5 s overnight."""
+    from scout.config import config_from_dict
+
+    with pytest.raises(ConfigError, match="idle_spacing_s"):
+        config_from_dict({"sources": {"prnewswire": {"idle_spacing_s": 5.0}}}, tmp_path)
+    assert config_from_dict({"sources": {"prnewswire": {"idle_spacing_s": 0.0}}}, tmp_path)
+    assert config_from_dict({"sources": {"prnewswire": {"idle_spacing_s": 30.0}}}, tmp_path)

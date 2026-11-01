@@ -61,7 +61,7 @@ def test_keywords_are_config_and_case_insensitive():
     ("8-K", ["5.03"], "Change in fiscal year", None),
     ("8-K", ["5.02"], "", None),
     ("8-K", [], "", None),
-    ("8-K/A", ["2.02"], "", "earnings_result"),
+    ("8-K/A", ["2.02"], "", None),  # an amendment is not fresh news
     ("DEF 14A", [], "Proposal to approve a reverse split", "reverse_split"),
     ("DEF 14A", [], "Annual meeting", None),
     ("S-1", [], "", "offering"), ("S-1/A", [], "", "offering"), ("S-3", [], "", "offering"),
@@ -92,3 +92,38 @@ def test_a_results_date_notice_is_earnings_date_not_a_catalyst(title):
 def test_real_results_are_still_earnings_result():
     assert wire_class("Acme Announces Financial Results for Third Quarter 2026", KW) == "earnings_result"
     assert wire_class("Acme Reports Third Quarter 2026 Results", KW) == "earnings_result"
+
+
+@pytest.mark.parametrize("title", [
+    "Acme Will Host Conference Call on November 12 to Discuss Financial Results for the Third Quarter 2026",
+    "Acme Announces Timing of Financial Results for Third Quarter 2026",
+    "Acme Schedules Conference Call and Webcast for Financial Results for the Third Quarter Ended "
+    "September 30, 2026",
+    "Acme Sets Date for Release of Financial Results for Third Quarter 2026",
+])
+def test_more_date_notice_wordings_are_earnings_date(title):
+    """Regression: these date notices matched no earnings_date keyword, so "financial results for"
+    classed them earnings_result and gate 6 counted a notice that only names a date as a catalyst."""
+    assert wire_class(title, KW) == "earnings_date"
+
+
+@pytest.mark.parametrize("title, cls", [
+    ("Acme Signs Distribution Agreement to Release Its Products in Europe", "contract"),
+    ("Acme Awarded $40 Million Contract; Will Announce Further Details at Investor Day", "contract"),
+    ("Acme Enters Partnership With Beta to Announce Joint Product", "contract"),
+    ("Acme Reports Third Quarter 2026 Results and Will Host Conference Call to Discuss", "earnings_result"),
+    ("Acme Reports Record Q3 Revenue, Raises Guidance; Conference Call to Discuss Results Today at 4:30 PM ET",
+     "other"),
+])
+def test_contract_and_results_titles_are_not_date_notices(title, cls):
+    """Regression: the bare earnings_date phrases ("to release", "will announce", "conference call to
+    discuss"), tried first, caught contract and results headlines: gate 6 lost the catalyst and the
+    dateless earnings_date fact made gate 5 unknown for 45 days."""
+    assert wire_class(title, KW) == cls
+
+
+def test_a_gap_keyword_needs_both_parts_in_order():
+    assert keyword_hit("Acme to Announce Q3 Results", ["to announce ... results"]) is not None
+    assert keyword_hit("Results: Acme to Announce", ["to announce ... results"]) is None
+    assert keyword_hit("Acme to Announcements results", ["to announce ... results"]) is None
+    assert keyword_hit("x", [" ... "]) is None

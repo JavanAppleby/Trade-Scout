@@ -106,6 +106,8 @@ def validate(c: Any) -> None:
             _check(s.min_spacing_s >= 60, f"{where}.min_spacing_s: must be >= 60 (Nasdaq Trader asks for it)")
         if s.kind == "wire":
             _check(s.min_spacing_s >= 30, f"{where}.min_spacing_s: must be >= 30")
+            _check(s.idle_spacing_s == 0 or s.idle_spacing_s >= 30,
+                   f"{where}.idle_spacing_s: must be 0 (the same) or >= 30")
     for j, job in c.llm_jobs.items():
         _check(bool(job.model.strip()), f"llm.jobs.{j}.model: must be set")
         _check(job.effort in EFFORTS, f"llm.jobs.{j}.effort: must be one of {EFFORTS}")

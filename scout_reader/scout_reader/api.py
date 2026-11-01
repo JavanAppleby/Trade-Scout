@@ -365,7 +365,8 @@ class Reader:
             return self._all(JASON_TAGS, R.result("unknown", (), False, ("not_built:jason",)))
         snapshot: dict[str, Any] | None = None
         snap_at: datetime | None = None
-        for rec in _Scan().read(self._root() / R.JASON_SNAPSHOTS, "jason/snapshots.jsonl"):
+        scan = _Scan()  # damage or a future format turns a false tag into unknown (rule 4)
+        for rec in scan.read(self._root() / R.JASON_SNAPSHOTS, "jason/snapshots.jsonl"):
             at = R.parse_time(rec.get("first_seen_at"))
             if at is not None and at <= as_of and (snap_at is None or at >= snap_at):
                 snapshot, snap_at = rec, at
@@ -380,7 +381,7 @@ class Reader:
             got = module.jason_tags_from(snapshot, sym, price, as_of, pct, frame_prices)
         if not isinstance(got, Mapping):
             return self._all(JASON_TAGS, R.result("unknown", (), False, ("error:bad_result",)))
-        out = {k: self._one(got.get(k), tri=False) for k in JASON_TAGS}
+        out = {k: self._finish(self._one(got.get(k), tri=False), scan) for k in JASON_TAGS}
         for k, v in got.items():
             if k not in out:
                 out[k] = v
@@ -397,7 +398,7 @@ class Reader:
         refused = self._refuse(None, as_of, need_symbol=False)
         if refused is not None:
             return self._all(MARKET_FIELDS, refused)
-        params, _beat, early = self._context(as_of)
+        params, beat, early = self._context(as_of)
         if early is not None:
             return self._all(MARKET_FIELDS, early)
         module = self._module("macro")
@@ -407,7 +408,7 @@ class Reader:
         history = [r for r in scan.read(self._root() / R.MACRO_HISTORY, "macro/history.jsonl")
                    if R.visible(r, as_of)]
         facts = [f for f in self._facts(scan, as_of, MACRO_LOOKBACK_DAYS) if f.get("kind") in gates.MACRO_KINDS]
-        got = module.market_context_from(history, facts, params, as_of)
+        got = module.market_context_from(history, facts, params, as_of, beat=beat)  # rule 6
         if not isinstance(got, Mapping):
             return self._all(MARKET_FIELDS, R.result("unknown", (), False, ("error:bad_result",)))
         out = {k: self._one(got.get(k), tri=k == "macro_event_next_session") for k in MARKET_FIELDS}

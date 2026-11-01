@@ -134,10 +134,23 @@ DEFAULT_CLASS_KEYWORDS: dict[str, tuple[str, ...]] = {
     "contract": ("contract", "award", "awarded", "agreement", "partnership", "purchase order", "order"),
     "earnings_result": ("reports first quarter", "reports second quarter", "reports third quarter",
                         "reports fourth quarter", "reports full year", "financial results for", "reports results"),
-    "earnings_date": ("to report", "to announce", "to release", "will report", "will announce", "will release",
-                      "conference call to discuss", "to be released", "to be reported", "to be announced",
-                      "release date"),
+    "earnings_date": (  # narrow on purpose: tried before contract and earnings_result (scout.classify)
+        "to report ... results", "to report ... earnings", "to announce ... results",
+        "to announce ... earnings", "to release ... results", "to release ... earnings",
+        "will report ... results", "will report ... earnings", "will announce ... results",
+        "will announce ... earnings", "will release ... results", "will release ... earnings",
+        "to host ... results", "to host ... earnings", "will host ... results", "will host ... earnings",
+        "to hold ... results", "to hold ... earnings", "will hold ... results", "will hold ... earnings",
+        "schedules ... results", "schedules ... earnings", "timing of ... results", "timing of ... earnings",
+        "date for ... results", "date for ... earnings", "date of ... results", "date of ... earnings",
+        "results to be released", "results to be reported", "results to be announced",
+        "earnings to be released", "earnings release date",
+    ),
 }
+
+# Periodic reports: polled so the gate-5 check (scout.verify) sees a company that reports earnings by
+# 10-Q or 10-K alone; never a gate-6 class, so their feeds are not gate-6 coverage.
+PERIODIC_FORMS = frozenset({"10-Q", "10-K", "20-F", "40-F"})
 
 DEFAULT_HOST_MIN_SPACING: dict[str, float] = {"www.sec.gov": 0.5, "data.sec.gov": 0.5, "www.nasdaqtrader.com": 60.0}
 DEFAULT_HOST_MAX_PER_DAY: dict[str, int] = {"nowflation.com": 10}
@@ -192,7 +205,7 @@ class ScoutConfig:
     fact_dedupe_days: int = 7
     ticker_map_retry_s: int = 600
     edgar_atom_forms: tuple[str, ...] = ("8-K", "6-K", "S-1", "S-3", "F-1", "F-3", "424B", "EFFECT", "NT 10-Q",
-                                         "NT 10-K")
+                                         "NT 10-K", "10-Q", "10-K")
     ticker_exchange_prefixes: tuple[str, ...] = ("NASDAQ", "Nasdaq", "NYSE", "NYSE American", "NYSE MKT",
                                                  "NYSE Arca", "OTCQB", "OTCQX", "OTC", "Cboe BZX")
     host_min_spacing_s: Mapping[str, float] = field(default_factory=lambda: _frozen(DEFAULT_HOST_MIN_SPACING))
@@ -330,7 +343,9 @@ class ScoutConfig:
             "jason_market_symbols": list(self.jason_market_symbols),
             "gate6_sources": sorted(s.name for s in self.enabled_sources() if s.gate6),
             # the feeds each gate-6 source must keep polling (scout_reader.coverage `missing_feed`)
-            "gate6_feeds": {s.name: (list(self.edgar_atom_forms) if s.kind == "filing" else ["rss"])
+            # (periodic forms are polled for the gate-5 check only: the SS 6.4 table never classes them)
+            "gate6_feeds": {s.name: ([f for f in self.edgar_atom_forms if f.upper() not in PERIODIC_FORMS]
+                                     if s.kind == "filing" else ["rss"])
                             for s in self.enabled_sources() if s.gate6 and s.kind in ("filing", "wire")},
             "fomc_dates": [d.isoformat() for d in self.fomc_dates],
             "fomc_decision_time_et": self.fomc_decision_time_et.strftime("%H:%M"),

@@ -437,7 +437,11 @@ class NowflationReader:
             self.last_ok = iso(now)
         _board(self.board, self.cfg, "nowflation", status, self.last_ok, reasons[0] if reasons else None)
         sha = sha256_text(f"{cal_sha or ''}|{rt_sha or ''}") if (cal_sha or rt_sha) else None
-        gen = cal.generated_at if cal is not None else (rt.generated_at if rt is not None else None)
+        # the older of the two files' generated_at: SS 7.3 makes nowflation stale when either is not
+        # today's after 09:15 ET, and macro.stale_after works from this one value
+        gens = [g for g in (cal.generated_at if cal is not None else None,
+                            rt.generated_at if rt is not None else None) if g is not None]
+        gen = min(gens) if gens else None
         return MacroRecord(source="nowflation", first_seen_at=iso(now), fetched_at=iso(self.clock.now()),
                            status=status, reasons=tuple(reasons), source_generated_at=iso(gen) if gen else None,
                            sha256=sha, events=tuple(e.to_dict() for e in events),

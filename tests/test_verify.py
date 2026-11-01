@@ -120,3 +120,55 @@ def test_cli_verify(cfg: ScoutConfig, paths: ScoutPaths, clock: ManualClock, sco
     assert cli_verify(ctx, argparse.Namespace(date_from=None, date_to=None)) == 0
     text = (paths.reports / "scout-verify-2026-11-02.md").read_text(encoding="utf-8")
     assert "2026-10-28 to 2026-11-02" in text and "NOT YET" in text
+
+
+def test_one_symbol_day_is_one_gate5_check(scout_dir: Path, paths: ScoutPaths, cfg: ScoutConfig) -> None:
+    """Regression: the 19:30, 19:45 and after-20:00 rows for the same symbol the same evening were
+    counted as three checks, so 10 Radar finds on one day met the 30 checked answers of SS 11."""
+    rows = []
+    for i in range(10):
+        for as_of in ("2026-11-03T00:30:00Z", "2026-11-03T00:45:00Z", "2026-11-03T00:45:00Z"):
+            rows.append(answer(f"R{i:02d}", as_of, g5="false"))
+    write_records(scout_dir, "answers", rows)
+    checks = gate5_checks(paths, date(2026, 11, 2), date(2026, 11, 2), NOW)
+    assert len(checks) == 10 and all(r["status"] == "ok" for r in checks)
+    assert all(r["as_of"] == "2026-11-03T00:45:00Z" for r in checks)  # the latest as_of stands
+    text = report(paths, date(2026, 11, 2), date(2026, 11, 2), cfg=cfg, now=NOW)
+    assert "Checked 10 (pending 0)" in text and "[ ] at least 30 checked gate-5 false answers: 10" in text
+
+
+def test_a_miss_in_any_row_of_the_symbol_day_is_a_miss(scout_dir: Path, paths: ScoutPaths) -> None:
+    write_records(scout_dir, "answers", [answer("EARL", "2026-11-03T00:30:00Z", g5="false"),
+                                         answer("EARL", "2026-11-03T00:45:00Z", g5="false")])
+    write_records(scout_dir, "facts", [fact("EARL", "EARL reports results", "2026-11-03T00:40:00Z", fid="e1",
+                                            cls="earnings_result")])
+    row, = gate5_checks(paths, date(2026, 11, 2), date(2026, 11, 2), NOW)
+    assert row["status"] == "miss" and [m.fact_id for m in row["misses"]] == ["e1"]
+
+
+def test_the_weekly_sample_is_topped_up_from_later_days(scout_dir: Path, paths: ScoutPaths) -> None:
+    """Regression: the sample was drawn from Monday's answers alone and never topped up, so a thin
+    Monday left the week short of the 10 hand checks SS 11 asks for."""
+    monday_eve = datetime(2026, 11, 3, 1, 30, tzinfo=timezone.utc)  # Mon 20:30 ET
+    write_records(scout_dir, "answers", [answer(f"M{i}", "2026-11-03T00:45:00Z") for i in range(3)])
+    first = weekly_sample(paths, "2026-W45", "s", now=monday_eve)
+    assert first == ["M0", "M1", "M2"]
+    write_records(scout_dir, "answers", [answer(f"T{i:02d}", "2026-11-04T00:45:00Z") for i in range(20)])
+    tuesday_eve = monday_eve + timedelta(days=1)
+    topped = weekly_sample(paths, "2026-W45", None, now=tuesday_eve)
+    assert len(topped) == 10 and set(first) <= set(topped)
+    assert weekly_sample(paths, "2026-W45", None, now=tuesday_eve + timedelta(days=1)) == topped  # full: kept
+
+
+def test_a_10q_filed_the_next_morning_is_a_miss(scout_dir: Path, paths: ScoutPaths) -> None:
+    """Regression: 10-Q and 10-K were never polled, so a company that reports by 10-Q alone could
+    never show up as a gate-5 miss. They are now in edgar_atom_forms (not gate-6 coverage)."""
+    cfg = ScoutConfig()
+    assert {"10-Q", "10-K"} <= set(cfg.edgar_atom_forms)
+    feeds = cfg.reader_params()["gate6_feeds"]["edgar_atom"]
+    assert "10-Q" not in feeds and "10-K" not in feeds and "8-K" in feeds
+    write_records(scout_dir, "answers", [answer("QONLY", "2026-11-03T00:45:00Z", g5="false")])
+    write_records(scout_dir, "facts", [fact("QONLY", "10-Q", "2026-11-03T12:00:00Z", fid="q1", kind="filing",
+                                            cls=None, form="10-Q")])
+    row, = gate5_checks(paths, date(2026, 11, 2), date(2026, 11, 2), NOW)
+    assert row["status"] == "miss"

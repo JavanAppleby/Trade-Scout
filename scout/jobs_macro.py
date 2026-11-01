@@ -10,6 +10,11 @@
 
 "The last read" comes from the macro history (`MacroWriter.latest`, reloaded at start), so a restart
 does not fetch BLS, Cboe or nowflation again (SS 4.1: BLS weekly, Cboe daily, nowflation capped).
+The daily jobs are seeded from it too (`_seed`): a restart after 16:30 ET does not read Cboe again
+when today's read is in the history, and the same for each nowflation read time.
+
+The halts job is checked every `HALTS_CHECK_S` (1 s) and `HaltPoller.ready` keeps the 60 s from the
+fetcher's real send time; a 60 s job polled every 120 s (the send lands a few seconds after the tick).
 
 DESIGN lists `macro_merge` "after each of those": every read hands its record to
 `MacroWriter.write`, which appends the history line and rewrites the merged daily file at once, so
@@ -34,6 +39,7 @@ from scout.scheduler import DailyJob, EveryJob, Job, OnceAtStartJob
 __all__ = ["build_jobs", "halts_tick", "last_fetched", "vix_slot"]
 
 BLS_CHECK_S = 3600.0
+HALTS_CHECK_S = 1.0  # the job only asks; HaltPoller.ready keeps the 60 s from the real send time
 
 
 def last_fetched(writer: Any, source: str) -> datetime | None:
@@ -72,6 +78,15 @@ def _unless_due(daily: list[DailyJob], fn: Any) -> Any:
     return run
 
 
+def _seed(job: DailyJob, last: datetime | None) -> DailyJob:
+    """Mark `job` done for the ET day of `last` when that read was at or after the job's time that
+    day: `DailyJob.last_day` lives in memory only, so without this a restart after the daily time
+    would fetch again (SS 4.1: Cboe daily, nowflation capped)."""
+    if last is not None and last >= job.at_on(et_date(last)):
+        job.last_day = et_date(last)
+    return job
+
+
 def _enabled(cfg: Any, name: str) -> bool:
     src = cfg.sources.get(name)
     return bool(src is not None and src.enabled)
@@ -88,7 +103,10 @@ def build_jobs(ctx: Any) -> list[Job]:
 
     if _enabled(cfg, HALTS):
         poller = HaltPoller(cfg, ctx.fetcher(), ctx.raw(), ctx.facts(), ctx.health(), ctx.board, clock)
-        jobs.append(EveryJob("nasdaq_halts", lambda now: halts_tick(poller, cfg, now), interval_s=poller.spacing_s))
+        # Checked every HALTS_CHECK_S, not every 60 s: the request goes out a few seconds after the
+        # tick (earlier jobs run first), so a 60 s job would find ready() a few seconds short and
+        # wait a whole further interval, polling every 120 s.
+        jobs.append(EveryJob("nasdaq_halts", lambda now: halts_tick(poller, cfg, now), interval_s=HALTS_CHECK_S))
 
     first_read = cfg.nowflation_read_times_et[0]
 
@@ -123,7 +141,8 @@ def build_jobs(ctx: Any) -> list[Job]:
             if is_release_day(nf.last_events, et_date(now)) and nf.last_read_at != now:
                 save(nf.read(now))
 
-        daily = [DailyJob(f"nowflation@{t:%H:%M}", nowflation, t, trading_days_only=False)
+        nf_last = last_fetched(writer, "nowflation")
+        daily = [_seed(DailyJob(f"nowflation@{t:%H:%M}", nowflation, t, trading_days_only=False), nf_last)
                  for t in cfg.nowflation_read_times_et]
         def nowflation_start(now: datetime) -> None:
             last = last_fetched(writer, "nowflation")
@@ -132,12 +151,13 @@ def build_jobs(ctx: Any) -> list[Job]:
 
         jobs.append(OnceAtStartJob("nowflation_start", _unless_due(daily, nowflation_start)))
         jobs.extend(daily)
-        jobs.append(DailyJob("nowflation_release_day", release_day, cfg.nowflation_release_day_time_et,
-                             trading_days_only=False))
+        jobs.append(_seed(DailyJob("nowflation_release_day", release_day, cfg.nowflation_release_day_time_et,
+                                   trading_days_only=False), nf_last))
 
     if _enabled(cfg, "cboe_vix"):
         vix = VixReader(cfg, ctx.fetcher(), ctx.raw(), ctx.health(), ctx.board, clock)
-        vix_daily = DailyJob("cboe_vix", lambda now: save(vix.read(now)), cfg.vix_read_after_et, trading_days_only=True)
+        vix_daily = _seed(DailyJob("cboe_vix", lambda now: save(vix.read(now)), cfg.vix_read_after_et,
+                                   trading_days_only=True), last_fetched(writer, "cboe_vix"))
         def vix_start(now: datetime) -> None:
             last = last_fetched(writer, "cboe_vix")
             if last is None or last < vix_slot(cfg, now):

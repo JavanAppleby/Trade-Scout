@@ -223,7 +223,7 @@ def test_read_ok(cfg, clock) -> None:
     assert rec.source == "nowflation" and rec.status == "ok" and rec.reasons == ()
     assert rec.inflation_regime == "hot"  # change_20d 0.31 >= 0.25
     assert rec.attribution == ATTRIBUTION == "Nowflation https://nowflation.com"
-    assert rec.source_generated_at == "2026-11-02T11:05:00Z" and rec.sha256
+    assert rec.source_generated_at == "2026-11-02T11:00:00Z" and rec.sha256  # the older file (realtime)
     assert [e["kind"] for e in rec.events] == ["nfp", "cpi", "pce", "fomc"]
     assert rec.events[3]["event_at"] == "2026-12-09T19:00:00Z"
     assert rec.realtime["change_20d"] == 0.31
@@ -360,3 +360,20 @@ def test_forecasts_saved_today_are_not_asked_again_after_a_restart(cfg, clock, t
     reader = NowflationReader(cfg, fetcher, raw, FakeHealthSink(), FakeBoard(), clock)
     rec = reader.read(NOW + timedelta(hours=1))
     assert FC_URL not in [u for _s, u in fetcher.calls] and rec.forecast_lean
+
+
+def test_an_old_realtime_file_makes_the_record_stale_at_0915(cfg, clock) -> None:
+    """Regression: source_generated_at came from the calendar alone, so a realtime.json from
+    yesterday (ok at the 08:20 read) stayed fresh until tomorrow 09:15 instead of today 09:15."""
+    from scout.macro import stale_after
+
+    rt = json.loads(macro_body("realtime_SYNTHETIC.json"))
+    rt["generated_at"] = "2026-11-01T13:05:00Z"  # yesterday 08:05 ET
+    results = nowflation_results()
+    results[RT_URL] = json.dumps(rt).encode()
+    reader, *_ = _reader(cfg, clock, results)
+    at = datetime(2026, 11, 2, 13, 20, tzinfo=UTC)  # 08:20 ET
+    clock.set(at)
+    rec = reader.read(at)
+    assert rec.status == "ok" and rec.source_generated_at == "2026-11-01T13:05:00Z"
+    assert stale_after(rec, cfg) == "2026-11-02T14:15:00Z"  # today 09:15 ET

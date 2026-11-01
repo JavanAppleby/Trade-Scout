@@ -165,3 +165,37 @@ def test_one_form_that_raises_never_stops_the_later_forms(scout_dir, clock):
     poller.poll(clock.now())
     assert len(fetcher.calls) == len(FORMS)
     assert {r.feed for r in health.records} == set(FORMS[1:])
+
+
+def test_a_filing_becomes_one_fact_per_ticker_under_its_cik(scout_dir, clock, paths):
+    """Regression: only the CIK's first ticker got the filing fact, so GOOG (after GOOGL) or a
+    warrant line never saw its company's 8-K, and verify could not count a gate-5 miss on it."""
+    from scout.edgar_submissions import TickerMapClient
+    from scout.raw import RawStore
+
+    cfg = wire_config(scout_dir)
+    tmap = TickerMapClient(cfg, FakeFetcher({cfg.source("edgar_tickers").url: fixture("company_tickers_exchange_excerpt.json")}),
+                           RawStore(paths), clock)
+    assert tmap.refresh(clock.now())
+    _, poller, _, raw, facts, *_ = setup(scout_dir, clock, ticker_map=tmap)
+    poller.poll(clock.now())
+    goog = [f for f in facts.facts if f.accession == "0001193125-26-000777"]
+    assert sorted(f.ticker for f in goog) == ["GOOG", "GOOGL"]
+    assert len({f.fact_id for f in goog}) == 2 and goog[0].guid == goog[1].guid
+    acme = {f.ticker for f in facts.facts if f.accession == "0001234567-26-000101"}
+    assert acme == {"ACME", "ACMEW"}
+    assert len(raw.saved) == 9  # the raw body is still kept once per filing
+
+
+def test_an_8k_amendment_is_not_a_fresh_catalyst():
+    """Regression: an 8-K/A classed as its base form, so the financial statements for an acquisition
+    re-filed ~10 weeks later (items 2.01, 9.01) made gate 6 true on stale news."""
+    from scout.classify import filing_class
+
+    assert filing_class("8-K/A", ("2.01", "9.01")) is None
+    assert filing_class("8-K/A", ("8.01",)) is None and filing_class("8-K/A", ("1.01",)) is None
+    assert filing_class("8-K/A", ("2.02",)) is None
+    assert filing_class("8-K/A", ("3.02",)) == "offering"  # blocking classes are kept (the safe way)
+    assert filing_class("8-K/A", ("3.01",)) == "listing_notice"
+    assert filing_class("8-K/A", ("5.03",), "reverse stock split") == "reverse_split"
+    assert filing_class("8-K", ("2.01", "9.01")) == "contract_or_other"

@@ -121,10 +121,10 @@ def test_nasdaqtrader_hard_minimum_beats_config(scout_dir, clock):
 
 
 def test_default_spacing_and_configured_spacing(scout_dir, clock):
-    cfg = wire_config(scout_dir, http_default_host_spacing_s=2.5, host_min_spacing_s={"www.prnewswire.com": 7.0})
+    cfg = wire_config(scout_dir, http_default_host_spacing_s=2.5, host_min_spacing_s={"www.prnewswire.com": 47.0})
     f, _ = fetcher(cfg, clock)
-    assert f.spacing_for("www.globenewswire.com") == 2.5
-    assert f.spacing_for("www.prnewswire.com") == 7.0
+    assert f.spacing_for("cdn.cboe.com") == 2.5
+    assert f.spacing_for("www.prnewswire.com") == 47.0
     assert f.spacing_for("data.sec.gov") == 2.5  # configured above the hard minimum 0.5
 
 
@@ -376,3 +376,36 @@ def test_nowflation_hard_cap_is_in_code(scout_dir, clock):
     assert f.requests_today("www.nowflation.com", clock.now()) == 10  # one shared count
     lower = wire_config(scout_dir, host_max_requests_per_day={"nowflation.com": 4})
     assert fetcher(lower, clock)[0].cap_for("nowflation.com") == 4
+
+
+def test_a_clock_stepped_back_never_sleeps_for_hours(cfg, clock):
+    """Regression: with the wall clock stepped back 3 h, the next request to the host slept spacing +
+    3 h inside the main loop (STOP unchecked, no source polled)."""
+    f, t = fetcher(cfg, clock, {HALTS: FakeResponse(200, {}, b"x")})
+    f.fetch("nasdaq_halts", HALTS)
+    clock.set(clock.now() - timedelta(hours=3))
+    slept = []
+    clock.sleep = slept.append  # type: ignore[method-assign]
+    assert f.fetch("nasdaq_halts", HALTS).ok and len(t.calls) == 2
+    assert all(s <= 60.0 for s in slept)
+
+
+def test_a_future_time_in_the_state_file_is_clamped_on_load(cfg, clock):
+    """Regression: a last_request saved in the future survived a restart unchanged."""
+    f, _ = _persisted(cfg, clock, {HALTS: FakeResponse(200, {}, b"x")})
+    f.fetch("nasdaq_halts", HALTS)
+    clock.set(clock.now() - timedelta(hours=3))
+    f, t = _persisted(cfg, clock, {HALTS: FakeResponse(200, {}, b"x")})
+    assert f.last_request_at("www.nasdaqtrader.com") == clock.now()
+    assert f.source_last_request_at("nasdaq_halts") == clock.now()
+    t0 = clock.monotonic()
+    f.fetch("nasdaq_halts", HALTS)
+    assert clock.monotonic() - t0 == pytest.approx(60)  # the spacing, not 3 h more
+
+
+def test_wire_hosts_have_a_hard_minimum_in_code(scout_dir, clock):
+    """Regression: www.prnewswire.com and www.globenewswire.com fell back to the 1 s default, so a
+    config value alone could poll a wire every few seconds (SS 12: at least 30 s, in code)."""
+    cfg = wire_config(scout_dir, host_min_spacing_s={"www.prnewswire.com": 1.0})
+    f, _ = fetcher(cfg, clock)
+    assert f.spacing_for("www.prnewswire.com") == 30.0 and f.spacing_for("www.globenewswire.com") == 30.0

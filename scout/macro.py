@@ -262,7 +262,8 @@ def _next_scheduled(after: datetime, at_t: Any, trading_days_only: bool) -> date
 
 def stale_after(record: MacroRecord, cfg: ScoutConfig) -> str | None:
     """When the reader stops treating `record` as fresh (UTC ISO), or None (never fresh).
-    nowflation: the earlier of `source_generated_at` + `nowflation_max_age_h` and the next ET day's
+    nowflation: the earlier of `source_generated_at` (the older of the calendar's and realtime.json's
+    `generated_at`) + `nowflation_max_age_h` and the next ET day's
     `nowflation_fresh_after_et` (SCOUT_SPEC 7.3). bls: fetched + 2 x its spacing. cboe_vix: one hour
     after the next scheduled read (`vix_read_after_et` on the next trading day). fomc: the last
     table date's decision time."""
@@ -386,6 +387,8 @@ def daily_body(latest: Mapping[str, Mapping[str, Any]], merged: Sequence[MacroEv
         "regime_status": (latest.get("nowflation") or {}).get("status", "unavailable") if nf is None else "ok",
         "vix": (vix_rec or {}).get("vix"),
         "events": [e.to_merged_dict() for e in merged],
+        # nowflation's forecast lean, shown in the brief as "informational, untested" (SS 7.3)
+        "forecast_lean": [dict(x) for x in (nf or {}).get("forecast_lean") or [] if isinstance(x, Mapping)],
         "sources": {name: {"status": rec.get("status"), "reasons": rec.get("reasons", []),
                            "fetched_at": rec.get("fetched_at")} for name, rec in sorted(latest.items())},
         "attribution": ATTRIBUTION,

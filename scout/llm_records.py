@@ -16,7 +16,16 @@ from scout.models import Label, LlmCall
 from scout.paths import ScoutPaths
 from scout.store import append_jsonl, read_jsonl
 
-__all__ = ["build_label", "calls_on", "label_file", "labels_on", "llm_file", "write_call", "write_label"]
+__all__ = ["RESERVED", "build_label", "calls_on", "label_file", "labels_on", "llm_file", "settled", "write_call",
+           "write_label"]
+
+RESERVED = "reserved"  # a call's record written before it is sent (scout.llm_ledger)
+
+
+def settled(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The records with every settled reservation dropped (its final record stands for it)."""
+    done = {r.get("settles") for r in records if r.get("settles")}
+    return [r for r in records if not (r.get("validation") == RESERVED and r.get("reservation") in done)]
 
 
 def llm_file(paths: ScoutPaths, day: date) -> Path:
@@ -34,10 +43,13 @@ def _day(stamp: str) -> date:
     return et_date(at)
 
 
-def write_call(paths: ScoutPaths, call: LlmCall, *, reason: str | None = None) -> Path:
-    """Append one call record. `reason` (an added key) says which cap refused a call."""
+def write_call(paths: ScoutPaths, call: LlmCall, *, reason: str | None = None,
+               extra: dict[str, Any] | None = None) -> Path:
+    """Append one call record. `reason` (an added key) says which cap refused a call; `extra` adds
+    the ledger's `reservation` / `settles` keys (scout.llm_ledger)."""
     rec: dict[str, Any] = call.to_record()
     rec["reason"] = reason
+    rec.update(extra or {})
     target = llm_file(paths, _day(call.at))
     append_jsonl(paths, target, rec)
     return target
@@ -50,7 +62,8 @@ def write_label(paths: ScoutPaths, label: Label) -> Path:
 
 
 def calls_on(paths: ScoutPaths, day: date) -> list[dict[str, Any]]:
-    return read_jsonl(llm_file(paths, day))
+    """The day's call records, a settled reservation replaced by its final record."""
+    return settled(read_jsonl(llm_file(paths, day)))
 
 
 def labels_on(paths: ScoutPaths, day: date) -> list[dict[str, Any]]:

@@ -112,14 +112,25 @@ class EdgarAtomPoller:
                                                 new_items=n_new, page_size=page.total))
         return added, "ok"
 
+    def _listings(self, cik: int) -> list[tuple[str | None, str | None]]:
+        """Every (ticker, exchange) under the CIK (one fact each), or one (None, None)."""
+        many = getattr(self.ticker_map, "tickers_for_cik", None)
+        found = list(many(cik)) if callable(many) else []
+        if not found:
+            one = self.ticker_map.ticker_for_cik(cik)
+            found = [one] if one else []
+        return [(t, e) for t, e in found] or [(None, None)]
+
     def _store(self, entry: AtomEntry, feed: str, now: datetime, seen_at: str) -> int:
         digest = self.raw.save(SOURCE, f"{entry.accession}-{entry.cik}.xml", entry.raw, now)
-        found = self.ticker_map.ticker_for_cik(entry.cik)
-        ticker, exchange = (found[0], found[1]) if found else (None, None)
-        fact = Fact(fact_id=make_fact_id(SOURCE, entry.guid, ticker), kind="filing", ticker=ticker, cik=entry.cik,
-                    cls=filing_class(entry.form, entry.items, f"{entry.title} {entry.summary}"), source=SOURCE,
-                    feed=feed, guid=entry.guid, url=entry.link, title=entry.title, published_at=entry.accepted_at,
-                    first_seen_at=seen_at, raw_sha256=digest, exchange=exchange, form=entry.form, items=entry.items,
-                    accession=entry.accession, extra={"company": entry.company, "role": entry.role,
-                                                      "filed_on": entry.filed_on})
-        return int(bool(self.facts.add(fact)))
+        cls = filing_class(entry.form, entry.items, f"{entry.title} {entry.summary}")
+        added = 0
+        for ticker, exchange in self._listings(entry.cik):
+            fact = Fact(fact_id=make_fact_id(SOURCE, entry.guid, ticker), kind="filing", ticker=ticker,
+                        cik=entry.cik, cls=cls, source=SOURCE, feed=feed, guid=entry.guid, url=entry.link,
+                        title=entry.title, published_at=entry.accepted_at, first_seen_at=seen_at,
+                        raw_sha256=digest, exchange=exchange, form=entry.form, items=entry.items,
+                        accession=entry.accession, extra={"company": entry.company, "role": entry.role,
+                                                          "filed_on": entry.filed_on})
+            added += int(bool(self.facts.add(fact)))
+        return added

@@ -18,7 +18,7 @@ from scout_reader import records as R
 from scout.calendar import calendar_covers, prior_close_before
 from scout.clock import et_date, fmt_et_bne, parse_iso
 from scout.config import ScoutConfig
-from scout.macro import daily_as_of
+from scout.macro import LEAN_NOTE, daily_as_of
 from scout.paths import ScoutPaths
 from scout.store import read_json, read_jsonl
 
@@ -176,8 +176,29 @@ def sec_macro(inp: BriefInputs) -> list[str]:
     elif not shown:
         lines.append("No CPI, NFP, PCE or FOMC event in the next 7 days.")
     lines += shown
+    lines += _lean_lines((daily or {}).get("forecast_lean") or [], inp.as_of, horizon)
     lines += ["", "Macro events are recorded only; they never block a hold in v1.", NOWFLATION_CREDIT, ""]
     return lines
+
+
+def _signed(value: Any) -> str:
+    return f"{value:+g}" if isinstance(value, (int, float)) and not isinstance(value, bool) else "n/a"
+
+
+def _lean_lines(leans: list[Any], as_of: datetime, horizon: datetime) -> list[str]:
+    """Nowflation's forecast lean per event in the next 7 days (SS 7.3: informational, untested)."""
+    out = []
+    for lean in sorted((x for x in leans if isinstance(x, dict)), key=lambda x: str(x.get("event_at"))):
+        at = parse_iso(lean.get("event_at"))
+        if at is None or not (as_of - timedelta(hours=12) <= at <= horizon):
+            continue
+        graded = lean.get("graded_prints")
+        out.append(f"- {_when_day(lean.get('event_at'))}: {md_escape(lean.get('kind'), 30)} forecast vs prior "
+                   f"{_signed(lean.get('vs_prior'))}, vs street {_signed(lean.get('vs_street'))}; graded past prints "
+                   f"{graded if isinstance(graded, int) and not isinstance(graded, bool) else 'n/a'}")
+    if not out:
+        return []
+    return ["", f"Nowflation forecast lean ({LEAN_NOTE}):", *out]
 
 
 def sec_regime(inp: BriefInputs) -> list[str]:

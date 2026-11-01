@@ -182,3 +182,21 @@ def test_jobs_brief(cfg: ScoutConfig, paths: ScoutPaths, clock: ManualClock, sco
     assert "verify" in run_due(jobs, clock.now(), logging.getLogger("test"))
     assert (paths.reports / "scout-verify-2026-11-02.md").exists()
     assert (paths.verify / "samples.jsonl").exists()  # Monday is the sample weekday
+
+
+def test_the_nowflation_forecast_lean_is_shown(scout_dir: Path, clock: ManualClock, cfg: ScoutConfig,
+                                               paths: ScoutPaths) -> None:
+    """Regression: forecast_lean was built and stored in macro/history.jsonl but no brief section
+    showed it, so the owner never saw the lean or its 'informational, untested' caveat (SS 7.3)."""
+    write_records(scout_dir, "macro", [{
+        "source": "nowflation", "first_seen_at": "2026-11-02T13:20:00Z", "fetched_at": "2026-11-02T13:20:00Z",
+        "status": "ok", "reasons": [], "source_generated_at": "2026-11-02T11:05:00Z", "sha256": None,
+        "stale_after": "2026-11-03T14:15:00Z", "inflation_regime": "hot", "vix": None, "realtime": None,
+        "attribution": "Nowflation https://nowflation.com", "events": [
+            {"kind": "cpi", "event_at": "2026-11-03T13:30:00Z", "prior": 0.3, "street": None,
+             "nowflation_forecast": 0.2}],
+        "forecast_lean": [{"kind": "cpi", "event_at": "2026-11-03T13:30:00Z", "vs_prior": -0.1, "vs_street": None,
+                           "graded_prints": 2, "note": "informational, untested"}]}])
+    text = build_brief(make_ctx(cfg, paths, clock), DAY, clock.now())
+    assert "Nowflation forecast lean (informational, untested):" in text
+    assert "cpi forecast vs prior -0.1, vs street n/a; graded past prints 2" in text

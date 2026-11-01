@@ -77,3 +77,17 @@ def test_result_shapes() -> None:
     assert R.result("maybe")["value"] == "unknown"
     assert R.UNKNOWN("scout_stale", stale=True) == {"value": "unknown", "evidence": [], "stale": True,
                                                     "reasons": ["scout_stale"]}
+
+
+def test_a_deeply_nested_line_is_skipped_not_raised(tmp_path) -> None:
+    """Regression: read_jsonl caught only UnicodeDecodeError and ValueError, so one line of 200000
+    '[' raised RecursionError into every caller (and made every answer unknown for the day)."""
+    from scout_reader import records as R
+
+    NL = bytes([10])
+    path = tmp_path / "x.jsonl"
+    path.write_bytes(b'{"a":1}' + NL + b"[" * 200000 + NL)
+    assert R.read_jsonl(path) == [{"a": 1}]
+    one = tmp_path / "y.json"
+    one.write_bytes(b"[" * 200000)
+    assert R.read_json(one) is None

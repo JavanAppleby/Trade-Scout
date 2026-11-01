@@ -213,13 +213,21 @@ def build_j1(facts: Sequence[Mapping[str, Any]], cfg: ScoutConfig, *, nonce: str
                       symbols=tuple(all_tickers), fact_ids=tuple(v for v in ids.values() if v))
 
 
+DIRECT_ONLY = ("direct",)
+
+
 def j3_tools(cfg: ScoutConfig) -> tuple[dict[str, Any], ...]:
+    """The two server tools. `allowed_callers: ["direct"]` keeps the _20260209 tools from being
+    called from the server's code-execution sandbox (SS 8.1 rule 1: no code execution): results
+    then come back as web_search / web_fetch result blocks, which the citation checks read, and
+    no unseen filtering step adds tokens."""
     domains = list(cfg.llm_allowed_domains)
     return (
         {"type": WEB_SEARCH_TOOL, "name": "web_search", "max_uses": cfg.web_search_max_uses,
-         "allowed_domains": domains},
+         "allowed_domains": domains, "allowed_callers": list(DIRECT_ONLY)},
         {"type": WEB_FETCH_TOOL, "name": "web_fetch", "max_uses": cfg.web_search_max_uses,
-         "allowed_domains": domains, "max_content_tokens": cfg.web_fetch_max_content_tokens},
+         "allowed_domains": domains, "max_content_tokens": cfg.web_fetch_max_content_tokens,
+         "allowed_callers": list(DIRECT_ONLY)},
     )
 
 

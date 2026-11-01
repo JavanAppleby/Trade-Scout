@@ -316,3 +316,46 @@ def test_ready_uses_the_fetchers_send_time(cfg, clock, et) -> None:
     assert poller.ready(et("2026-11-02", "10:01")) is False  # 20 s after the real send
     assert poller.poll(et("2026-11-02", "10:01")) == 0 and fetcher.calls == []
     assert poller.ready(et("2026-11-02", "10:01") + timedelta(seconds=40)) is True
+
+
+def test_a_failed_fact_write_is_tried_again_on_the_next_poll(cfg, clock, et) -> None:
+    """Regression: the halt key was marked seen before facts.add, so a failed write (a Windows lock
+    on the day's facts file) lost that halt until a restart. The key is now marked after the write,
+    and the next read is unconditional so a 304 cannot hide the row."""
+    from helpers_fakes import FakeFactSink
+
+    class FlakySink(FakeFactSink):
+        fail = True
+
+        def add(self, fact):
+            if self.fail and fact.ticker == "WXYZ":
+                raise OSError("locked")
+            return super().add(fact)
+
+    class Recording(FakeFetcher):
+        conditional: list = []
+
+        def fetch(self, source, url, *, conditional=True, max_bytes=None):
+            self.conditional.append(conditional)
+            return super().fetch(source, url, conditional=conditional, max_bytes=max_bytes)
+
+    fetcher, facts = Recording({HALTS_URL: halts_body()}), FlakySink()
+    poller = HaltPoller(cfg, fetcher, FakeRawSink(), facts, FakeHealthSink(), FakeBoard(), clock)
+    with pytest.raises(OSError):
+        poller.poll(et("2026-11-02", "10:00"))
+    facts.fail = False
+    poller.poll(et("2026-11-02", "10:01"))
+    assert "WXYZ" in {f.ticker for f in facts.facts}
+    assert fetcher.conditional == [True, False]
+    poller.poll(et("2026-11-02", "10:02"))
+    assert fetcher.conditional[-1] is True and len(facts.facts) == 5
+
+
+def test_a_clock_stepped_back_does_not_stop_the_halt_polls(cfg, clock, et) -> None:
+    """Regression: with the last request in the future (the wall clock stepped back), ready() stayed
+    False until the clock caught up, so halts were not polled for hours."""
+    poller, fetcher, _sinks = _poller(cfg, clock)
+    poller.poll(et("2026-11-02", "13:00"))
+    assert poller.ready(et("2026-11-02", "10:00")) is True
+    poller.poll(et("2026-11-02", "10:00"))
+    assert len(fetcher.calls) == 2

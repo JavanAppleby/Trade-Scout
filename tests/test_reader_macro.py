@@ -201,3 +201,19 @@ def test_record_without_stale_after_is_not_fresh(cfg, et) -> None:
            "inflation_regime": "hot", "events": []}
     out = market_context_from([rec], [], {"fomc_dates": []}, at, beat=_beat(at))
     assert out["inflation_regime"]["value"] == "unknown" and out["inflation_regime"]["reasons"] == ["stale:nowflation"]
+
+
+def test_source_in_error_in_the_beat_through_the_reader_api(cfg, clock, et) -> None:
+    """Regression: the public Reader API never passed the beat, so DESIGN 3.2 rule 6 did not run:
+    with nowflation, bls and cboe_vix in error in the beat but ok history lines still in date,
+    inflation_regime and vix answered and macro_event_next_session said false."""
+    from scout_reader.api import Reader
+
+    _state(cfg, clock, et)
+    at = et("2026-11-02", "10:00")
+    write_records(cfg.scout_dir, "beats", [_beat(at - timedelta(seconds=15),
+                                                 {**OK, "nowflation": "error", "bls": "error", "cboe_vix": "error"})])
+    out = Reader(cfg.scout_dir).market_context(at)
+    assert out["inflation_regime"]["value"] == "unknown" and out["vix"]["value"] == "unknown"
+    assert out["macro_event_next_session"]["value"] != "false"
+    assert "source_not_ok:nowflation" in out["inflation_regime"]["reasons"]

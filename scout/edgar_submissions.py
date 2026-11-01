@@ -5,9 +5,16 @@ once per ET day from 03:50 ET (`ensure`), kept in memory and in the raw store. W
 the last stored copy is used (it is at most days old; the CIK of a listed company does not change),
 and a failed read is tried again after `ticker_map_retry_s` (default `RETRY_S`).
 
+A ticker listed under more than one CIK is `ambiguous`: `cik_for_ticker` still answers with the
+first row (Radar's rule), but `SubmissionsClient` refuses to build a due window from it, because the
+wrong company's 10-Q cycle could make gate 5 answer a confident false. A CIK with several tickers
+(dual class, units and warrants) keeps all of them, in file order (`tickers_for_cik`), so a filing
+becomes one fact per ticker.
+
 `SubmissionsClient` (implements SubmissionsSource): `data.sec.gov/submissions/CIK##########.json`
 on demand, cached per CIK per ET day. `periodic_info` never raises; its status is `ok`, `no_cik`
-(no CIK for the ticker, or EDGAR has none), `fetch_failed`, `schema` or `no_http`.
+(no CIK for the ticker, or EDGAR has none), `ambiguous_ticker` (the ticker is listed under more
+than one CIK), `fetch_failed`, `schema` or `no_http`.
 """
 
 from __future__ import annotations
@@ -18,7 +25,7 @@ from typing import Any
 
 from scout.clock import Clock, et_date, et_datetime, iso
 from scout.config import ScoutConfig
-from scout.edgar_parse import SchemaError, parse_json, parse_periodic, parse_ticker_map
+from scout.edgar_parse import SchemaError, parse_json, parse_periodic, parse_ticker_rows
 from scout.health import CoverageTracker, board_state
 from scout.interfaces import Fetcher, HealthSink, RawSink, StatusBoard, TickerMap
 from scout.models import FetchResult, PeriodicInfo
@@ -45,7 +52,8 @@ class TickerMapClient:
         self.health, self.board = health, board
         self.tracker = tracker or CoverageTracker(cfg)
         self._by_ticker: dict[str, tuple[int, str | None]] = {}
-        self._by_cik: dict[int, tuple[str, str | None]] = {}
+        self._by_cik: dict[int, list[tuple[str, str | None]]] = {}
+        self._ambiguous: frozenset[str] = frozenset()
         self.loaded_for: date | None = None  # the ET day of the last good read
         self.from_store = False
         self._last_try: datetime | None = None
@@ -58,22 +66,38 @@ class TickerMapClient:
         return bool(self._by_ticker)
 
     def ticker_for_cik(self, cik: int) -> tuple[str, str | None] | None:
-        return self._by_cik.get(int(cik))
+        hits = self._by_cik.get(int(cik))
+        return hits[0] if hits else None
+
+    def tickers_for_cik(self, cik: int) -> list[tuple[str, str | None]]:
+        """Every (ticker, exchange) listed under `cik`, in file order."""
+        return list(self._by_cik.get(int(cik), ()))
 
     def cik_for_ticker(self, ticker: str) -> int | None:
         hit = self._by_ticker.get(normalise(ticker))
         return hit[0] if hit else None
+
+    def ambiguous(self, ticker: str) -> bool:
+        """True when `ticker` is listed under more than one CIK."""
+        return normalise(ticker) in self._ambiguous
 
     def __len__(self) -> int:
         return len(self._by_ticker)
 
     # ------------------------------------------------------------------ refresh
 
-    def _set(self, mapping: dict[str, tuple[int, str | None]]) -> None:
-        by_cik: dict[int, tuple[str, str | None]] = {}
-        for ticker, (cik, exchange) in mapping.items():
-            by_cik.setdefault(cik, (ticker, exchange))  # the first listing in the file wins
-        self._by_ticker, self._by_cik = mapping, by_cik
+    def _set(self, rows: list[tuple[str, int, str | None]]) -> None:
+        by_ticker: dict[str, tuple[int, str | None]] = {}
+        by_cik: dict[int, list[tuple[str, str | None]]] = {}
+        ciks: dict[str, set[int]] = {}
+        for ticker, cik, exchange in rows:
+            by_ticker.setdefault(ticker, (cik, exchange))  # the first row of a ticker answers
+            ciks.setdefault(ticker, set()).add(cik)
+            listed = by_cik.setdefault(cik, [])
+            if all(t != ticker for t, _ in listed):
+                listed.append((ticker, exchange))
+        self._by_ticker, self._by_cik = by_ticker, by_cik
+        self._ambiguous = frozenset(t for t, c in ciks.items() if len(c) > 1)
 
     def due(self, now: datetime) -> bool:
         """At start; then once per ET day from 03:50 ET; a failed read again after
@@ -124,8 +148,8 @@ class TickerMapClient:
             self._publish("stale" if fetch.result != "no_http" else "unavailable", now)
             return False
         try:
-            mapping = parse_ticker_map(parse_json(fetch.body or b""))
-            if not mapping:
+            rows = parse_ticker_rows(parse_json(fetch.body or b""))
+            if not rows:
                 raise SchemaError("company_tickers_exchange: no rows read")
         except SchemaError as exc:
             self.last_error = f"schema: {exc}"
@@ -134,11 +158,11 @@ class TickerMapClient:
             self._publish("unavailable", now)
             return False
         self.raw.save(TICKERS, RAW_NAME, fetch.body or b"", now)
-        self._set(mapping)
+        self._set(rows)
         self.loaded_for, self.from_store, self.last_ok = et_date(now), False, fetch.ended_at
-        self._record(src, fetch, now, items=len(mapping))
+        self._record(src, fetch, now, items=len(self._by_ticker))
         self._publish("ok", now)
-        log.info("edgar_tickers: %d tickers loaded", len(mapping))
+        log.info("edgar_tickers: %d tickers loaded", len(self._by_ticker))
         return True
 
     def _fallback(self) -> None:
@@ -150,13 +174,13 @@ class TickerMapClient:
         if not body:
             return
         try:
-            mapping = parse_ticker_map(parse_json(body))
+            rows = parse_ticker_rows(parse_json(body))
         except SchemaError:
             return
-        if mapping:
-            self._set(mapping)
+        if rows:
+            self._set(rows)
             self.from_store = True
-            log.info("edgar_tickers: using the last stored map (%d tickers)", len(mapping))
+            log.info("edgar_tickers: using the last stored map (%d tickers)", len(self._by_ticker))
 
     def _record(self, src: Any, fetch: FetchResult, now: datetime, *, result: str | None = None,
                 error: str | None = None, items: int = 0) -> None:
@@ -200,6 +224,9 @@ class SubmissionsClient:
         if not src.enabled:
             return PeriodicInfo(ticker=symbol, cik=None, status="fetch_failed")
         cik = self.ticker_map.cik_for_ticker(symbol) if symbol else None
+        ambiguous = getattr(self.ticker_map, "ambiguous", None)
+        if cik is not None and callable(ambiguous) and ambiguous(symbol):
+            return PeriodicInfo(ticker=symbol, cik=None, status="ambiguous_ticker")
         if cik is None:
             ready = getattr(self.ticker_map, "ready", None)
             loaded = bool(ready()) if callable(ready) else True

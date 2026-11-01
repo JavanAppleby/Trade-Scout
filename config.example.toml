@@ -23,7 +23,9 @@ refused_after_403s = 3            # GlobeNewswire: this many 403s in a row stop 
 seen_guid_cap = 5000              # item ids remembered per feed for the overlap check
 fact_dedupe_days = 7              # ET days of stored facts checked for repeats (a restart re-reads feeds)
 ticker_map_retry_s = 600          # a failed read of SEC's ticker list is tried again after this many seconds
-edgar_atom_forms = ["8-K", "6-K", "S-1", "S-3", "F-1", "F-3", "424B", "EFFECT", "NT 10-Q", "NT 10-K"]  # one EDGAR feed each
+# 10-Q and 10-K are read for the gate-5 check only (a small cap that reports
+# earnings by 10-Q alone); they are never a gate-6 class and not gate-6 coverage.
+edgar_atom_forms = ["8-K", "6-K", "S-1", "S-3", "F-1", "F-3", "424B", "EFFECT", "NT 10-Q", "NT 10-K", "10-Q", "10-K"]  # one EDGAR feed each
 ticker_exchange_prefixes = ["NASDAQ", "Nasdaq", "NYSE", "NYSE American", "NYSE MKT", "NYSE Arca", "OTCQB", "OTCQX", "OTC", "Cboe BZX"]  # "(NASDAQ: XXX)" tags in titles
 
 # --------------------------------------------------------------------------- the hold answers
@@ -112,7 +114,11 @@ scout_webull_budget_per_min = 2   # phase 3 only
 # Words that give a wire headline its class. First match wins, in the fixed order offering,
 # reverse_split, listing_notice, fda, trial, earnings_date, contract, earnings_result; "other" is
 # everything else. earnings_date comes before contract and earnings_result so a notice that only
-# names a results date ("to Announce Financial Results for ... on November 3") is never a catalyst. Every class must be listed (an empty list is allowed).
+# names a results date ("to Announce Financial Results for ... on November 3") is never a catalyst,
+# so its words must be narrow: " ... " inside a keyword matches any text, and each earnings_date
+# keyword pairs a scheduling phrase with "results" or "earnings" after it ("will host ... results").
+# A bare "to release" would also catch "Agreement to Release Its Products" (a contract).
+# Matching is whole words, any case. Every class must be listed (an empty list is allowed).
 [class_keywords]
 offering = ["public offering", "pricing", "priced", "registered direct", "at-the-market", "ATM offering", "warrants", "private placement"]
 reverse_split = ["reverse split", "reverse stock split", "share consolidation"]
@@ -121,7 +127,7 @@ fda = ["FDA approval", "FDA approves", "FDA clearance", "510(k) clearance", "PDU
 trial = ["topline", "top-line", "Phase 1", "Phase 2", "Phase 3", "Phase 1/2", "Phase 2/3", "pivotal trial"]
 contract = ["contract", "award", "awarded", "agreement", "partnership", "purchase order", "order"]
 earnings_result = ["reports first quarter", "reports second quarter", "reports third quarter", "reports fourth quarter", "reports full year", "financial results for", "reports results"]
-earnings_date = ["to report", "to announce", "to release", "will report", "will announce", "will release", "conference call to discuss", "to be released", "to be reported", "to be announced", "release date"]
+earnings_date = ["to report ... results", "to report ... earnings", "to announce ... results", "to announce ... earnings", "to release ... results", "to release ... earnings", "will report ... results", "will report ... earnings", "will announce ... results", "will announce ... earnings", "will release ... results", "will release ... earnings", "to host ... results", "to host ... earnings", "will host ... results", "will host ... earnings", "to hold ... results", "to hold ... earnings", "will hold ... results", "will hold ... earnings", "schedules ... results", "schedules ... earnings", "timing of ... results", "timing of ... earnings", "date for ... results", "date for ... earnings", "date of ... results", "date of ... earnings", "results to be released", "results to be reported", "results to be announced", "earnings to be released", "earnings release date"]
 
 # One table per source. Keys: enabled; kind (wire, filing, reference, halt, macro, vix); url;
 # paths (extra paths on the same host); min_spacing_s (seconds between polls 04:00-20:00 ET);

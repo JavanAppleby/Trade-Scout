@@ -86,3 +86,39 @@ def test_disabled_source_shows_disabled(scout_dir, clock: ManualClock) -> None: 
     cfg = make_config(scout_dir, sources={"bls": {"enabled": False}})
     body = build_body(clock.now(), SourceStatusBoard(cfg))
     assert body.sources["bls"]["status"] == "disabled" and body.sources["bls"]["enabled"] is False
+
+
+def test_a_beat_while_the_loop_is_busy_shows_the_gap(paths: ScoutPaths, cfg: ScoutConfig) -> None:
+    """Regression: a Pulse beat copied the last poll's ok / no gap, so while the main loop sat in a
+    long job, halt_open answered 'false' on a feed nobody was polling. A polled feed whose last good
+    poll is older than its gap limit is now published with gap_open true."""
+    from scout_reader.halts import halt_open_from
+
+    t0 = datetime(2026, 11, 2, 15, 0, 5, tzinfo=timezone.utc)  # 10:00:05 ET
+    clock = ManualClock(t0)
+    board = SourceStatusBoard(cfg)
+    board.update("nasdaq_halts", SourceState(enabled=True, status="ok", last_ok=iso(t0), gap_open=False))
+    board.update("prnewswire", SourceState(enabled=True, status="ok", last_ok=iso(t0), gap_open=False))
+    board.update("bls", SourceState(enabled=True, status="ok", last_ok=iso(t0 - timedelta(days=3))))
+    hb = Heartbeat(paths, cfg, board, clock)
+    assert hb.beat(t0 + timedelta(seconds=60))
+    beat = governing_beat(paths.root, t0 + timedelta(seconds=60))
+    assert beat["gap_open"]["nasdaq_halts"] is False
+    late = t0 + timedelta(minutes=10)
+    assert hb.beat(late)
+    body = _read(paths)
+    assert body["sources"]["nasdaq_halts"]["gap_open"] is True and body["sources"]["nasdaq_halts"]["status"] == "ok"
+    assert body["sources"]["prnewswire"]["gap_open"] is True
+    assert body["sources"]["bls"]["gap_open"] is False  # not a polled feed: its records carry stale_after
+    beat = governing_beat(paths.root, late)
+    assert beat["gap_open"]["nasdaq_halts"] is True
+    assert halt_open_from([], beat, "ABC", late)["value"] == "unknown"
+    assert board.sources["nasdaq_halts"].gap_open is False  # the board itself is not changed
+
+
+def test_the_halt_feed_is_not_aged_outside_active_hours(cfg: ScoutConfig) -> None:
+    board = SourceStatusBoard(cfg)
+    last = datetime(2026, 11, 3, 0, 59, tzinfo=timezone.utc)  # 19:59 ET
+    board.update("nasdaq_halts", SourceState(enabled=True, status="ok", last_ok=iso(last)))
+    body = build_body(last + timedelta(hours=2), board)
+    assert body.sources["nasdaq_halts"]["gap_open"] is False

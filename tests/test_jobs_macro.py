@@ -167,3 +167,68 @@ def test_bls_after_a_restart_waits_out_the_week(cfg, clock, et) -> None:
     assert ctx2.fetch.calls == []
     run_due(jobs, now + timedelta(days=7, hours=1), LOG)
     assert [u for _s, u in ctx2.fetch.calls] == [BLS_URL]
+
+
+def test_halts_are_polled_every_minute_when_earlier_jobs_delay_the_send(cfg, clock, et) -> None:
+    """Regression: the halts job ran every 60 s from the tick while HaltPoller.ready timed its 60 s
+    from the real send (a few seconds into the tick, after the wire jobs), so every other due tick
+    found ready() short and the feed was read every 120 s."""
+    from scout.scheduler import EveryJob
+
+    class SendTimeFetcher(FakeFetcher):
+        sent = None
+
+        def fetch(self, source, url, **kw):
+            self.sent = clock.now()
+            return super().fetch(source, url, **kw)
+
+        def last_request_at(self, host):
+            return self.sent
+
+    start = et("2026-11-02", "10:00")
+    clock.set(start)
+    ctx = FakeCtx(cfg=cfg, paths=ScoutPaths.from_config(cfg), clock=clock, fetch=SendTimeFetcher(_results()))
+    halts = [j for j in build_jobs(ctx) if j.name == "nasdaq_halts"]
+    wire = EveryJob("wire", lambda now: clock.advance(3), interval_s=60)  # runs first and takes 3 s
+    for second in range(600):
+        tick = start + timedelta(seconds=second)
+        if clock.now() < tick:
+            clock.set(tick)
+        run_due([wire, *halts], clock.now(), LOG)
+    sends = [u for _s, u in ctx.fetch.calls].count(HALTS_URL)
+    assert sends >= 9  # about every 63 s; the old schedule gave 5 in 10 minutes
+
+
+def test_a_restart_after_the_daily_read_times_does_not_fetch_again(cfg, clock, et) -> None:
+    """Regression: DailyJob.last_day lived in memory only, so after a restart past 16:30 ET (or
+    08:20) the daily job was due at once, the start read stepped aside for it, and Cboe and
+    nowflation were fetched again with no check against the macro history."""
+    from dataclasses import replace
+
+    class Stamped(FakeFetcher):  # stamps each result with the clock, as the real fetcher does
+        def fetch(self, source, url, **kw):
+            got = super().fetch(source, url, **kw)
+            stamp = clock.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+            return replace(got, started_at=stamp, ended_at=stamp)
+
+    def _ctx(cfg, clock):
+        return FakeCtx(cfg=cfg, paths=ScoutPaths.from_config(cfg), clock=clock, fetch=Stamped(_results()))
+
+    first = et("2026-11-02", "16:35")
+    clock.set(first)
+    ctx = _ctx(cfg, clock)
+    run_due(build_jobs(ctx), first, LOG)
+    urls = [u for _s, u in ctx.fetch.calls]
+    assert urls.count(VIX_URL) == 1 and urls.count(CAL_URL) == 1
+    later = et("2026-11-02", "16:45")
+    clock.set(later)
+    again = _ctx(cfg, clock)
+    ran = run_due(build_jobs(again), later, LOG)
+    urls = [u for _s, u in again.fetch.calls]
+    assert urls.count(VIX_URL) == 0 and urls.count(CAL_URL) == 0
+    assert "cboe_vix" not in ran and "nowflation@08:20" not in ran
+    nxt = et("2026-11-03", "16:35")  # the next trading day's slot still reads
+    clock.set(nxt)
+    ctx3 = _ctx(cfg, clock)
+    run_due(build_jobs(ctx3), nxt, LOG)
+    assert [u for _s, u in ctx3.fetch.calls].count(VIX_URL) == 1

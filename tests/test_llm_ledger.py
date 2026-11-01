@@ -51,8 +51,27 @@ def test_estimate_is_worst_case(scout_dir: Path, clock: ManualClock) -> None:
     in_tok = req.input_chars() / CHARS_PER_TOKEN
     assert led.estimate(req) == pytest.approx((in_tok * 0.125 + 4000 * 0.5) / 1e6)
     j3 = build_j3("ABC", None, [], cfg)
-    in3 = j3.input_chars() / CHARS_PER_TOKEN + 3 * 8000
+    # the tool loop: 3 searches + 3 fetches = 6 more iterations, each reading the prompt again and
+    # every result so far (a result is the larger of a fetch's 8000 and a search's 10000 tokens)
+    base = j3.input_chars() / CHARS_PER_TOKEN
+    in3 = 7 * base + 10_000 * 6 * 7 / 2
     assert led.estimate(j3) == pytest.approx((in3 * 2.5 + 4000 * 10.0) / 1e6 + 3 * 0.01)
+
+
+def test_the_j3_estimate_covers_a_long_tool_loop(scout_dir: Path, clock: ManualClock) -> None:
+    """Regression: the estimate counted the fetch content once and no search results, while a server
+    tool loop bills the growing context on every iteration: with 3 searches and 3 fetches of 8000
+    tokens re-read over 7 iterations a real call could bill several times the $0.13 estimate, so a
+    call allowed at $0.90 of a $1.00 cap ended the day well past it."""
+    led, cfg, _ = _ledger(scout_dir, clock)
+    j3 = build_j3("ABC", None, [], cfg)
+    base = j3.input_chars() / CHARS_PER_TOKEN
+    pages = 3 * 8000 + 3 * 10_000
+    loop = sum(base + pages * i / 6 for i in range(7))  # each iteration re-reads all results so far
+    real = (loop * 2.5 + 4000 * 10.0) / 1e6 + 3 * 0.01
+    assert led.estimate(j3) >= real
+    write_records(scout_dir, "llm", [_call("2026-11-02T12:00:00Z", cost=0.90)])
+    assert led.allow("J3", j3) == (False, "daily_cap")
 
 
 def test_model_without_price_is_refused(scout_dir: Path, clock: ManualClock) -> None:

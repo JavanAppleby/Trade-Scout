@@ -248,8 +248,13 @@ by **Update Scout**).
   the config says; the config may only lower it.
 - Restart-safe schedules (`scout/jobs_macro.py`): BLS reads when a week has passed since the last
   read in the macro history (checked hourly); the nowflation and Cboe start reads are skipped when
-  today's read (Cboe: the latest scheduled read) is already in the history; the halts poller waits
-  for the fetcher's own last send time (no immediate poll after a restart, no sleep in the loop).
+  today's read (Cboe: the latest scheduled read) is already in the history, and the daily jobs are
+  seeded from the history too (a restart after 16:30 or 08:20 ET does not read again); the halts
+  poller waits for the fetcher's own last send time (no immediate poll after a restart, no sleep in
+  the loop), and its job is checked every second so the 60 s holds from the real send.
+- A stored time in the future (the wall clock stepped back) never makes a fetch sleep for hours: a
+  negative elapsed time counts as the spacing passed, the wait is at most the spacing, and times in
+  `state\http_hosts.json` later than now are clamped on load (a backoff to its longest length).
 - `Transport = Callable[[str, Mapping[str, str], float, int], RawResponse]`;
   `RawResponse(status: int, headers: Mapping[str, str], body: bytes)`; `urllib_transport` is the
   only real one.
@@ -266,16 +271,24 @@ PR Newswire and GlobeNewswire store a reduced body (title, link, guid, pubDate o
 tuple[list[Filing], str | None]` (adds `reportDate` to each filing and returns `fiscalYearEnd`
 "MMDD"), `parse_getcurrent_atom(body: bytes) -> AtomPage` (`AtomEntry(guid, form, title, cik,
 company, accepted_at, filed_on, items: tuple[str, ...], link)`; raises `SchemaError` on drift),
-`filing_class(form, items, description) -> str | None` (SS 6.4 table).
+`filing_class(form, items, description) -> str | None` (SS 6.4 table; an 8-K/A keeps only the
+blocking classes offering, reverse_split and listing_notice: it re-files an earlier 8-K, so it is
+never `earnings_result` or `contract_or_other` and never makes gate 6 true on stale news),
+`parse_ticker_rows(body)` (every row of the ticker file, duplicates kept; Radar's
+`parse_ticker_map` keeps the first row of a ticker and is built from it).
 
 **`scout/edgar_atom.py`**: `class EdgarAtomPoller(cfg, fetcher, raw, facts, health, board,
 ticker_map, clock)`; `poll(now) -> int` (new facts). One request per form in `edgar_atom_forms`, each
-a feed; facts `kind = "filing"`.
+a feed; facts `kind = "filing"`, one per ticker listed under the filer's CIK (GOOGL and GOOG,
+a common and its warrants), with the raw body kept once.
 
 **`scout/edgar_submissions.py`**: `class TickerMapClient` (implements `TickerMap`; refreshed once per
 ET day from `edgar_tickers`, held in memory and in `raw\`), `class SubmissionsClient` (implements
 `SubmissionsSource`; cached per CIK per ET day; `periodic_info` returns `PeriodicInfo.status` in
-`ok | no_cik | fetch_failed | schema | no_http`); `build_ticker_map(ctx)`, `build_submissions(ctx)`.
+`ok | no_cik | ambiguous_ticker | fetch_failed | schema | no_http`); `build_ticker_map(ctx)`,
+`build_submissions(ctx)`. `TickerMapClient.tickers_for_cik(cik)` lists every ticker under a CIK;
+`ambiguous(ticker)` is true when a ticker is listed under more than one CIK, and then no due window
+is built from the first row's CIK (status `ambiguous_ticker`, so gate 5 answers `unknown`).
 
 **`scout/wire_rss.py`**: `parse_rss(body: bytes) -> list[RssItem]` (`RssItem(guid, title, link,
 published_at, raw_categories)`; strips a BOM; raises `SchemaError` on drift); `class WirePoller(cfg,
@@ -293,6 +306,13 @@ order is SS 6.4's with one change: `earnings_date` is tried before `contract` an
 A results-date notice ("to Announce Financial Results for ... on November 3") also matches "financial
 results for" and often "agreement" or "order"; classed as those it made gate 6 answer true for a
 notice that only names a date, and gate 5 (which reads dates from `earnings_date` facts) missed it.
+Because it goes first, the `earnings_date` keywords are narrow, as SS 6.4 words the class ("to
+report / announce / release ... results"): ` ... ` inside a keyword matches any text, and each
+default pairs a scheduling phrase with "results" or "earnings" after it ("will host ... results",
+"timing of ... results", "date for ... results", "schedules ... earnings"). A bare "to release" or
+"conference call to discuss" also caught contract and results headlines ("Agreement to Release Its
+Products", "Reports Q3 Results and Will Host Conference Call to Discuss"): gate 6 lost the catalyst
+and the dateless `earnings_date` fact made gate 5 `unknown` for `earnings_lookback_days`.
 This needs the spec owner's note in SS 6.4.
 
 **`scout/facts.py`**: `class FactWriter(paths, clock)` implementing `FactSink` (`facts\<ET date of
@@ -315,7 +335,9 @@ Market "NASDAQ" or one letter; HaltTime ET with optional fractional seconds; `pu
 order assumed; empty `ResumptionTradeTime` = still halted; raises `SchemaError` on drift);
 `class HaltPoller(...)`, `poll(now) -> int` (facts `kind = "halt"`, guid = symbol|HaltDate|HaltTime;
 a later row with a resumption writes a new fact with `resumed_at`; the after-20:00 ET
-`&haltdate=MMDDYYYY` read once per day). Hard minimum 60 s spacing in code.
+`&haltdate=MMDDYYYY` read once per day). Hard minimum 60 s spacing in code. A halt or resumption is
+marked seen only after its fact is stored; a failed write raises, and the next read is unconditional
+(no 304) so the row is tried again.
 
 **`scout/nowflation.py`**: `parse_release_calendar(body) -> NowCalendar`, `parse_realtime(body) ->
 NowRealtime`, `parse_forecasts(body) -> NowForecasts`, `parse_ics(body) -> list[IcsEvent]`
@@ -436,11 +458,21 @@ list is empty.
 
 **`scout/llm_ledger.py`**: SS 8.6. `class Ledger(paths, cfg, clock)`: `spent_today() -> float`,
 `spent_month() -> float` (sums `llm\*.jsonl` by ET date and month), `calls_today(job) -> int`,
-`searches_today() -> int`, `estimate(request) -> float` (input tokens estimated as characters / 3.5,
-plus `max_tokens` output, plus `max_uses` searches and `web_fetch_max_content_tokens`), `allow(job,
-request) -> tuple[bool, str]`, `price(usage, model) -> float`, `cap_reached() -> bool`.
+`searches_today() -> int`, `estimate(request) -> float`, `allow(job, request) -> tuple[bool, str]`,
+`price(usage, model) -> float`, `cap_reached() -> bool`. The estimate of a call with server tools is
+the tool loop: with n = searches + fetches, base = input characters / 3.5 and r = the larger of
+`web_fetch_max_content_tokens` and `SEARCH_RESULT_TOKENS` (10000), input = (n + 1) x base +
+r x n(n + 1)/2 tokens (each iteration re-reads the prompt and every result so far), plus
+`max_tokens` output and the searches' fee; a call with no tools is base + `max_tokens`. A day file
+that exists but cannot be read refuses every call (`ledger_unreadable`) and counts as cap reached.
 
-**`scout/llm_records.py`**: `write_call(paths, LlmCall)`, `write_label(paths, Label)`.
+**`scout/llm_records.py`**: `write_call(paths, LlmCall, reason=None, extra=None)`, `write_label(paths,
+Label)`, `calls_on(paths, day)` (a settled reservation replaced by its final record), `settled`.
+`llm_client.execute` writes a `reserved` record at the estimate (with the call's searches) before
+each call and does not send the call when that write fails (`ledger_unwritable`); the final record
+carries `settles: <reservation>`. When the final record cannot be written the reservation stands at
+the worst case, so a full disk can never send calls the caps do not see. A timeout or connection
+error is charged the estimate and the call's searches.
 
 **`scout/llm_j1.py`**, **`scout/llm_j3.py`**, **`scout/llm_j4.py`**: one job each:
 `class J1Job(cfg, paths, transport, ledger, clock)`: `run(now) -> int`; `class J3Job`: `run(now)`
@@ -460,9 +492,12 @@ Brisbane; all third-party text escaped); `write_brief(ctx, day, now) -> Path`
 through `scout_reader` and `scout.store` only.
 
 **`scout/verify.py`**: SS 11. `weekly_sample(paths, week, seed) -> list[str]` (10 answered symbols,
-seed stored in `verify\samples.jsonl`); `auto_check(paths, day) -> list[Miss]` (each gate-5 `false`
-against filings and wires that appear before the next session's close: an earnings report there is a
-miss); `report(paths, start, end) -> str` (`reports\scout-verify-<date>.md`: per source and answer,
+seed stored in `verify\samples.jsonl`; a short sample, from a thin Monday, is topped up from later
+days of the week on each verify run, keeping what was picked); `auto_check(paths, day) -> list[Miss]`
+(each gate-5 `false` against filings and wires that appear before the next session's close: an
+earnings report there is a miss, including a 10-Q or 10-K, which `edgar_atom_forms` polls for this
+check; the 19:30, 19:45 and Radar rows of one symbol on one evening are one check, a miss in any of
+them a miss); `report(paths, start, end) -> str` (`reports\scout-verify-<date>.md`: per source and answer,
 agreement, false positives, misses, unknown share, coverage gaps, pass status per SS 11);
 `cli_verify(ctx, args) -> int`.
 **`scout/verify_check.py`**: `cli_check(ctx, args) -> int` (lists the week's sample; owner marks
@@ -536,11 +571,15 @@ Every public function catches `BaseException` except `KeyboardInterrupt`/`System
 5. **Files read**: the ET-date files covering the window only (`facts`, `health`, `beats`, `answers`,
    `edgar\due`), plus `params.jsonl`, `jason\snapshots.jsonl`, `macro\history.jsonl`.
 6. **Source status**: a source whose status in the governing beat is not `ok` makes every answer that
-   depends on it `unknown` (`"source_not_ok:<name>"`).
+   depends on it `unknown` (`"source_not_ok:<name>"`). `Reader.market_context` passes the beat to
+   the macro module, so this holds for nowflation, BLS and Cboe through the public API too. Every
+   beat ages the polled feeds (kind wire, filing, halt; halts inside active hours only): one whose
+   `last_ok` is older than its gap limit is published with `gap_open: true`, so a beat written while
+   the main loop sits in a long job never claims coverage nobody is polling.
 
 ### 3.3 `records.py` (scaffold)
-`read_jsonl(path) -> list[dict]` (ignores a last line without `\n` and lines that fail to parse);
-`read_json(path) -> dict | None`; `KNOWN_FORMATS = {1}`; `visible(rec, as_of) -> bool`;
+`read_jsonl(path) -> list[dict]` (ignores a last line without `\n` and lines that fail to parse,
+including one nested too deeply to parse (`RecursionError`)); `read_json(path) -> dict | None`; `KNOWN_FORMATS = {1}`; `visible(rec, as_of) -> bool`;
 `day_files(folder, start, end) -> list[Path]` (ET dates via `_et`); `last_params(scout_dir, as_of)`;
 `governing_beat(scout_dir, as_of, stale_s) -> dict | None`; `result(value, evidence=(), stale=False,
 reasons=()) -> dict`; `UNKNOWN(reason) -> dict`; file-name constants matching section 5.
@@ -591,7 +630,8 @@ rule D7 using each record's `spacing_s`; `sources_for_gate6(beat) -> list[str]`.
 - `jason_tags_from(snapshot, symbol, price, as_of, near_pct, frame_prices) -> dict` (the setups
   current on as_of's ET date; `near_jason_level` counts every reading of an ambiguous level and says
   so; `jason_conflict` carries reason codes from the ported `conflict_for` rules, recomputed in pure
-  form; `unknown` when no snapshot is visible).
+  form; `unknown` when no snapshot is visible). Damage or a future format in `jason\snapshots.jsonl`
+  turns a `false` tag into `unknown` (rule 4), as for every other answer.
 
 ## 4. Folder and write rules
 `ScoutPaths(root)`; runtime folders under `root`: `state\{facts,health,answers,labels,llm,macro,
@@ -620,7 +660,8 @@ when no row applies). PR Newswire titles are stored; bodies never.
 items, new_items, overlap (bool|null), spacing_s, gap_before (bool), error (str|null)`.
 
 ### 5.3 Beat (`state\beats\<date>.jsonl`) and heartbeat (`state\scout.heartbeat`)
-Beat: `format, at, stopped, sources ({name: status}), gap_open ({name: bool})`.
+Beat: `format, at, stopped, sources ({name: status}), gap_open ({name: bool})`. `gap_open` is aged
+at each beat (`SourceStatusBoard.states_at`, rule 6 in 3.2); the heartbeat's `sources` too.
 Heartbeat (SS 10.1): `format, at, version, stopped, sources ({name: {enabled, status, last_ok,
 last_error, gap_open}}), llm ({enabled, spent_today_usd, cap_reached}), levels ({current_files,
 expires}), calendar_covers_next_45d`.
@@ -650,8 +691,9 @@ request_id, usage, cost_usd, labelled_at, urls, quotes, published_at, trust ("la
 LLM call: `format, job, at, model_id, effort, prompt_sha256, schema_version, request_id, usage
 ({input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
 web_search_requests, web_fetch_requests}), cost_usd, estimate_usd, stop_reason, validation
-("ok"|"schema_fail"|"refusal"|"max_tokens"|"api_error"|"refused_by_cap"|"no_key"), retry,
-fact_ids, symbols`.
+("ok"|"schema_fail"|"refusal"|"max_tokens"|"api_error"|"refused_by_cap"|"no_key"|"reserved"), retry,
+fact_ids, symbols`, plus `reason`, and `reservation` (on a `reserved` record) or `settles` (on the
+record that replaces it).
 
 ### 5.8 Macro (`state\macro\<date>.json`, `state\macro\history.jsonl`)
 History record (one per source read): `format, source ("nowflation"|"bls"|"fomc"|"cboe_vix"),
@@ -661,7 +703,10 @@ realtime ({realtime_yoy_pct, change_1d, change_5d, change_20d, cpi_gauge_yoy_pct
 official_cpi_yoy_pct, official_cpi_month, live_share_pct, avg_input_age_days} | null),
 inflation_regime, forecast_lean, vix ({date, close} | null), attribution`.
 Daily file: `format, at, inflation_regime, regime_status, vix, events (merged, with sources and
-sources_agree), sources ({name: {status, reasons, fetched_at}})`.
+sources_agree), forecast_lean (from the fresh nowflation record; the brief shows it as
+"informational, untested", SS 7.3), sources ({name: {status, reasons, fetched_at}})`.
+nowflation's `source_generated_at` is the older of the calendar's and `realtime.json`'s
+`generated_at`, so `stale_after` follows SS 7.3 for both files.
 
 ### 5.9 Levels (`state\levels\<session>.<kind>.json` + `.meta.json`) and Jason snapshot
 Level file: the owner's file, byte-for-byte. Meta: `format, added_at, sha256, original_filename,
@@ -703,11 +748,11 @@ date "YYYY-MM-DD". Values marked * are this design's additions beyond SS 13.
 | seen_guid_cap * | int | 5000 |
 | fact_dedupe_days | int | 7 |
 | ticker_map_retry_s * | int | 600 (a failed read of SEC's ticker list is retried after this; added at integration) |
-| edgar_atom_forms * | list[str] | ["8-K", "6-K", "S-1", "S-3", "F-1", "F-3", "424B", "EFFECT", "NT 10-Q", "NT 10-K"] |
+| edgar_atom_forms * | list[str] | ["8-K", "6-K", "S-1", "S-3", "F-1", "F-3", "424B", "EFFECT", "NT 10-Q", "NT 10-K", "10-Q", "10-K"] (10-Q and 10-K for the gate-5 check only; periodic forms are left out of `gate6_feeds`) |
 | ticker_exchange_prefixes | list[str] | ["NASDAQ", "Nasdaq", "NYSE", "NYSE American", "NYSE MKT", "NYSE Arca", "OTCQB", "OTCQX", "OTC", "Cboe BZX"] |
 | [host_min_spacing_s] * | table host -> float | "www.sec.gov" = 0.5, "data.sec.gov" = 0.5, "www.nasdaqtrader.com" = 60.0 |
 | [host_max_requests_per_day] * | table host -> int | "nowflation.com" = 10 (also a hard cap in code: never above 10, for nowflation.com and every host under it) |
-| [class_keywords] | table class -> list[str] | SS 6.4 lists: offering, reverse_split, listing_notice, fda, trial, contract, earnings_result, earnings_date (exactly these keys; `other` is implicit) |
+| [class_keywords] | table class -> list[str] | SS 6.4 lists: offering, reverse_split, listing_notice, fda, trial, contract, earnings_result, earnings_date (exactly these keys; `other` is implicit; ` ... ` inside a keyword matches any text; the earnings_date defaults are "<scheduling phrase> ... results/earnings" pairs, see `scout/classify.py`) |
 
 ### 6.3 `[sources.<name>]` (one table per source; every key present in the example)
 Keys: `enabled` (bool), `kind` (str: wire, filing, reference, halt, macro, vix), `url` (str), `paths`*
@@ -830,7 +875,7 @@ levels file), `write_params`, then the loop of section 2.1. Jobs (owner unit):
 | edgar_tickers | start, daily 03:50 ET | wire |
 | edgar_atom | 60 s 04:00-20:00 ET, 600 s otherwise | wire |
 | prnewswire, globenewswire | 60 s | wire |
-| nasdaq_halts | 60 s 04:00-20:00 ET; once after 20:00 ET with `haltdate` | macro |
+| nasdaq_halts | 60 s 04:00-20:00 ET (the job is checked every 1 s; the poller keeps the 60 s from the real send); once after 20:00 ET with `haltdate` | macro |
 | nowflation | start; 08:20 ET; 08:50 ET on release days (at most 10 requests a day) | macro |
 | bls | start, then every `[sources.bls] min_spacing_s` | macro |
 | fomc | start, then daily (the table in config) | macro |
@@ -877,7 +922,10 @@ dropped on it), **Update Scout** (`python -m scout.running` stops when Scout run
 3. Per-host daily cap (`host_max_requests_per_day`) -> `host_cap`.
 4. Per-host spacing: waits (via the clock's `sleep`) until `max(host_min_spacing_s[host] or
    http_default_host_spacing_s, hard minimum, backoff)` has passed since the host's last request.
-   Hard minimums in code: `www.nasdaqtrader.com` 60 s; `www.sec.gov`/`data.sec.gov` 0.5 s.
+   Hard minimums in code: `www.nasdaqtrader.com` 60 s; `www.sec.gov`/`data.sec.gov` 0.5 s;
+   `www.prnewswire.com`/`www.globenewswire.com` 30 s (SS 12; the validator also refuses a wire
+   `idle_spacing_s` other than 0 or >= 30). A stored last request in the future counts as the
+   spacing passed, and no wait is longer than the spacing.
 5. Headers: `User-Agent: cfg.user_agent()`, `Accept-Encoding: gzip, deflate`, and when `conditional`
    the stored `If-None-Match`/`If-Modified-Since` for that URL (memory only).
 6. `transport(url, headers, fetch_timeout_s, max_bytes + 1)`; a body over the cap -> `too_large`;
@@ -953,6 +1001,35 @@ when the page arrived; macro history lines carry `stale_after`; a corrupt or par
 an answer read turns a `false` into `unknown` (a `true` stays); `due_window` takes `now`;
 `Reader(now=...)` refuses an as-of in the future; LLM call records carry `reason`; J1 and J3 replies
 wrap label schema v1 and use short item ids mapped back to fact ids.
+
+## 14. Second review (2026-11-01)
+
+A second review found 23 defects; each fix has a regression test that fails on the code before it
+(`docs/TRACEABILITY.md`, "Second review"). Behaviour that changed:
+
+- **Wire classes.** The `earnings_date` keywords are narrow pairs with a ` ... ` gap (2.2,
+  `scout/classify.py`): date notices worded "Will Host Conference Call on ... to Discuss Financial
+  Results", "Announces Timing of", "Schedules Conference Call and Webcast for" and "Sets Date for
+  Release of" are `earnings_date`, and contract or results headlines with "to release", "will
+  announce" or "conference call to discuss" keep their class.
+- **Filings.** An 8-K/A is never `earnings_result` or `contract_or_other` (blocking classes kept).
+  A filing is one fact per ticker under its CIK. A ticker under two CIKs gets no due window
+  (`ambiguous_ticker`). 10-Q and 10-K are polled for the gate-5 check and are not gate-6 coverage.
+- **Halts.** The job is checked every second (it polled every 120 s); a failed fact write is tried
+  again; a clock stepped back does not stop the polls.
+- **Heartbeat.** Polled feeds are aged at every beat, so the Pulse never publishes coverage the
+  loop is not polling.
+- **HTTP.** No sleep longer than the spacing after a clock step; future times clamped on load; wire
+  hosts have a 30 s hard minimum and the validator checks wire `idle_spacing_s`.
+- **Macro jobs.** The daily jobs are seeded from the macro history, so a restart after a daily read
+  time does not fetch Cboe or nowflation again. nowflation's staleness uses the older of its two
+  files' `generated_at`. The daily file and the brief show the forecast lean.
+- **Reader.** `market_context` applies rule 6 through the public API; the jason tags apply rule 4;
+  `read_jsonl` and `read_json` skip a line nested too deeply instead of raising.
+- **Verification.** One check per symbol-day; the weekly sample is topped up through the week.
+- **LLM.** J3's web tools are `allowed_callers: ["direct"]` (no code-execution sandbox, SS 8.1
+  rule 1); the estimate is the tool loop's worst case; every call is reserved in the ledger before
+  it is sent; an unreadable ledger refuses calls; a timed-out call counts its searches.
 
 Still open (owner or later steps): live captures to replace every `_SYNTHETIC` fixture (SS 15 step
 2), including nowflation's `realtime.json` and `forecasts/index.json` shapes, GlobeNewswire's shape

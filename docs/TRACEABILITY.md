@@ -91,7 +91,7 @@ at the end. Run every test with `.venv\Scripts\python -m pytest -q` from Scout's
 | Spec | Rule | Code | Tests |
 |---|---|---|---|
 | SS 11 | Weekly seeded sample, owner hand checks, gate-5 automatic check, report PASS / NOT YET | `verify`, `verify_check`, `jobs_brief` (`verify_time_et`) | `test_verify.py`, `test_verify_check.py`, `test_integration.py::test_verify_runs_at_verify_time_et`, `test_e2e_day.py::test_verify_report_and_sample` |
-| SS 12 | No Webull; per-host limits (EDGAR 2 a second, feeds 60 s, nowflation 10 a day) | `http` (hard minimums), `config.example.toml` | `test_http.py`, `test_halts.py::test_sixty_second_hard_minimum`, `test_jobs_macro.py` |
+| SS 12 | No Webull; per-host limits (EDGAR 2 a second, feeds 60 s, wires at least 30 s in code, nowflation 10 a day) | `http` (hard minimums), `config_validate`, `config.example.toml` | `test_http.py`, `test_halts.py::test_sixty_second_hard_minimum`, `test_jobs_macro.py` |
 | SS 13 | Every tunable in `config.toml`; unknown keys are errors; the example documents every key | `config`, `config_load`, `config_validate`, `config.example.toml` | `test_config.py` (`test_example_documents_every_key`), `test_integration.py` (keys added at integration) |
 
 ## SS 14-15. Tests, acceptance, build steps 1-5
@@ -102,6 +102,36 @@ at the end. Run every test with `.venv\Scripts\python -m pytest -q` from Scout's
 | SS 14 no look-ahead | Replay of a stored day gives identical answers | `scout_reader` | `test_reader_asof.py` |
 | SS 15 step 1 | Scaffold: main loop, scheduler, CLI, lock, wiring | `app`, `scheduler`, `cli`, `running` | `test_app.py`, `test_scheduler.py`, `test_cli.py`, `test_wiring.py` (strict: every job module and handler), `test_integration.py::test_run_until_stops_at_the_clock_time` |
 | SS 15 steps 2-5 end to end | A simulated trading day produces facts, health, beats, macro, the Jason snapshot, answers, the brief (with J4) and the verify report; one failing source never stops the loop | all of the above | `test_e2e_day.py` |
+
+## Second review (2026-11-01)
+
+Each row is a defect the second review found; its test fails on the code before the fix.
+
+| # | Spec | Rule | Code | Tests |
+|---|---|---|---|---|
+| 1 | SS 6.4, 7.1 | A date notice ("Will Host Conference Call on ... to Discuss Financial Results", "Timing of", "Schedules ... Webcast for", "Sets Date for Release of") is `earnings_date`, never a catalyst | `classify` (` ... ` gap keywords), `config` `DEFAULT_CLASS_KEYWORDS`, `config.example.toml` | `test_classify.py::test_more_date_notice_wordings_are_earnings_date` |
+| 2 | SS 6.4, 7.1 | An 8-K/A is not fresh news: never `earnings_result` or `contract_or_other` | `edgar_parse.filing_class` | `test_edgar_atom.py::test_an_8k_amendment_is_not_a_fresh_catalyst`, `test_classify.py::test_filing_class_table` |
+| 3 | SS 1, 7.2 | A ticker under two CIKs gets no due window (`ambiguous_ticker`, gate 5 `unknown`) | `edgar_parse.parse_ticker_rows`, `edgar_submissions` | `test_edgar_submissions.py::test_a_ticker_under_two_ciks_is_ambiguous_and_gets_no_due_window` |
+| 4 | SS 6.4 | Contract and results headlines with "to release", "will announce", "conference call to discuss" keep their class | `classify`, `config` | `test_classify.py::test_contract_and_results_titles_are_not_date_notices`, `test_a_gap_keyword_needs_both_parts_in_order` |
+| 5 | SS 4.1 #6, 12 | Halts polled every 60 s from the real send, not every 120 s | `jobs_macro` (`HALTS_CHECK_S`) | `test_jobs_macro.py::test_halts_are_polled_every_minute_when_earlier_jobs_delay_the_send` |
+| 6 | SS 8.6 | A timed-out J3 call counts its searches against `web_search_max_per_day` | `llm_client` | `test_llm_client.py::test_a_timed_out_j3_call_counts_its_searches` |
+| 7 | SS 10.2 | A failed halt fact write is tried again | `halts` | `test_halts.py::test_a_failed_fact_write_is_tried_again_on_the_next_poll` |
+| 8 | DESIGN 3.2 rule 6 | `market_context` checks the beat's macro source status through the public API | `scout_reader.api` | `test_reader_api.py::test_market_context_passes_the_beat_for_rule_6`, `test_reader_macro.py::test_source_in_error_in_the_beat_through_the_reader_api` |
+| 9 | DESIGN 3.2 rule 4 | Damage or a future format in the snapshot file turns a false jason tag into unknown | `scout_reader.api` | `test_reader_api.py::test_jason_tags_note_damage_in_the_snapshot_file` |
+| 10 | SS 10 | A line nested too deeply is skipped, never raised | `scout_reader.records` | `test_reader_records.py::test_a_deeply_nested_line_is_skipped_not_raised` |
+| 11 | SS 8.6 | Every call is reserved before it is sent; no reservation, no call; an unreadable ledger refuses | `llm_client`, `llm_ledger`, `llm_records` | `test_llm_client.py::test_a_call_whose_record_cannot_be_written_still_counts`, `test_no_reservation_no_call`, `test_an_unreadable_ledger_refuses_every_call` |
+| 12 | SS 7.5, 10.1 | Every beat ages the polled feeds; a busy loop never publishes "ok, no gap" | `heartbeat` (`SourceStatusBoard.states_at`) | `test_heartbeat.py::test_a_beat_while_the_loop_is_busy_shows_the_gap`, `test_the_halt_feed_is_not_aged_outside_active_hours` |
+| 13 | SS 4.1, 12 | A clock stepped back never makes a fetch sleep for hours; future times clamped on load | `http`, `halts` | `test_http.py::test_a_clock_stepped_back_never_sleeps_for_hours`, `test_a_future_time_in_the_state_file_is_clamped_on_load`, `test_halts.py::test_a_clock_stepped_back_does_not_stop_the_halt_polls` |
+| 14 | SS 4.1 | A restart after a daily read time does not fetch Cboe or nowflation again | `jobs_macro` (`_seed`) | `test_jobs_macro.py::test_a_restart_after_the_daily_read_times_does_not_fetch_again` |
+| 15 | SS 11 | One gate-5 check per (symbol, ET day); a miss in any row is a miss | `verify.gate5_checks` | `test_verify.py::test_one_symbol_day_is_one_gate5_check`, `test_a_miss_in_any_row_of_the_symbol_day_is_a_miss` |
+| 16 | SS 11 | A 10-Q or 10-K the next morning is a gate-5 miss (polled; not gate-6 coverage) | `config` (`edgar_atom_forms`, `PERIODIC_FORMS`) | `test_verify.py::test_a_10q_filed_the_next_morning_is_a_miss` |
+| 17 | SS 11 | The weekly sample is topped up from later days | `verify.weekly_sample` | `test_verify.py::test_the_weekly_sample_is_topped_up_from_later_days` |
+| 18 | SS 7.3 | The forecast lean is shown as "informational, untested" | `macro.daily_body`, `brief_sections.sec_macro` | `test_brief.py::test_the_nowflation_forecast_lean_is_shown` |
+| 19 | SS 12 | Wire hosts at least 30 s apart in code; wire `idle_spacing_s` validated | `http.HARD_MIN_SPACING_S`, `config_validate` | `test_http.py::test_wire_hosts_have_a_hard_minimum_in_code`, `test_config.py::test_wire_idle_spacing_must_be_zero_or_at_least_30` |
+| 20 | SS 7.3 | nowflation is stale after 09:15 ET when either file is not today's | `nowflation` (older `generated_at`), `macro.stale_after` | `test_nowflation.py::test_an_old_realtime_file_makes_the_record_stale_at_0915` |
+| 21 | SS 6.3, 11 | A filing is one fact per ticker under its CIK | `edgar_atom`, `edgar_submissions.tickers_for_cik` | `test_edgar_atom.py::test_a_filing_becomes_one_fact_per_ticker_under_its_cik`, `test_edgar_submissions.py::test_every_ticker_under_a_cik_is_kept_in_file_order` |
+| 22 | SS 8.1 rule 1, 8.4 | J3's web tools are called directly only (no code-execution sandbox) | `llm_prompts.j3_tools` | `test_llm_prompts.py::test_j3_tools_only_server_web_tools` |
+| 23 | SS 8.6 | The estimate is the tool loop's worst case | `llm_ledger.estimate` | `test_llm_ledger.py::test_the_j3_estimate_covers_a_long_tool_loop`, `test_estimate_is_worst_case` |
 
 ## Out of scope for this build (SS 15 steps 6-11, SS 4.2-4.4)
 Install at `E:\Scout` and the five-day operational acceptance (step 6); Radar, Pilot and Guardian
