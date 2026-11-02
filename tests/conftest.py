@@ -207,9 +207,9 @@ class WriteAudit:
     def _note(self, event: str, path: Any) -> None:
         text = os.fsdecode(path) if isinstance(path, (bytes, os.PathLike)) else str(path)
         real = Path(os.path.realpath(os.path.abspath(text)))
-        self.events.append((event, str(real)))
         if real.parent.name == "__pycache__" and ".pyc" in real.name:
             return  # the interpreter's own bytecode cache on a first import (a fresh CI checkout), not Scout's write
+        self.events.append((event, str(real)))
         if not any(is_within(real, r) for r in self.roots):
             self.violations.append((event, str(real)))
 
