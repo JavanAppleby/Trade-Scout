@@ -76,11 +76,15 @@ compare as text), never as dates.
 ## Step 2: open Discord in your own tab
 
 Load the Claude in Chrome tools in ONE ToolSearch call:
-`select:mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__tabs_create_mcp,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__read_page,mcp__claude-in-chrome__get_page_text,mcp__claude-in-chrome__find,mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__tabs_close_mcp`
+`select:mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__read_page,mcp__claude-in-chrome__get_page_text,mcp__claude-in-chrome__find,mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__tabs_close_mcp`
 
-Call tabs_context_mcp, then create a NEW tab (never reuse or close the owner's tabs). If Chrome is
+Call tabs_context_mcp with createIfEmpty: true. That gives this run its own Claude tab group with
+one empty tab: use that tab for everything and do NOT call tabs_create_mcp (a second tab is what
+used to be left open). The owner's tabs are outside your group; never touch them. Once Chrome is
+open, every way this run ends (finished, nothing new, skipped, error) first closes your group (see
+"close your group" below). If Chrome is
 not connected, or Discord shows a login page or a captcha, stop: write no capture file and no cursor,
-close your tab, mark the run finished (step 0b), report "Discord not reachable: <what you saw>". Do not log in and do not solve captchas.
+close your group, mark the run finished (step 0b), report "Discord not reachable: <what you saw>". Do not log in and do not solve captchas.
 
 ## Step 3: each channel, in this order
 
@@ -241,7 +245,8 @@ entry unchanged, `updated_at` included.
 
 ## Step 7: close and report
 
-Close the tab you created (tabs_close_mcp). Mark the run finished in `_news_run.json` (step 0b).
+Close your group: call tabs_context_mcp and tabs_close_mcp every tab id it lists for your group,
+until it reports the group no longer exists. Mark the run finished in `_news_run.json` (step 0b).
 Final report, short:
 - one line per channel read: "<channel>: N new (K earnings_schedule, S scanner_alert), file <name>" or "skipped: <why>"
   (scanners not due this run: the one "scanners: next read ..." line);

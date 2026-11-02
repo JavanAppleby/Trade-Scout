@@ -44,12 +44,13 @@ nothing.
 
 1. Try WebFetch on the watch URL asking for the full transcript with timestamps.
 2. If that does not return a real transcript, use Claude in Chrome. Load the tools in ONE ToolSearch
-   call: `select:mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__tabs_create_mcp,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__read_page,mcp__claude-in-chrome__get_page_text,mcp__claude-in-chrome__find,mcp__claude-in-chrome__tabs_close_mcp`.
-   Call tabs_context_mcp, create a NEW tab (never reuse or close the owner's tabs), open the watch
-   URL, expand the description, click "Show transcript", and read the transcript panel text
+   call: `select:mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__read_page,mcp__claude-in-chrome__get_page_text,mcp__claude-in-chrome__find,mcp__claude-in-chrome__tabs_close_mcp`.
+   Call tabs_context_mcp with createIfEmpty: true and use the one empty tab of your own group
+   (do NOT call tabs_create_mcp; never touch the owner's tabs), open the watch URL, expand the description, click "Show transcript", and read the transcript panel text
    (get_page_text / read_page; scroll the panel to load all of Jason's segment). Clicks are limited
    to: expanding the description, "Show transcript", scrolling, and declining cookie prompts with
-   the most private option. Close your tab when done.
+   the most private option. When done, or on any error, close your group: call tabs_context_mcp
+   and tabs_close_mcp every tab id it lists, until it reports the group no longer exists.
 3. If neither works, write nothing; report "transcript not retrievable" and what you tried.
 
 Save the transcript lines of Jason's segment (with timestamps, verbatim) to

@@ -83,11 +83,15 @@ so in the report. Scout does not read this file.
 ## Step 1: open Discord in your own tab
 
 Load the Claude in Chrome tools in ONE ToolSearch call:
-`select:mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__tabs_create_mcp,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__read_page,mcp__claude-in-chrome__get_page_text,mcp__claude-in-chrome__find,mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__tabs_close_mcp`
+`select:mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__read_page,mcp__claude-in-chrome__get_page_text,mcp__claude-in-chrome__find,mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__tabs_close_mcp`
 
-Call tabs_context_mcp, then create a NEW tab (never reuse or close the owner's tabs). If Chrome is
+Call tabs_context_mcp with createIfEmpty: true. That gives this run its own Claude tab group with
+one empty tab: use that tab for everything and do NOT call tabs_create_mcp (a second tab is what
+used to be left open). The owner's tabs are outside your group; never touch them. Once Chrome is
+open, every way this run ends (finished, nothing new, skipped, error) first closes your group (see
+"close your group" below). If Chrome is
 not connected, or Discord shows a login page or captcha, stop: write no level file, capture file or
-cursor, close your tab, mark the run finished (step 0b), report "Discord not reachable: <what you saw>".
+cursor, close your group, mark the run finished (step 0b), report "Discord not reachable: <what you saw>".
 
 Server 784810634906435594. Channels (MAIN STAGE):
 - daily-watchlist: https://discord.com/channels/784810634906435594/1009609050956255282
@@ -270,7 +274,8 @@ signal):
    old entry): write `_cursor_jason.json.tmp`, then `Move-Item -Force` onto `_cursor_jason.json`.
 2. Run `.venv\Scripts\python.exe -m scout levels add --inbox` (adds any valid level file not yet added;
    safe to repeat). Note its "Inbox: ..." line.
-3. Close the tab you created (tabs_close_mcp), then mark the run finished in `_jason_run.json`
+3. Close your group: call tabs_context_mcp and tabs_close_mcp every tab id it lists for your group,
+until it reports the group no longer exists. Then mark the run finished in `_jason_run.json`
    (step 0b).
 4. Report, short:
    - daily card: "<SESSION>: N symbols added (<symbols>)", or "no card yet", or "already done", or
