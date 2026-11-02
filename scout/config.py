@@ -326,8 +326,10 @@ class ScoutConfig:
     discord_posted_at_tolerance_s: int = 120
     discord_schedule_max_ahead_days: int = 14
     discord_max_file_bytes: int = 2_000_000
-    discord_expected_every_min: int = 90
-    discord_capture_hours_et: tuple[time, ...] = (time(7, 0), time(17, 0))
+    discord_expected_every_min: int = 40
+    discord_cadence_channels: tuple[str, ...] = ("brianna-news", "stockmktnewz", "major-headlines", "earnings-whispers",
+                                                 "market-movers", "open-outcrier")
+    discord_capture_hours_et: tuple[time, ...] = (time(4, 0), time(20, 0))
     discord_brief_max_items: int = 10
     discord_scanner_brief_max_tickers: int = 12
 

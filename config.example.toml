@@ -118,8 +118,9 @@ discord_max_post_age_days = 14    # posts older than this are refused (repeats a
 discord_posted_at_tolerance_s = 120  # posted_at must agree with the message id's own time within this many seconds
 discord_schedule_max_ahead_days = 14  # an earnings date further ahead of the post (or before its ET date) is refused
 discord_max_file_bytes = 2000000  # a larger capture file is refused whole
-discord_expected_every_min = 90   # discord_inbox is "ok" while a capture arrives at least this often in capture hours
-discord_capture_hours_et = ["07:00", "17:00"]  # [start, end] on trading days: when captures are expected
+discord_expected_every_min = 40   # discord_inbox is "ok" while a capture arrives at least this often in capture hours
+discord_cadence_channels = ["brianna-news", "stockmktnewz", "major-headlines", "earnings-whispers", "market-movers", "open-outcrier"]  # the channels whose captures count for discord_inbox (the news task's every-run channels); [] = every channel
+discord_capture_hours_et = ["04:00", "20:00"]  # [start, end] on trading days: when captures are expected
 discord_brief_max_items = 10      # lines per Discord list in the brief (and scanner groups per timeframe)
 discord_scanner_brief_max_tickers = 12  # tickers shown per scanner pattern line in the brief (Radar finds and watch symbols first)
 

@@ -257,8 +257,8 @@ failure (refused URL, network or HTTP error, not a PDF, too large, failed write)
 ## 6. Health
 
 `discord_inbox` on Scout's heartbeat: `ok` while the capture-hours time (`discord_capture_hours_et`,
-default 07:00-17:00 ET, trading days) since the newest capture file is at most
-`discord_expected_every_min` (90); else `stale` with the reason. An empty file counts as a
+default 04:00-20:00 ET, trading days) since the newest capture file of a `discord_cadence_channels` channel (default: the six MARKET NEWS channels the news task reads every run) is at most
+`discord_expected_every_min` (40); else `stale` with the reason. An empty file counts as a
 capture (read, nothing new); a file with lines of which **none** was accepted does not (it stored
 nothing; its refusals are in the brief). It is shown to the owner (brief and heartbeat) and **never
 read by any gate**. The brief's "Paper Gains Discord" section lists each

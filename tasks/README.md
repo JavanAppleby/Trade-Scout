@@ -20,9 +20,9 @@ a few minutes to recurring tasks; the schedules leave room for it.
 
 | Task | Cron (Brisbane) | In ET (EST / EDT) | Reads | Writes |
 |---|---|---|---|---|
-| `scout-jason-daily` | `20,50 22-23 * * 1-5` | 07:20-08:50 / 08:20-09:50 ET, Mon-Fri | Discord #daily-watchlist, #weekly-trade-plan, #free-analysis (MAIN STAGE); the weekly-plan PDF via `tools/fetch_weekly_plan.py` | `inbox\jason\<date>.daily.json`, `inbox\jason\<monday>.weekly.json`, `inbox\jason\raw\<monday>.weekly.txt`, capture files `inbox\discord\{daily-watchlist,weekly-trade-plan,free-analysis}\<stamp>.jsonl`, `inbox\discord\_cursor_jason.json` |
+| `scout-jason-daily` | `7,22,37,52 0-10,18-23 * * 1-6` | every 15 min, 04:00-20:00 ET Mon-Fri, plus Sunday 09:00-20:00 ET (EST) / 10:00-21:00 ET (EDT) for the weekly plan | Discord #daily-watchlist, #weekly-trade-plan, #free-analysis (MAIN STAGE); the weekly-plan PDF via `tools/fetch_weekly_plan.py` | `inbox\jason\<date>.daily.json`, `inbox\jason\<monday>.weekly.json`, `inbox\jason\raw\<monday>.weekly.txt`, capture files `inbox\discord\{daily-watchlist,weekly-trade-plan,free-analysis}\<stamp>.jsonl`, `inbox\discord\_cursor_jason.json` |
 | `scout-jason-tuesday` | `0 13,19 * * 3` | Tue 22:00 + Wed 04:00 EST / Tue 23:00 + Wed 05:00 EDT | WebSearch/WebFetch (and Chrome on YouTube for the transcript panel) | `inbox\jason\<tuesday>.tuesday.json`, `inbox\jason\raw\<tuesday>.tuesday.txt` |
-| `scout-discord-news` | `5 0-10,18-23 * * 1-6` | hourly, 04:00-20:00 ET Mon-Fri (both) | Discord #brianna-news, #stockmktnewz, #major-headlines, #earnings-whispers, #market-movers, #open-outcrier (MARKET NEWS); #15m-scanner, #daily-scanner, #weekly-scanner (SCANNERS) | capture files `inbox\discord\<channel>\<stamp>.jsonl`, `inbox\discord\_cursor.json` |
+| `scout-discord-news` | `*/10 0-10,18-23 * * 1-6` | every 10 min, 04:00-20:00 ET Mon-Fri (both); scanners about hourly | Discord #brianna-news, #stockmktnewz, #major-headlines, #earnings-whispers, #market-movers, #open-outcrier (MARKET NEWS) every run; #15m-scanner, #daily-scanner, #weekly-scanner (SCANNERS) when 50 minutes have passed since they were last read | capture files `inbox\discord\<channel>\<stamp>.jsonl`, `inbox\discord\_cursor.json` |
 
 All paths are under `E:\Scout` (the install the owner runs). The tasks run only these commands, from
 `E:\Scout` with `E:\Scout\.venv\Scripts\python.exe`: `-m scout discord check <file.tmp>`,
@@ -30,15 +30,23 @@ All paths are under `E:\Scout` (the install the owner runs). The tasks run only 
 `tools\fetch_weekly_plan.py <href> <monday>`; plus read-only PowerShell and `Move-Item` for the
 atomic renames (level files and capture files are both written as `*.tmp` and renamed).
 
-**scout-jason-daily.** The #daily-watchlist card ("Daily Watchlist: MM/DD", ~08:09 ET) arrives
-between the second and third run in EST and before the first run in EDT; a run that finds no card
-for today's ET session writes no level file, and a run that finds `<date>.daily.json` already there
-skips the card, so four runs a morning are safe. It transcribes the levels image exactly (zooming;
+**scout-jason-daily.** Every 15 minutes (owner, 2026-11-02: before pre-market, and often, because
+Jason posts more than once and at different times). The cron covers Brisbane 00:07-10:52 and
+18:07-23:52, Monday to Saturday (minutes 7, 22, 37 and 52, so it never starts in the same minute as
+the news task). On weekdays ET the runs from 04:00 to 20:00 ET do the work and the
+edge runs exit at once ("outside US hours"). Monday 00:07-10:52 Brisbane is **Sunday** ET (09:07-19:52
+EST / 10:07-20:52 EDT): those runs look only for the coming week's plan and capture new posts, so a
+plan posted on Sunday is in before Monday's pre-market. Saturday evening Brisbane is Saturday ET
+("weekend", nothing opened). A one-run-at-a-time file (`inbox\discord\_jason_run.json`; a run older
+than 40 minutes that never finished is ignored) keeps two runs from overlapping. The
+#daily-watchlist card ("Daily Watchlist: MM/DD", ~08:09 ET) is read by the first run after it
+appears; a run that finds no card for today's ET session writes no level file, and a run that
+finds `<date>.daily.json` already there skips the card, so many runs a day are safe. It transcribes the levels image exactly (zooming;
 never a guessed digit; an illegible symbol is left out and reported), writes the level file in the
 SCOUT_SPEC §16 Q12 mapping and auto-adds it (`levels add --yes`). It writes the card as a
 `levels_card` capture line with the AM ER / PM ER lists as `earnings` (the one source on this task
-that may make Scout's gate 5 answer "true"). Any weekday whose week has no weekly file yet, it looks
-for the "Weekly Watchlist" post, fetches the PDF only from
+that may make Scout's gate 5 answer "true"). Any run (Sunday ET for the coming week, or a weekday)
+whose week has no weekly file yet looks for the "Weekly Watchlist" post, fetches the PDF only from
 `cdn.trendsetters.cloudflowventures.com/outward-weekly/` and writes and auto-adds
 `<monday>.weekly.json`. It also captures new #weekly-trade-plan and #free-analysis posts.
 
@@ -48,8 +56,13 @@ segment as `<tuesday>.tuesday.json` with his words and a transcript timestamp on
 shape of the 2026-09-15 reference read. No transcript means no file: it never builds levels from a
 title or description. The 19:00 run is a retry and skips when the file exists.
 
-**scout-discord-news.** One poll an hour (the desktop app allows scheduled tasks at most hourly;
-the heartbeat limit of 90 minutes allows for the dispatch delay). The cron covers Brisbane 18:05-10:05, which
+**scout-discord-news.** One poll every 10 minutes (owner, 2026-11-02; local desktop tasks accept a
+10-minute cron, cloud routines do not). The six MARKET NEWS channels are read on every run; the
+three SCANNERS channels only when 50 minutes have passed since they were last read (their newest
+`updated_at` in `_cursor.json`), so about once an hour: nothing reads scanner cards live yet, and
+the cursor still catches every card. A one-run-at-a-time file (`inbox\discord\_news_run.json`; a
+run older than 30 minutes that never finished is ignored) keeps two runs from moving the cursor at
+once. The cron covers Brisbane 18:00-10:50, which
 contains 04:00-20:00 ET in both EST (19:00-11:00 Brisbane) and EDT (18:00-10:00 Brisbane); runs that
 fall outside 04:00-20:00 ET on a weekday (the edge hours, Monday morning Brisbane = Sunday ET,
 Saturday evening Brisbane = Saturday ET) exit at once without opening anything. It reads each
@@ -58,19 +71,28 @@ run reads back over the weekend; a channel with more than 300 new posts is caugh
 over the next runs, and the cursor never moves past a post that was not read), and writes one
 capture file per channel it actually read (an empty file when nothing is new; no file at all for a
 channel it could not read, so an outage shows as `stale`: Scout's `discord_inbox` heartbeat source
-needs a capture at least every `discord_expected_every_min` = 90 minutes during
-`discord_capture_hours_et` = 07:00-17:00 ET; the defaults fit this schedule). open-outcrier "Top Earnings ..." lines and legible
+needs a capture at least every `discord_expected_every_min` = 40 minutes during
+`discord_capture_hours_et` = 04:00-20:00 ET; the defaults fit this schedule, with room for the
+dispatch delay and one skipped run). open-outcrier "Top Earnings ..." lines and legible
 market-movers earnings calendars become `earnings_schedule` lines; each "PaperGains Scanner" card in
 the three SCANNERS channels (added 2026-11-01) becomes a `scanner_alert` line (timeframe from the
 channel, pattern and state as printed, the ticker list; record and brief only, no gate); everything
-else is `post`. The scanner channels ride on the same run, cron and cursor file (one more
-`_cursor.json` entry each), so the cadence notes above are unchanged: each run writes one file per
-channel read, scanner channels included, and the heartbeat's `discord_inbox` looks at the newest
-capture of any channel. #15m-scanner posts often (15-minute cards during market
-hours); after a weekend or an outage it may need the "catching up" path (300 posts per run).
+else is `post`. The scanner channels ride on the same task, cron and cursor file (one more
+`_cursor.json` entry each): each run writes one file per channel read, and the heartbeat's
+`discord_inbox` looks at the newest capture of the six MARKET NEWS channels only
+(`discord_cadence_channels`), so the Jason task's captures every 15 minutes cannot hide a news-task
+outage. The brief still lists every channel's last capture. #15m-scanner posts often (15-minute
+cards during market hours); after a weekend or an outage it may need the "catching up" path (300
+posts per run).
 
 Both Discord tasks keep separate cursor files (`_cursor_jason.json`, `_cursor.json`) so they never
-write the same file. Scout ignores both (it reads only the channel folders, and skips `*.tmp`).
+write the same file, and separate one-run-at-a-time files (`_jason_run.json`, `_news_run.json`).
+Scout ignores all four (it reads only the channel folders, and skips `*.tmp`).
+
+**Cost.** Every run is a Claude session. On a weekday that is about 96 news runs and 64 Jason runs
+(most of them short); they count against the owner's Claude plan. To slow either down, change only
+its cron (for example `*/15` or `*/20` for the news task) and, if the news task runs less often
+than every 15 minutes, raise `discord_expected_every_min` in `config.toml` to about twice the gap.
 
 ## Rules every prompt carries
 
@@ -89,7 +111,7 @@ owner); run only the commands above; end with a short report.
    "REFUSED: pypdf is not installed" and skips the weekly plan; everything else still works.
 3. **Create each task** in the Claude Code desktop app (Scheduled tasks), or ask Claude in a session:
    "create a scheduled task from E:\Scout\tasks\scout-discord-news\SKILL.md with cron
-   `5 0-10,18-23 * * 1-6`". Use the folder name as the task id, the frontmatter `description` as
+   `*/10 0-10,18-23 * * 1-6`". Use the folder name as the task id, the frontmatter `description` as
    the description, everything after the frontmatter as the prompt, and the cron from the table.
    The task's copy lives in `C:\Users\<you>\.claude\scheduled-tasks\<task-id>\SKILL.md`; when the
    file here changes, update the task's prompt too.

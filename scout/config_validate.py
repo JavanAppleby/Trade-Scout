@@ -56,7 +56,7 @@ _RANGES: tuple[tuple[str, float, float], ...] = (
 )
 _CHANNEL = re.compile(r"[a-z0-9][a-z0-9_-]{0,99}")
 _DISCORD_LISTS = ("discord_schedule_channels", "discord_prefix_ticker_channels", "discord_headline_channels",
-                  "discord_catalyst_channels", "discord_reaction_channels")
+                  "discord_catalyst_channels", "discord_reaction_channels", "discord_cadence_channels")
 
 
 def _validate_discord(c: Any) -> None:

@@ -157,18 +157,32 @@ def test_an_empty_capture_counts_for_the_cadence(cfg: ScoutConfig, paths: ScoutP
     assert last_captures(paths)["open-outcrier"]["capture_at"] == "2026-11-02T13:59:00Z"
 
 
+def test_only_the_cadence_channels_count(cfg: ScoutConfig, paths: ScoutPaths, clock: ManualClock) -> None:
+    """The Jason task's captures every 15 minutes must not hide a news-task outage (and an empty
+    `discord_cadence_channels` counts every channel again)."""
+    write_capture(paths, "daily-watchlist", NOW - timedelta(minutes=1), [])
+    write_capture(paths, "open-outcrier", NOW - timedelta(minutes=50), [])
+    board = SourceStatusBoard(cfg)
+    _inbox(cfg, paths, clock, board).poll(clock.now())
+    state = board.sources["discord_inbox"]
+    assert state.status == "stale" and state.last_ok == "2026-11-02T13:10:00Z"
+    assert _inbox(cfg, paths, clock).publish(clock.now()).status == "stale"  # the same after a restart
+    every = config_from_dict({"discord_cadence_channels": []}, cfg.scout_dir)
+    assert _inbox(every, paths, clock).publish(clock.now()).status == "ok"
+
+
 def test_cadence_counts_capture_hours_on_trading_days_only(cfg: ScoutConfig) -> None:
-    # defaults: 07:00-17:00 ET, every 90 minutes (hourly task plus dispatch delay)
-    fri_1650 = datetime(2026, 10, 30, 20, 50, tzinfo=timezone.utc)  # Friday 16:50 ET (EDT)
-    mon_0730 = datetime(2026, 11, 2, 12, 30, tzinfo=timezone.utc)  # Monday 07:30 ET (EST)
-    assert in_window_seconds(fri_1650, mon_0730, cfg) == pytest.approx(40 * 60)
-    assert cadence_status(fri_1650, mon_0730, cfg) == ("ok", None)
-    assert cadence_status(fri_1650, mon_0730 + timedelta(minutes=45), cfg) == ("ok", None)  # 85 min
-    mon_0825 = mon_0730 + timedelta(minutes=55)
-    status, why = cadence_status(fri_1650, mon_0825, cfg)
-    assert status == "stale" and why == "no_capture_for_95_min_of_capture_hours"
+    # defaults: 04:00-20:00 ET, every 40 minutes (10-minute task plus dispatch delay and one skipped run)
+    fri_1950 = datetime(2026, 10, 30, 23, 50, tzinfo=timezone.utc)  # Friday 19:50 ET (EDT)
+    mon_0420 = datetime(2026, 11, 2, 9, 20, tzinfo=timezone.utc)  # Monday 04:20 ET (EST)
+    assert in_window_seconds(fri_1950, mon_0420, cfg) == pytest.approx(30 * 60)
+    assert cadence_status(fri_1950, mon_0420, cfg) == ("ok", None)
+    assert cadence_status(fri_1950, mon_0420 + timedelta(minutes=10), cfg) == ("ok", None)  # 40 min
+    mon_0435 = mon_0420 + timedelta(minutes=15)
+    status, why = cadence_status(fri_1950, mon_0435, cfg)
+    assert status == "stale" and why == "no_capture_for_45_min_of_capture_hours"
     sat = datetime(2026, 10, 31, 16, 0, tzinfo=timezone.utc)
-    assert cadence_status(fri_1650, sat, cfg) == ("ok", None)
+    assert cadence_status(fri_1950, sat, cfg) == ("ok", None)
     off = config_from_dict({"discord_enabled": False}, cfg.scout_dir)
     assert cadence_status(None, sat, off) == ("disabled", None)
 

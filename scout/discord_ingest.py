@@ -24,8 +24,10 @@ Files ignored: names starting with "." or ending ".tmp" (a task's file before it
 capture files whose name time is older than `discord_max_post_age_days` + 1 day.
 
 `discord_inbox` on the heartbeat says whether captures arrive (`cadence_status`): `ok` while the
-capture-hours time (`discord_capture_hours_et`, trading days) since the newest capture is at most
-`discord_expected_every_min`. An empty file is a capture (the task read the channel and found nothing
+capture-hours time (`discord_capture_hours_et`, trading days) since the newest capture of a
+`discord_cadence_channels` channel (every channel when it is empty) is at most
+`discord_expected_every_min`. By default only the news task's every-run channels count, so another
+task's captures cannot hide a news-task outage. An empty file is a capture (the task read the channel and found nothing
 new); a file with lines of which none was accepted is not (its refusals are in the health record and
 the rejects file). A file that raises while it is read is booked as refused (`ingest_error:<type>`)
 so it neither stops the poll nor comes back every poll; a disk error leaves it for the next poll.
@@ -146,7 +148,8 @@ class DiscordInbox:
             if isinstance(name, str) and isinstance(sha, str) and isinstance(size, int) and isinstance(mtime, int):
                 self.files[name] = _Seen(size, mtime, sha)
             cap = parse_iso(rec.get("capture_at"))
-            if cap is not None and (self.last_capture is None or cap > self.last_capture):
+            if cap is not None and self._counts(str(rec.get("channel"))) and (
+                    self.last_capture is None or cap > self.last_capture):
                 self.last_capture = cap
         self.seen: set[tuple[str, str]] = set()
         today = et_date(clock.now())
@@ -156,6 +159,10 @@ class DiscordInbox:
                     self.seen.add((str(rec.get("feed")), str(rec.get("guid"))))
 
     # ------------------------------------------------------------------ status
+
+    def _counts(self, channel: str) -> bool:
+        """True when a capture of `channel` counts for the cadence (`discord_cadence_channels`)."""
+        return not self.cfg.discord_cadence_channels or channel in self.cfg.discord_cadence_channels
 
     def publish(self, now: datetime) -> SourceState:
         status, reason = cadence_status(self.last_capture, now, self.cfg)
@@ -325,7 +332,8 @@ class DiscordInbox:
             "sha256": sha, "capture_at": iso(capture_at) if capture_at else None, "ingested_at": stamp,
             "lines": cap.lines, "posts_new": new, "posts_repeat": repeats, "rejects": len(cap.rejects)})
         self.files[key] = _Seen(st.st_size, st.st_mtime_ns, sha)
-        if capture_at is not None and (self.last_capture is None or capture_at > self.last_capture):
+        if capture_at is not None and self._counts(channel) and (
+                self.last_capture is None or capture_at > self.last_capture):
             self.last_capture = capture_at
         if cap.rejects:
             log.info("discord inbox: %s: %d line(s) refused (%s)", key, len(cap.rejects), describe(cap.rejects))
