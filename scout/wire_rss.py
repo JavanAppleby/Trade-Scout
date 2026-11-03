@@ -1,4 +1,4 @@
-"""PR Newswire and GlobeNewswire RSS (SCOUT_SPEC 4.1 #4-5, 6.1-6.4; DESIGN 2.2, 7).
+"""PR Newswire RSS (SCOUT_SPEC 4.1 #4, 6.1-6.4; DESIGN 2.2, 7).
 
 One poll: fetch the feed -> parse (a changed shape is a SchemaError: health "schema", status
 `unavailable`, no facts) -> the items not seen before -> raw store (title, link, guid and pubDate
@@ -8,7 +8,7 @@ the health record (overlap, gap) and the status board.
 
 The description is read in memory for its exchange tags only; it is never stored. A source that
 answers 403 `refused_after_403s` times in a row is marked `refused` and not polled again that ET
-day (GlobeNewswire refuses generic fetchers, SS 4.1 #5).
+day.
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ def item_tickers(item: RssItem, prefixes: Sequence[str]) -> list[tuple[str, str]
 
 
 class WirePoller:
-    """Polls one RSS wire source (`prnewswire` or `globenewswire`)."""
+    """Polls one RSS wire source (`prnewswire`)."""
 
     def __init__(self, cfg: ScoutConfig, source_name: str, fetcher: Fetcher, raw: RawSink, facts: FactSink,
                  health: HealthSink, board: StatusBoard, clock: Clock, *, tracker: CoverageTracker | None = None,

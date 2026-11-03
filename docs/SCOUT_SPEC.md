@@ -118,7 +118,7 @@ changes. Each phase is an owner decision; phases are build order, not a limit on
 | 2 | SEC EDGAR submissions JSON per CIK | Last periodic report: form, `reportDate`, `fiscalYearEnd`; 8-K 2.02 dates | V (Radar uses it) | on demand, cached per CIK per day | as above |
 | 3 | SEC `company_tickers_exchange.json` | CIK to ticker and exchange | V (Radar uses it) | daily | as above |
 | 4 | PR Newswire RSS (all releases) | Title, link, guid, `pubDate`, exchange tags "(NASDAQ: XXX)" | V (RSS 2.0, 20 items) | every 60 s 04:00-20:00 ET | Terms of the RSS UNVERIFIED: store title, link and times only until the owner reads them (build step 2) |
-| 5 | GlobeNewswire RSS (public companies) | as #4 | U (403 to generic fetchers, twice) | every 60 s | Tested with Scout's declared User-Agent at build step 2; dropped if refused |
+| 5 | ~~GlobeNewswire RSS (public companies)~~ | - | Removed 2026-11-03 (owner) | - | Refused Scout's declared User-Agent (403, Akamai) on 2026-11-01 and 2026-11-03; reading it would need permission, and Scout uses only sources that allow automated reading without asking |
 | 6 | Nasdaq Trader halt RSS (`feed=tradehalts`; `&haltdate=MMDDYYYY` once after 20:00 ET) | Halts and LULD pauses, reason codes, resumption times | V | at least 60 s apart (hard minimum in code), 04:00-20:00 ET | Free; "do not query more than once a minute"; must not edit or misrepresent the feed, so rows are stored as received. Record only |
 | 7 | nowflation.com `/data/release_calendar.json`, `/data/realtime.json`, `/forecasts/index.json`; fallback `/nowflation.ics` | CPI, NFP, PCE and FOMC times; inflation nowcast | V | once at start; 08:20 ET daily; 08:50 ET on release days; at most 10 requests a day | Free with credit "Nowflation" and a link; no reselling or redistributing the raw files; robots.txt allows ClaudeBot; JSON paths undocumented |
 | 8 | BLS release schedule `.ics` | CPI and Employment Situation times (cross-check of #7) | V (no DTSTAMP) | weekly | Public; lenient parser |
@@ -722,10 +722,9 @@ Each step is its own commit with its tests; the owner installs outside US hours.
 1. **Scaffold** in `E:\Scout_dev`: CLAUDE.md, `config.example.toml`, the calendar copy, file
    formats, heartbeat, `scout_reader` with the fail-closed and as-of tests, boundary tests. No
    network.
-2. **Layer 1 fetchers:** EDGAR (Atom, submissions, tickers), PR Newswire, GlobeNewswire (the 403
-   test), Nasdaq halts, nowflation, BLS, FOMC table, Cboe; facts, health, the deterministic brief.
-   Measure PR Newswire's weekday overlap. *Owner: set `contact_email`; read the PR Newswire and
-   GlobeNewswire terms (blocking: until then only titles, links and times are stored); optionally
+2. **Layer 1 fetchers:** EDGAR (Atom, submissions, tickers), PR Newswire, Nasdaq halts, nowflation, BLS, FOMC table, Cboe; facts, health, the deterministic brief.
+   Measure PR Newswire's weekday overlap. *Owner: set `contact_email`; read the PR Newswire
+   terms (blocking: until then only titles, links and times are stored); optionally
    ask nowflation through its contact page about private, non-redistributed bot use.*
 3. **Jason levels:** loader port, **Add Levels**, Jason tags, the fixed scorer (report only).
    *Owner: add a current read.*
@@ -783,7 +782,7 @@ Each step is its own commit with its tests; the owner installs outside US hours.
 13. **Verification pass** (§11): 20 trading days, at least 30 checked gate-5 `false` answers with zero
     misses, at least 90% gate-6 agreement over at least 30 checks. **As written.**
 14. **Terms:** proceed with nowflation (credit and link, once a day, no redistribution) without
-    writing to them first; read PR Newswire and GlobeNewswire terms at build step 2. **Yes.**
+    writing to them first; read PR Newswire terms at build step 2 (GlobeNewswire removed 2026-11-03). **Yes.**
 15. **Phase 4 social sources:** **not before §8.7 shows phase 1-2 labels add information.**
 
 ## 17. Not in v1

@@ -8,6 +8,7 @@ from datetime import date, time
 from pathlib import Path
 
 import pytest
+from helpers_wire import TEST_WIRE
 
 from scout.config import (
     CLASS_KEYWORD_KEYS, CONFIG_KEYS, SCALAR_KEYS, ConfigError, ScoutConfig, config_from_dict, load_config,
@@ -25,11 +26,11 @@ def test_defaults_match_design(scout_dir: Path) -> None:
     assert c.active_hours_et == (time(4, 0), time(20, 0))
     assert c.fomc_dates[0] == date(2026, 1, 28) and len(c.fomc_dates) == 8
     assert c.llm_enabled is False and c.scout_webull_enabled is False
-    assert set(c.sources) == {"edgar_atom", "edgar_submissions", "edgar_tickers", "prnewswire", "globenewswire",
+    # GlobeNewswire was removed on 2026-11-03: it refuses automated readers (403 from Akamai)
+    assert set(c.sources) == {"edgar_atom", "edgar_submissions", "edgar_tickers", "prnewswire",
                               "nasdaq_halts", "nowflation", "bls", "cboe_vix"}
-    assert c.source("prnewswire").terms_ok is False and c.source("globenewswire").terms_ok is False
-    # GlobeNewswire answered 403 on 2026-11-01: kept in the table (gate 6 when on) but off by default
-    assert c.source("globenewswire").enabled is False and c.source("globenewswire").gate6 is True
+    assert c.source("prnewswire").terms_ok is False
+    assert "globenewswire.com" not in c.llm_allowed_domains
     assert c.source("cboe_vix").url.startswith("https://cdn-api.cboe.com/")
     assert c.source("cboe_vix").allowed_hosts == ("cdn-api.cboe.com",)
     assert c.source("edgar_atom").max_items == 100 and c.source("edgar_atom").gate6 is True
@@ -160,13 +161,20 @@ def test_price_table_override_and_addition(scout_dir: Path) -> None:
     assert c.price("claude-x").output_per_mtok == 2.0 and c.price("claude-haiku-5-5") is not None
 
 
+def test_an_old_globenewswire_table_is_refused(scout_dir: Path) -> None:
+    """GlobeNewswire was removed on 2026-11-03: an old config.toml that still turns it off or on
+    stops Scout with a clear error rather than building a half-made wire."""
+    with pytest.raises(ConfigError, match=re.escape("sources.globenewswire: a new source must give every key")):
+        config_from_dict({"sources": {"globenewswire": {"enabled": False}}}, scout_dir)
+
+
 def test_reader_params(scout_dir: Path) -> None:
     p = config_from_dict({}, scout_dir).reader_params()
-    assert p["gate6_sources"] == ["edgar_atom", "prnewswire"]  # globenewswire is off by default
+    assert p["gate6_sources"] == ["edgar_atom", "prnewswire"]
     assert set(p["gate6_feeds"]) == {"edgar_atom", "prnewswire"}
-    on = config_from_dict({"sources": {"globenewswire": {"enabled": True}}}, scout_dir).reader_params()
-    assert on["gate6_sources"] == ["edgar_atom", "globenewswire", "prnewswire"]
-    assert "globenewswire" in on["gate6_feeds"]
+    on = config_from_dict({"sources": TEST_WIRE}, scout_dir).reader_params()  # a second gate-6 wire
+    assert on["gate6_sources"] == ["edgar_atom", "prnewswire", "testwire"]
+    assert on["gate6_feeds"]["testwire"] == ["rss"]
     assert p["fomc_decision_time_et"] == "14:00" and p["fomc_dates"][0] == "2026-01-28"
     assert set(p) == {"hold_catalyst_classes", "earnings_lookback_days", "earnings_due_start_days",
                       "earnings_due_end_days_quarter", "earnings_due_end_days_annual", "hold_block_macro_events",

@@ -11,19 +11,19 @@
   "content": [
     {"type": "server_tool_use", "id": "srvtoolu_01", "name": "web_search", "input": {"query": "XYZ Holdings news"}},
     {"type": "web_search_tool_result", "tool_use_id": "srvtoolu_01", "content": [
-      {"type": "web_search_result", "url": "https://www.globenewswire.com/news-release/2026/11/02/xyz-award.html",
+      {"type": "web_search_result", "url": "https://www.prnewswire.com/news-release/2026/11/02/xyz-award.html",
        "title": "XYZ Holdings wins Army supply contract", "encrypted_content": "EqgfCioIARgB", "page_age": "1 hour ago"},
       {"type": "web_search_result", "url": "https://www.sec.gov/Archives/edgar/data/1/000000000126000001/xyz8k.htm",
        "title": "XYZ 8-K", "encrypted_content": "EqgfCioIARgC", "page_age": null}
     ]},
     {"type": "server_tool_use", "id": "srvtoolu_02", "name": "web_fetch",
-     "input": {"url": "https://www.globenewswire.com/news-release/2026/11/02/xyz-award.html"}},
+     "input": {"url": "https://www.prnewswire.com/news-release/2026/11/02/xyz-award.html"}},
     {"type": "web_fetch_tool_result", "tool_use_id": "srvtoolu_02", "content": {
-      "type": "web_fetch_result", "url": "https://www.globenewswire.com/news-release/2026/11/02/xyz-award.html",
+      "type": "web_fetch_result", "url": "https://www.prnewswire.com/news-release/2026/11/02/xyz-award.html",
       "retrieved_at": "2026-11-02T13:55:00Z",
       "content": {"type": "document", "title": "XYZ Holdings wins Army supply contract", "citations": null,
                   "source": {"type": "text", "media_type": "text/plain",
                              "data": "NEW YORK, Nov. 2, 2026 -- XYZ Holdings Inc. (NASDAQ: XYZ) today announced a $12 million supply contract with the US Army. Deliveries begin in the first quarter of 2027."}}}},
-    {"type": "text", "text": "{\"label\": {\"ticker\": \"XYZ\", \"catalyst_type\": \"contract_or_partnership\", \"direction\": \"positive\", \"dilution_risk\": \"none\", \"is_new_information\": true, \"scheduled_event\": null, \"confidence\": \"high\", \"evidence_ids\": [], \"summary\": \"$12M Army supply contract.\"}, \"citations\": [{\"url\": \"https://www.globenewswire.com/news-release/2026/11/02/xyz-award.html\", \"quote\": \"today announced a $12 million supply contract with the US Army\"}]}"}
+    {"type": "text", "text": "{\"label\": {\"ticker\": \"XYZ\", \"catalyst_type\": \"contract_or_partnership\", \"direction\": \"positive\", \"dilution_risk\": \"none\", \"is_new_information\": true, \"scheduled_event\": null, \"confidence\": \"high\", \"evidence_ids\": [], \"summary\": \"$12M Army supply contract.\"}, \"citations\": [{\"url\": \"https://www.prnewswire.com/news-release/2026/11/02/xyz-award.html\", \"quote\": \"today announced a $12 million supply contract with the US Army\"}]}"}
   ]
 }

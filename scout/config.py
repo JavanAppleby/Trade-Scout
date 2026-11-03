@@ -94,14 +94,6 @@ DEFAULT_SOURCES: dict[str, dict[str, Any]] = {
         enabled=True, kind="wire", url="https://www.prnewswire.com/rss/news-releases-list.rss", paths=[],
         min_spacing_s=60.0, idle_spacing_s=60.0, allowed_hosts=["www.prnewswire.com"], terms_note=_WIRE_TERMS,
         max_items=20, gate6=True, terms_ok=False),
-    # Off: GlobeNewswire refused Scout's declared User-Agent with 403 on 2026-11-01 (SCOUT_SPEC 4.1 #5:
-    # "dropped if refused"). An enabled gate-6 source that never answers keeps gate 6 at unknown.
-    "globenewswire": dict(
-        enabled=False, kind="wire",
-        url=("https://www.globenewswire.com/RssFeed/orgclass/1/feedTitle/"
-             "GlobeNewswire%20-%20News%20about%20Public%20Companies"),
-        paths=[], min_spacing_s=60.0, idle_spacing_s=60.0, allowed_hosts=["www.globenewswire.com"],
-        terms_note=_WIRE_TERMS, max_items=20, gate6=True, terms_ok=False),
     "nasdaq_halts": dict(
         enabled=True, kind="halt", url="https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts", paths=[],
         min_spacing_s=60.0, idle_spacing_s=0.0, allowed_hosts=["www.nasdaqtrader.com"],
@@ -283,9 +275,9 @@ class ScoutConfig:
     j1_max_calls_per_day: int = 400
     j3_max_calls_per_day: int = 15
     web_search_max_per_day: int = 30
-    llm_allowed_domains: tuple[str, ...] = ("sec.gov", "prnewswire.com", "globenewswire.com", "businesswire.com",
-                                            "accesswire.com", "accessnewswire.com", "newsfilecorp.com",
-                                            "thenewswire.com", "nasdaq.com", "fda.gov", "clinicaltrials.gov")
+    llm_allowed_domains: tuple[str, ...] = ("sec.gov", "prnewswire.com", "businesswire.com", "accesswire.com",
+                                            "accessnewswire.com", "newsfilecorp.com", "thenewswire.com",
+                                            "nasdaq.com", "fda.gov", "clinicaltrials.gov")
     llm_item_chars: int = 2000
     web_fetch_max_content_tokens: int = 8000
     web_search_max_uses: int = 3

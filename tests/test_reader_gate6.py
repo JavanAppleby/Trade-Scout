@@ -15,6 +15,7 @@ from helpers_answers import (
     fact, good_world, hide_module, install_coverage, write_beats, write_health, write_params,
 )
 from helpers_fakes import write_records
+from helpers_wire import TEST_WIRE
 
 AS_OF = et_at("2026-11-03", "19:45")  # Tuesday, EST
 CLOSE = et_at("2026-11-02", "16:00")  # gate 6 window start: the prior trading day's close (SS 7.1)
@@ -36,11 +37,10 @@ def _facts(scout_dir: Path, *facts: dict) -> None:
     write_records(scout_dir, "facts", facts)
 
 
-def _config(scout_dir: Path, globenewswire: bool) -> ScoutConfig:
-    """The default config (GlobeNewswire off since 2026-11-01), or with GlobeNewswire turned on so
-    the params name two gate-6 wires."""
-    if globenewswire:
-        return make_config(scout_dir, sources={"globenewswire": {"enabled": True}})
+def _config(scout_dir: Path, second_wire: bool) -> ScoutConfig:
+    """The default config, or with the invented second wire so the params name two gate-6 wires."""
+    if second_wire:
+        return make_config(scout_dir, sources=TEST_WIRE)
     return make_config(scout_dir)
 
 
@@ -113,11 +113,11 @@ def test_classes_follow_the_params_in_force(scout_dir: Path, cfg: ScoutConfig) -
     assert fresh_catalyst(scout_dir, S, AS_OF - timedelta(seconds=61))["value"] == "false"  # older params
 
 
-@pytest.mark.parametrize("globenewswire", [True, False])
-def test_a_coverage_gap_turns_false_into_unknown(scout_dir: Path, globenewswire: bool) -> None:
-    cfg = _config(scout_dir, globenewswire)
+@pytest.mark.parametrize("second_wire", [True, False])
+def test_a_coverage_gap_turns_false_into_unknown(scout_dir: Path, second_wire: bool) -> None:
+    cfg = _config(scout_dir, second_wire)
     gate6 = cfg.reader_params()["gate6_sources"]
-    assert ("globenewswire" in gate6) is globenewswire
+    assert ("testwire" in gate6) is second_wire
     write_params(scout_dir, cfg, AS_OF - timedelta(days=5))
     write_beats(scout_dir, AS_OF - timedelta(seconds=60), AS_OF)
     write_health(scout_dir, CLOSE - timedelta(minutes=10), CLOSE + timedelta(hours=1))
@@ -145,13 +145,13 @@ def test_a_gap_does_not_hide_a_true(world: Path) -> None:
     assert fresh_catalyst(world, S, AS_OF)["value"] == "true"
 
 
-@pytest.mark.parametrize("globenewswire, failing", [(True, "globenewswire"), (True, "prnewswire"),
+@pytest.mark.parametrize("second_wire, failing", [(True, "testwire"), (True, "prnewswire"),
                                                     (False, "prnewswire"), (False, "edgar_atom")])
 @pytest.mark.parametrize("status", ["stale", "unavailable", "refused", "starting", "disabled"])
-def test_a_source_not_ok_gives_unknown(scout_dir: Path, globenewswire: bool, failing: str, status: str) -> None:
-    """Any gate-6 source the params name (two wires when GlobeNewswire is on, one failing) that is
+def test_a_source_not_ok_gives_unknown(scout_dir: Path, second_wire: bool, failing: str, status: str) -> None:
+    """Any gate-6 source the params name (two wires with the second wire, one failing) that is
     not ok in the beat makes gate 6 unknown, even over a fact in the window."""
-    cfg = _config(scout_dir, globenewswire)
+    cfg = _config(scout_dir, second_wire)
     gate6 = cfg.reader_params()["gate6_sources"]
     assert failing in gate6
     good_world(scout_dir, cfg, AS_OF)
@@ -161,11 +161,11 @@ def test_a_source_not_ok_gives_unknown(scout_dir: Path, globenewswire: bool, fai
     assert res["value"] == "unknown" and res["reasons"] == [f"source_not_ok:{failing}"]
 
 
-@pytest.mark.parametrize("globenewswire, missing", [(True, "globenewswire"), (False, "prnewswire"),
+@pytest.mark.parametrize("second_wire, missing", [(True, "testwire"), (False, "prnewswire"),
                                                     (False, "edgar_atom")])
-def test_a_source_missing_from_the_beat_or_an_open_gap_gives_unknown(scout_dir: Path, globenewswire: bool,
+def test_a_source_missing_from_the_beat_or_an_open_gap_gives_unknown(scout_dir: Path, second_wire: bool,
                                                                      missing: str) -> None:
-    cfg = _config(scout_dir, globenewswire)
+    cfg = _config(scout_dir, second_wire)
     gate6 = cfg.reader_params()["gate6_sources"]
     good_world(scout_dir, cfg, AS_OF)
     write_beats(scout_dir, AS_OF, AS_OF, sources={s: "ok" for s in gate6 if s != missing})
@@ -178,10 +178,10 @@ def test_a_source_missing_from_the_beat_or_an_open_gap_gives_unknown(scout_dir: 
 
 @pytest.mark.parametrize("beat_status", ["disabled", "refused", None])
 def test_a_disabled_source_does_not_block_gate6(scout_dir: Path, beat_status: str | None) -> None:
-    """GlobeNewswire off (the default since 2026-11-01): the params do not name it, so its beat
-    status (disabled, a leftover refused, or absent) and its missing health never turn a clean
-    false into unknown."""
-    cfg = _config(scout_dir, globenewswire=False)
+    """A source the params do not name, such as GlobeNewswire (removed 2026-11-03; older beats still
+    carry it): its beat status (disabled, a leftover refused, or absent) and its missing health never
+    turn a clean false into unknown."""
+    cfg = _config(scout_dir, second_wire=False)
     gate6 = cfg.reader_params()["gate6_sources"]
     assert "globenewswire" not in gate6 and gate6
     write_params(scout_dir, cfg, AS_OF - timedelta(days=60))

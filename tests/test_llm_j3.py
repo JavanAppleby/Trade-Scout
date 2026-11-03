@@ -24,7 +24,7 @@ from scout.llm_records import calls_on, labels_on
 from scout.paths import ScoutPaths
 
 DAY = date(2026, 11, 2)
-URL = "https://www.globenewswire.com/news-release/2026/11/02/xyz-award.html"
+URL = "https://www.prnewswire.com/news-release/2026/11/02/xyz-award.html"
 PAGE = "XYZ Holdings (NASDAQ: XYZ) today announced a $12 million supply contract with the US Army."
 QUOTE = "today announced a $12 million supply contract with the US Army"
 
@@ -65,7 +65,7 @@ def test_verified_with_fetched_citation(llm_cfg: ScoutConfig, lpaths: ScoutPaths
 
 
 @pytest.mark.parametrize("cite, kw, failure", [
-    ({"url": "https://www.globenewswire.com/other", "quote": QUOTE}, {}, "citation0:url_not_in_results"),
+    ({"url": "https://www.prnewswire.com/other", "quote": QUOTE}, {}, "citation0:url_not_in_results"),
     ({"url": "https://evil.example.com/x", "quote": QUOTE},
      {"urls": ("https://evil.example.com/x",), "fetched": {"https://evil.example.com/x": PAGE}},
      "citation0:host_not_allowed"),
@@ -158,7 +158,7 @@ def _fixture_message(citation_url: str | None = None) -> Any:
 @pytest.mark.parametrize("url, verified, failure", [
     (None, True, None),
     ("https://www.sec.gov/Archives/edgar/data/1/000000000126000001/xyz8k.htm", False, "citation0:url_not_fetched"),
-    ("https://www.globenewswire.com/news-release/2026/11/02/made-up.html", False, "citation0:url_not_in_results"),
+    ("https://www.prnewswire.com/news-release/2026/11/02/made-up.html", False, "citation0:url_not_in_results"),
 ])
 def test_fixture_response(llm_cfg: ScoutConfig, lpaths: ScoutPaths, clock: ManualClock, url: str | None,
                           verified: bool, failure: str | None) -> None:
@@ -172,7 +172,7 @@ def test_fixture_response(llm_cfg: ScoutConfig, lpaths: ScoutPaths, clock: Manua
 def test_a_date_quote_from_a_page_about_another_company_is_not_verified(llm_cfg: ScoutConfig, lpaths: ScoutPaths,
                                                                         clock: ManualClock) -> None:
     """Regression: J3 checked a date quote against every fetched page, whichever company it was about."""
-    other = "https://www.globenewswire.com/news-release/2026/11/02/other.html"
+    other = "https://www.prnewswire.com/news-release/2026/11/02/other.html"
     other_page = "Other Corp (NYSE: OTHR) will report third quarter results on November 10, 2026."
     event = {"kind": "earnings", "date": "2026-11-10", "quote": "will report third quarter results on November 10"}
     lab, _ = _research(llm_cfg, lpaths, clock, reply(

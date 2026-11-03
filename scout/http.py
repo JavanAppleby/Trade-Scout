@@ -63,7 +63,7 @@ __all__ = ["HARD_MIN_SPACING_S", "TLS_TRUST", "HttpFetcher", "RawResponse", "Tra
 # Per-host minimums no config can lower (SS 12: "enforced per host in code"): Nasdaq Trader one read a
 # minute, SEC fair access, and the RSS wires at least 30 s apart.
 HARD_MIN_SPACING_S: Mapping[str, float] = {"www.nasdaqtrader.com": 60.0, "www.sec.gov": 0.5, "data.sec.gov": 0.5,
-                                           "www.prnewswire.com": 30.0, "www.globenewswire.com": 30.0}
+                                           "www.prnewswire.com": 30.0}
 _BACKOFF_STATUSES = (403, 429)
 
 

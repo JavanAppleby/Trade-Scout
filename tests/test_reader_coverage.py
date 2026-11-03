@@ -92,7 +92,7 @@ def test_every_feed_must_be_covered():
 
 def test_other_sources_and_unknown_formats_are_ignored():
     records = chain(T0 - timedelta(minutes=5), 70)
-    noise = [rec(T0 + timedelta(minutes=10), source="globenewswire", result="timeout"),
+    noise = [rec(T0 + timedelta(minutes=10), source="testwire", result="timeout"),
              {**rec(T0 + timedelta(minutes=11)), "result": "timeout", "format": 99}, {"format": 1}, "junk", None]
     assert gaps(records + noise, "prnewswire", T0, T0 + timedelta(minutes=60), max_gap_s=180) == []
 

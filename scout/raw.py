@@ -4,7 +4,7 @@ Each new item is kept as received under `state/raw/<source>/<ET date>/<HHMMSS>-<
 (never overwritten: a clash gets a numbered name) and identified by its sha256, which facts carry as
 `raw_sha256`. Raw items are kept for replay and relabelling and never republished.
 
-Wire sources whose `terms_ok` is false (PR Newswire, GlobeNewswire until the owner reads their
+Wire sources whose `terms_ok` is false (PR Newswire, until the owner reads its
 terms) keep a reduced item only: title, link, guid and pubDate (`reduced_item`). The wire poller
 always passes the reduced item for such a source; `RawStore(paths, cfg)` also reduces any body it is
 given for one, as a second guard.

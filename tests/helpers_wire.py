@@ -14,9 +14,13 @@ from scout.edgar_atom import form_url
 
 WIRE = Path(__file__).parent / "fixtures" / "wire"
 FORMS = ["8-K", "424B", "NT 10-K"]  # a short form list keeps the tests readable
-# GlobeNewswire is off by default since 2026-11-01 (it answered 403); tests of its parsing, polling
-# or of two gate-6 wires turn it on explicitly with this override.
-GNW_ON: dict[str, Any] = {"globenewswire": {"enabled": True}}
+# An invented second gate-6 wire (GlobeNewswire was removed on 2026-11-03): tests of category tickers,
+# 403 refusal or of two gate-6 wires add it with this override. Never fetched for real.
+TEST_WIRE_URL = "https://wire.example.test/rss"
+TEST_WIRE: dict[str, Any] = {"testwire": {
+    "enabled": True, "kind": "wire", "url": TEST_WIRE_URL, "paths": [], "min_spacing_s": 60.0,
+    "idle_spacing_s": 60.0, "allowed_hosts": ["wire.example.test"], "terms_note": "test only", "max_items": 20,
+    "gate6": True, "terms_ok": False}}
 
 
 def fixture(name: str) -> bytes:
@@ -51,10 +55,11 @@ def full_transport(cfg: ScoutConfig) -> FakeTransport:
     responses: dict[str, Any] = {
         cfg.source("edgar_tickers").url: ok(fixture("company_tickers_exchange_excerpt.json")),
         cfg.source("prnewswire").url: ok(fixture("prnewswire.rss")),
-        cfg.source("globenewswire").url: ok(fixture("globenewswire.rss")),
         cfg.source("edgar_submissions").url.format(cik=1234567): ok(fixture("submissions_calendar_filer.json")),
         cfg.source("edgar_submissions").url.format(cik=7654321): ok(fixture("submissions_june_fy_filer.json")),
     }
+    if "testwire" in cfg.sources:
+        responses[TEST_WIRE_URL] = ok(fixture("category_wire.rss"))
     for form in cfg.edgar_atom_forms:
         responses[atom_url(cfg, form)] = ok(fixture(atom_fixture_for(form)))
     return FakeTransport(responses)

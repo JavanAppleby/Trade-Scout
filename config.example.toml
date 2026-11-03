@@ -19,7 +19,7 @@ fetch_max_bytes = 2000000         # a larger reply is refused
 fetch_timeout_s = 20.0            # seconds before a request is abandoned
 http_default_host_spacing_s = 1.0 # minimum seconds between requests to a host not listed below
 active_hours_et = ["04:00", "20:00"]  # [start, end): sources use their busy spacing inside, idle spacing outside
-refused_after_403s = 3            # GlobeNewswire: this many 403s in a row stop it for the day
+refused_after_403s = 3            # a wire that answers this many 403s in a row is not polled again that day
 seen_guid_cap = 5000              # item ids remembered per feed for the overlap check
 fact_dedupe_days = 7              # ET days of stored facts checked for repeats (a restart re-reads feeds)
 ticker_map_retry_s = 600          # a failed read of SEC's ticker list is tried again after this many seconds
@@ -75,7 +75,7 @@ llm_monthly_cost_cap_usd = 20.0   # ... or in a month
 j1_max_calls_per_day = 400        # J1 (headline labels) calls a day at most
 j3_max_calls_per_day = 15         # J3 (evening research) calls a day at most
 web_search_max_per_day = 30       # web searches a day at most
-llm_allowed_domains = ["sec.gov", "prnewswire.com", "globenewswire.com", "businesswire.com", "accesswire.com", "accessnewswire.com", "newsfilecorp.com", "thenewswire.com", "nasdaq.com", "fda.gov", "clinicaltrials.gov"]  # the only sites J3 may search or fetch
+llm_allowed_domains = ["sec.gov", "prnewswire.com", "businesswire.com", "accesswire.com", "accessnewswire.com", "newsfilecorp.com", "thenewswire.com", "nasdaq.com", "fda.gov", "clinicaltrials.gov"]  # the only sites J3 may search or fetch
 llm_item_chars = 2000             # each item sent to Claude is cut to this many characters
 web_fetch_max_content_tokens = 8000   # a fetched page is cut to this many tokens
 web_search_max_uses = 3           # searches per J3 call at most
@@ -209,21 +209,6 @@ paths = []
 min_spacing_s = 60.0
 idle_spacing_s = 60.0
 allowed_hosts = ["www.prnewswire.com"]
-terms_note = "Titles, links and times only until the owner reads the terms (terms_ok = false)."
-max_items = 20
-gate6 = true
-terms_ok = false
-
-[sources.globenewswire]
-# Off: GlobeNewswire answered 403 to Scout's declared User-Agent on 2026-11-01 (SCOUT_SPEC 4.1 #5:
-# "dropped if refused"). While on and failing it keeps every gate-6 answer at unknown.
-enabled = false
-kind = "wire"
-url = "https://www.globenewswire.com/RssFeed/orgclass/1/feedTitle/GlobeNewswire%20-%20News%20about%20Public%20Companies"
-paths = []
-min_spacing_s = 60.0
-idle_spacing_s = 60.0
-allowed_hosts = ["www.globenewswire.com"]
 terms_note = "Titles, links and times only until the owner reads the terms (terms_ok = false)."
 max_items = 20
 gate6 = true

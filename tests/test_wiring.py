@@ -59,15 +59,16 @@ def test_every_job_builds_from_a_real_context(cfg: ScoutConfig, clock: ManualClo
     for expected in ("edgar_atom", "prnewswire", "nasdaq_halts", "bls", "cboe_vix", "fomc",
                      "jason_snapshot", "answers_pilot_1930", "answers_pilot_1945", "answers_radar", "brief", "verify"):
         assert expected in names, expected
-    assert "globenewswire" not in names  # off by default since 2026-11-01 (it answered 403)
+    assert "globenewswire" not in names  # removed on 2026-11-03: it refuses automated readers
     assert ("llm_j1" in names) is llm_enabled and ("llm_j3" in names) is llm_enabled
 
 
-def test_globenewswire_job_builds_when_turned_on(scout_dir, clock: ManualClock) -> None:
+def test_a_second_wire_job_builds_when_configured(scout_dir, clock: ManualClock) -> None:
     from conftest import make_config  # noqa: PLC0415
+    from helpers_wire import TEST_WIRE  # noqa: PLC0415
 
-    c = make_config(scout_dir, sources={"globenewswire": {"enabled": True}})
+    c = make_config(scout_dir, sources=TEST_WIRE)
     ctx = AppContext(cfg=c, paths=ScoutPaths.from_config(c), clock=clock, board=SourceStatusBoard(c),
                      log=logging.getLogger("test.wiring"))
     names = [j.name for j in load_jobs(ctx, strict=True)]
-    assert "globenewswire" in names and "prnewswire" in names
+    assert "testwire" in names and "prnewswire" in names

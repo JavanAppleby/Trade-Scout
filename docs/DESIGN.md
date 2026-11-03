@@ -281,7 +281,7 @@ by **Update Scout**).
 
 **`scout/raw.py`**: `class RawStore(paths)` implementing `RawSink`
 (`raw\<source>\<ET date>\<HHMMSS>-<name>` written once; the sha256 returned and stored on facts).
-PR Newswire and GlobeNewswire store a reduced body (title, link, guid, pubDate only) until
+PR Newswire stores a reduced body (title, link, guid, pubDate only) until
 `terms_ok = true` in their source table (SS 4.1 #4).
 
 **`scout/edgar_parse.py`**: pure parsers. Radar's `parse_ticker_map`, `parse_submissions`,
@@ -315,9 +315,9 @@ is built from the first row's CIK (status `ambiguous_ticker`, so gate 5 answers 
 
 **`scout/wire_rss.py`**: `parse_rss(body: bytes) -> list[RssItem]` (`RssItem(guid, title, link,
 published_at, raw_categories)`; strips a BOM; raises `SchemaError` on drift); `class WirePoller(cfg,
-source_name, fetcher, raw, facts, health, board, clock)`; `poll(now) -> int`. Used for `prnewswire`
-and `globenewswire` (off by default since 2026-11-01, see 6.3). A 403 on GlobeNewswire marks the
-source `refused` after `refused_after_403s` (3) consecutive 403s and stops polling it for the day.
+source_name, fetcher, raw, facts, health, board, clock)`; `poll(now) -> int`. Used for every source of kind
+`wire` (`prnewswire`; GlobeNewswire was removed on 2026-11-03, see 6.3). A wire that answers
+`refused_after_403s` (3) consecutive 403s is marked `refused` and not polled again that day.
 
 **`scout/tickers.py`**: `tickers_in(text, prefixes) -> list[tuple[str, str]]` (exchange, ticker;
 regex over "(EXCHANGE: XXX)" or "(EXCHANGE - XXX)" with `ticker_exchange_prefixes`; segments split on
@@ -353,7 +353,7 @@ date>.jsonl`); `class CoverageTracker` (per source and feed: last poll end, seen
 `gap_open(source) -> bool` for the heartbeat).
 
 **`scout/jobs_wire.py`**: `build_jobs(ctx) -> list[Job]`: `edgar_tickers` (daily 03:50 ET and at
-start), `edgar_atom` (`EveryJob` with the source's spacings), `prnewswire`, `globenewswire`.
+start), `edgar_atom` (`EveryJob` with the source's spacings), and one job per source of kind `wire` (`prnewswire`).
 
 ### 2.3 Layer 1: halts, macro and regime (unit `macro`)
 
@@ -966,23 +966,20 @@ Keys: `enabled` (bool), `kind` (str: wire, filing, reference, halt, macro, vix),
 | edgar_submissions | true | reference | https://data.sec.gov/submissions/CIK{cik:010d}.json | 0 / 0 (on demand) | data.sec.gov | 0 | false |
 | edgar_tickers | true | reference | https://www.sec.gov/files/company_tickers_exchange.json | 86400 / 86400 | www.sec.gov | 0 | false |
 | prnewswire | true | wire | https://www.prnewswire.com/rss/news-releases-list.rss | 60 / 60 | www.prnewswire.com | 20 | true |
-| globenewswire | false (since 2026-11-01) | wire | https://www.globenewswire.com/RssFeed/orgclass/1/feedTitle/GlobeNewswire%20-%20News%20about%20Public%20Companies | 60 / 60 | www.globenewswire.com | 20 | true |
 | nasdaq_halts | true | halt | https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts | 60 / 0 (not polled 20:00-04:00 except the one dated read) | www.nasdaqtrader.com | 0 | false |
 | nowflation | true | macro | https://nowflation.com, paths ["/data/release_calendar.json", "/data/realtime.json", "/forecasts/index.json", "/nowflation.ics"] | schedule-driven | nowflation.com | 0 | false |
 | bls | true | macro | https://www.bls.gov/schedule/news_release/bls.ics (UNVERIFIED path; confirm at build step 2) | 604800 | www.bls.gov | 0 | false |
 | cboe_vix | true | vix | https://cdn-api.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv | 86400 | cdn-api.cboe.com | 0 | false |
 
-`terms_ok` is false for `prnewswire` and `globenewswire` until the owner reads their terms.
+`terms_ok` is false for `prnewswire` until the owner reads its terms.
 
-**GlobeNewswire is off by default (2026-11-01).** Its feed answered 403 to Scout's declared
-User-Agent on 2026-11-01, and SCOUT_SPEC 4.1 #5 says the source is dropped if refused. It also has to
-be off, not merely failing: an enabled gate-6 source that never answers keeps every gate-6 answer at
-`unknown` (`source_not_ok` / coverage gaps). While off, the params do not name it in `gate6_sources`,
-so gate 6 rests on `edgar_atom` and `prnewswire`. To turn it back on once a later check passes (a
-manual fetch of the feed URL with Scout's User-Agent returns 200 and an RSS body), set
-`[sources.globenewswire] enabled = true` in `config.toml` and restart Scout; the new params record
-then adds it to gate 6 from that time on. If it is refused again, three 403s in a row mark it
-`refused` for the rest of the ET day (and gate 6 answers `unknown` meanwhile), so turn it off again.
+**GlobeNewswire was removed (2026-11-03, owner).** Its feed answered 403 to Scout's declared
+User-Agent on 2026-11-01 and again on 2026-11-03 (Akamai bot protection), and reading it would need
+GlobeNewswire's permission. The owner's rule: Scout uses only sources that allow automated reading
+without asking. Gate 6 rests on `edgar_atom` and `prnewswire`. Business Wire (feed deactivated;
+robots.txt disallows `/rss/`) and ACCESS Newswire (robots.txt disallows `/rss`) were checked the same
+day and are out for the same reason. Older beats and health records may still name `globenewswire`;
+the reader ignores any source the params do not name.
 
 ### 6.4 Answers
 | Key | Type | Default |
@@ -1039,7 +1036,7 @@ then adds it to gate 6 from that time on. If it is refused again, three 403s in 
 | j1_max_calls_per_day | int | 400 |
 | j3_max_calls_per_day | int | 15 |
 | web_search_max_per_day | int | 30 |
-| llm_allowed_domains | list[str] | ["sec.gov", "prnewswire.com", "globenewswire.com", "businesswire.com", "accesswire.com", "accessnewswire.com", "newsfilecorp.com", "thenewswire.com", "nasdaq.com", "fda.gov", "clinicaltrials.gov"] |
+| llm_allowed_domains | list[str] | ["sec.gov", "prnewswire.com", "businesswire.com", "accesswire.com", "accessnewswire.com", "newsfilecorp.com", "thenewswire.com", "nasdaq.com", "fda.gov", "clinicaltrials.gov"] |
 | llm_item_chars | int | 2000 |
 | web_fetch_max_content_tokens | int | 8000 |
 | web_search_max_uses * | int | 3 |
@@ -1110,7 +1107,7 @@ levels file), `write_params`, then the loop of section 2.1. Jobs (owner unit):
 |---|---|---|
 | edgar_tickers | start, daily 03:50 ET | wire |
 | edgar_atom | 60 s 04:00-20:00 ET, 600 s otherwise | wire |
-| prnewswire, globenewswire | 60 s | wire |
+| prnewswire (every source of kind wire) | 60 s | wire |
 | nasdaq_halts | 60 s 04:00-20:00 ET (the job is checked every 1 s; the poller keeps the 60 s from the real send); once after 20:00 ET with `haltdate` | macro |
 | nowflation | start; 08:20 ET; 08:50 ET on release days (at most 10 requests a day) | macro |
 | bls | start, then every `[sources.bls] min_spacing_s` | macro |
@@ -1163,7 +1160,7 @@ parenthesised block ending in `exit /b`, read whole by cmd before `git pull` can
 4. Per-host spacing: waits (via the clock's `sleep`) until `max(host_min_spacing_s[host] or
    http_default_host_spacing_s, hard minimum, backoff)` has passed since the host's last request.
    Hard minimums in code: `www.nasdaqtrader.com` 60 s; `www.sec.gov`/`data.sec.gov` 0.5 s;
-   `www.prnewswire.com`/`www.globenewswire.com` 30 s (SS 12; the validator also refuses a wire
+   `www.prnewswire.com` 30 s (SS 12; the validator also refuses a wire
    `idle_spacing_s` other than 0 or >= 30). A stored last request in the future counts as the
    spacing passed, and no wait is longer than the spacing.
 5. Headers: `User-Agent: cfg.user_agent()`, `Accept-Encoding: gzip, deflate`, and when `conditional`
@@ -1274,7 +1271,7 @@ A second review found 23 defects; each fix has a regression test that fails on t
 Still open (owner or later steps): live captures to replace the `_SYNTHETIC` fixtures (SS 15 step
 2) except nowflation's, which stay synthetic in its live layout because its terms forbid
 redistributing its raw files (live captures stay only in the install's `state\raw`, see
-`tests/fixtures/macro/README.md`), GlobeNewswire's shape
+`tests/fixtures/macro/README.md`),
 and whether `type=424B` returns every 424B* form (D6); the LLM model ids and prices (step 5); the
 first real Claude call against `anthropic==2.3.0` (step 5).
 

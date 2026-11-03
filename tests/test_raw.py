@@ -58,7 +58,7 @@ def test_store_with_config_reduces_wire_bodies(scout_dir, paths):
     assert b"Full body text" not in prn and b"<guid>g1</guid>" in prn and b"Acme" in prn
     assert edgar == ITEM
     assert store.save("prnewswire", "bad.xml", b"<not xml", AT)  # unparseable -> marker only
-    assert not keeps_full_body(cfg, "globenewswire") and keeps_full_body(cfg, "nasdaq_halts")
+    assert not keeps_full_body(cfg, "prnewswire") and keeps_full_body(cfg, "nasdaq_halts")
     assert keeps_full_body(None, "prnewswire") and keeps_full_body(cfg, "unknown")
 
 

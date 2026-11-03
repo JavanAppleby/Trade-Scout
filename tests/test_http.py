@@ -404,11 +404,11 @@ def test_a_future_time_in_the_state_file_is_clamped_on_load(cfg, clock):
 
 
 def test_wire_hosts_have_a_hard_minimum_in_code(scout_dir, clock):
-    """Regression: www.prnewswire.com and www.globenewswire.com fell back to the 1 s default, so a
+    """Regression: www.prnewswire.com fell back to the 1 s default, so a
     config value alone could poll a wire every few seconds (SS 12: at least 30 s, in code)."""
     cfg = wire_config(scout_dir, host_min_spacing_s={"www.prnewswire.com": 1.0})
     f, _ = fetcher(cfg, clock)
-    assert f.spacing_for("www.prnewswire.com") == 30.0 and f.spacing_for("www.globenewswire.com") == 30.0
+    assert f.spacing_for("www.prnewswire.com") == 30.0
 
 
 # --------------------------------------------------------------------------- TLS (no network)

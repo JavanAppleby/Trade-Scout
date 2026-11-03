@@ -72,7 +72,7 @@ def _state(scout_dir: Path) -> None:
         "format": 1, "at": "2026-11-02T13:59:50Z", "version": "0.1.0", "stopped": False,
         "sources": {"prnewswire": {"enabled": True, "status": "ok", "last_ok": "2026-11-02T13:59:00Z",
                                    "last_error": None, "gap_open": False},
-                    "globenewswire": {"enabled": True, "status": "refused", "last_ok": None, "last_error": "403",
+                    "testwire": {"enabled": True, "status": "refused", "last_ok": None, "last_error": "403",
                                       "gap_open": True}},
         "llm": {}, "levels": {}, "calendar_covers_next_45d": True}), encoding="utf-8")
     (scout_dir / "state" / "verify" / "samples.jsonl").write_text(json.dumps({
@@ -108,7 +108,7 @@ def test_full_brief(scout_dir: Path, clock: ManualClock, tmp_path: Path) -> None
     assert "**HLT** halted" in text and "RSM" not in text
     assert "ABC: ok, due 2026-11-10 to 2026-12-20 (late-filing notice)" in text and "BIG: no due-window record" in text
     assert "Market frame:" in text and "**SPY** bullish" in text and "support 580.5" in text and "TSLA" not in text
-    assert "globenewswire: refused" in text and "coverage gap open" in text
+    assert "testwire: refused" in text and "coverage gap open" in text
     assert "python -m scout check`: ABC, XYZ" in text
 
 

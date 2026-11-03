@@ -22,7 +22,7 @@ def test_fact_id_is_d5():
     assert make_fact_id("prnewswire", "g", "ACME") == hashlib.sha256(b"prnewswire|g|ACME").hexdigest()
     assert make_fact_id("prnewswire", "g", None) == hashlib.sha256(b"prnewswire|g|").hexdigest()
     assert make_fact_id("prnewswire", "g", "A") != make_fact_id("prnewswire", "g", "B")
-    assert make_fact_id("prnewswire", "g", "A") != make_fact_id("globenewswire", "g", "A")
+    assert make_fact_id("prnewswire", "g", "A") != make_fact_id("testwire", "g", "A")
 
 
 def test_add_dedups_and_writes_by_et_date(paths, clock, write_audit):

@@ -3,7 +3,7 @@
 - `edgar_tickers`: checked every minute; reads the CIK map at start and once per ET day from 03:50
   ET (a failed read is tried again after 10 minutes).
 - `edgar_atom`: every `min_spacing_s` (60 s) 04:00-20:00 ET, `idle_spacing_s` (600 s) otherwise.
-- `prnewswire`, `globenewswire`: every `min_spacing_s` (60 s).
+- every source of kind "wire" (`prnewswire`): every `min_spacing_s` (60 s).
 A disabled source gets no job (the board shows it `disabled`). One CoverageTracker serves every
 source of this module.
 """
@@ -18,17 +18,23 @@ from scout.health import CoverageTracker, board_state
 from scout.scheduler import EveryJob, Job
 from scout.wire_rss import WirePoller
 
-__all__ = ["WIRE_SOURCES", "build_jobs"]
+__all__ = ["build_jobs", "wire_sources"]
 
-WIRE_SOURCES = ("prnewswire", "globenewswire")
 TICKER_CHECK_S = 60.0
+
+
+def wire_sources(cfg: Any) -> list[str]:
+    """The configured RSS wires, in table order (GlobeNewswire was removed on 2026-11-03: it refuses
+    automated readers)."""
+    return [name for name, src in cfg.sources.items() if src.kind == "wire"]
 
 
 def build_jobs(ctx: Any) -> list[Job]:
     cfg = ctx.cfg
     tracker = CoverageTracker(cfg)
     jobs: list[Job] = []
-    for name in ("edgar_tickers", EDGAR_ATOM, *WIRE_SOURCES):
+    wires = wire_sources(cfg)
+    for name in ("edgar_tickers", EDGAR_ATOM, *wires):
         src = cfg.source(name)
         if not src.enabled:
             ctx.board.update(name, board_state(False, "disabled", None, None, False))
@@ -42,7 +48,7 @@ def build_jobs(ctx: Any) -> list[Job]:
         poller = EdgarAtomPoller(cfg, ctx.fetcher(), ctx.raw(), ctx.facts(), ctx.health(), ctx.board, ticker_map,
                                  ctx.clock, tracker=tracker, log=ctx.log.getChild(EDGAR_ATOM))
         jobs.append(EveryJob(EDGAR_ATOM, poller.poll, src.min_spacing_s, src.idle_spacing_s or None, cfg))
-    for name in WIRE_SOURCES:
+    for name in wires:
         src = cfg.source(name)
         if not src.enabled:
             continue

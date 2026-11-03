@@ -345,7 +345,7 @@ def _folder() -> Iterator[tuple[Path, ScoutConfig]]:
 
 def _beat_line(at: datetime, *, fmt: int = 1, stopped: bool = False) -> str:
     return json.dumps({"format": fmt, "at": iso(at), "stopped": stopped, "gap_open": {},
-                       "sources": {"edgar_atom": "ok", "globenewswire": "ok", "prnewswire": "ok"}})
+                       "sources": {"edgar_atom": "ok", "testwire": "ok", "prnewswire": "ok"}})
 
 
 BEAT_DAMAGE = {

@@ -254,7 +254,7 @@ def sec_catalysts(inp: BriefInputs) -> list[str]:
     labels = _labels(inp, prior_close_before(inp.as_of))
     lines = ["## Overnight catalysts (since the prior close, newest first)", ""]
     if not facts:
-        lines += ["None seen in the monitored sources (PR Newswire, GlobeNewswire, SEC EDGAR).", ""]
+        lines += ["None seen in the monitored sources (PR Newswire, SEC EDGAR).", ""]
         return lines
     for f in facts[:MAX_CATALYSTS]:
         text = (f"- {_when(f.get('published_at'))} **{md_escape(f.get('ticker'), 12)}** "

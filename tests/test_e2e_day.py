@@ -5,8 +5,8 @@ Monday 2026-11-02 from 03:55 to 20:40 ET on a ManualClock (the quiet core sessio
 16:00 close, so the evening answers still need clean coverage). Scout is built from a config.toml on
 disk (`build_context`), every job module is loaded strictly, and the only fakes are the HTTP
 transport (every source answered from the offline fixtures) and the Claude transport (a scripted
-fake; no key, no network). The config keeps the defaults, so GlobeNewswire is off (it answered 403 on
-2026-11-01): gate 6 runs on EDGAR and PR Newswire, as on the owner's PC. Radar and Pilot are stand-in folders. The day must produce facts, health,
+fake; no key, no network). The config keeps the defaults: gate 6 runs on EDGAR and PR Newswire, as on
+the owner's PC (GlobeNewswire was removed on 2026-11-03). Radar and Pilot are stand-in folders. The day must produce facts, health,
 the heartbeat, macro files, the Jason snapshot, answers, the brief (with J4) and the verify report,
 and the CLI must then answer from those files.
 """
@@ -234,11 +234,9 @@ def test_heartbeat_all_day_with_every_source(day: Day) -> None:
     for source in ("edgar_atom", "prnewswire", "nasdaq_halts", "edgar_tickers", "bls", "cboe_vix", "nowflation"):
         assert noon["sources"][source] == "ok", source
     assert not any(noon["gap_open"].values())
-    # GlobeNewswire is off by default (403 on 2026-11-01): reported disabled, never fetched, even
-    # though the fixture transport would serve it
-    assert noon["sources"].get("globenewswire") in (None, "disabled")
-    gnw_url = day.ctx.cfg.source("globenewswire").url
-    assert gnw_url in day.http.responses and not any(url == gnw_url for url, *_ in day.http.calls)
+    # GlobeNewswire was removed on 2026-11-03 (it refuses automated readers): never reported or fetched
+    assert "globenewswire" not in noon["sources"]
+    assert not any("globenewswire" in url for url, *_ in day.http.calls)
     params = day.jsonl("params.jsonl")
     assert params[0]["gate6_sources"] == ["edgar_atom", "prnewswire"]
 
