@@ -31,11 +31,11 @@ HEADINGS = ("# Scout brief", "## Macro events", "## Inflation regime and VIX", "
 
 
 def _radar(tmp_path: Path) -> Path:
-    finds = tmp_path / "Radar" / "state" / "finds"
+    finds = tmp_path / "Radar" / "state" / "handoff"
     finds.mkdir(parents=True)
     (finds / "2026-11-02.jsonl").write_text(
-        json.dumps({"candidate_id": "c1", "symbol": "ABC", "found_at": "2026-11-02T13:40:00Z", "price": 3.2}) + "\n"
-        + json.dumps({"candidate_id": "c2", "symbol": "BIG", "found_at": "2026-11-02T13:41:00Z", "price": 250.0})
+        json.dumps({"format": 1, "candidate_id": "c1", "symbol": "ABC", "found_at": "2026-11-02T13:40:00Z", "price": 3.2}) + "\n"
+        + json.dumps({"format": 1, "candidate_id": "c2", "symbol": "BIG", "found_at": "2026-11-02T13:41:00Z", "price": 250.0})
         + "\n", encoding="utf-8")
     return tmp_path / "Radar"
 

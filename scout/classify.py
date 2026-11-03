@@ -1,9 +1,9 @@
 """Deterministic class of a wire title or a filing (SCOUT_SPEC 6.4, DESIGN 2.2). No LLM.
 
 Wire titles: the keyword lists are config (`class_keywords`); the first class in the fixed order
-`WIRE_MATCH_ORDER` with a matching keyword wins, `other` last. The order is SS 6.4's with one change:
-`earnings_date` is tried first. A date notice such as "Acme to Announce Financial Results for Third
-Quarter 2026 on November 3" also matches "financial results for" (earnings_result), often
+`WIRE_MATCH_ORDER` with a matching keyword wins, `other` last. The order is SS 6.4's with two
+changes: `bankruptcy` is tried first (below), then `earnings_date`. A date notice such as "Acme to
+Announce Financial Results for Third Quarter 2026 on November 3" also matches "financial results for" (earnings_result), often
 "agreement" or "order" (contract), and for a biotech "Phase 2", "topline" or "PDUFA" (trial, fda):
 "Acme Bio to Report Third Quarter 2026 Financial Results and Phase 2 Topline Data on November 12".
 Classed any of those ways it would make gate 6 answer true for a press release that only names a
@@ -18,6 +18,11 @@ results", "timing of ... earnings"). A bare "to release" or "will announce" woul
 to Discuss" (earnings_result), and an earnings_date fact with no date in it makes gate 5 `unknown`
 for `earnings_lookback_days` (fail closed: "Acme to Host Call to Discuss Phase 3 Topline Results"
 with no date costs holds, never allows one).
+
+`bankruptcy` (owner, 2026-11-04) is tried before everything: "Acme Files Voluntary Chapter 11
+Petitions and Enters Restructuring Support Agreement" also names an agreement (contract), and a
+bankruptcy headline is bad news whatever else it says. It never passes gate 6 and it blocks Radar's
+buy signals (`scout_reader.entry_blocks`).
 
 A keyword matches as whole words, ignoring case ("order" matches "Purchase Order" but not
 "Reorder"). ` ... ` inside a keyword matches any text, so "to announce ... results" needs both parts
@@ -35,8 +40,8 @@ from scout.models import WIRE_CLASSES
 
 __all__ = ["WIRE_MATCH_ORDER", "filing_class", "keyword_hit", "wire_class"]
 
-WIRE_MATCH_ORDER = ("earnings_date", "offering", "reverse_split", "listing_notice", "fda", "trial", "contract",
-                    "earnings_result", "other")
+WIRE_MATCH_ORDER = ("bankruptcy", "earnings_date", "offering", "reverse_split", "listing_notice", "fda", "trial",
+                    "contract", "earnings_result", "other")
 assert sorted(WIRE_MATCH_ORDER) == sorted(WIRE_CLASSES)
 
 

@@ -11,7 +11,7 @@ from scout import cli
 
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["--version"]) == 0
-    assert "Scout 0.1.0" in capsys.readouterr().out
+    assert "Scout 0.2.0" in capsys.readouterr().out
 
 
 def test_a_missing_handler_module_exits_3(monkeypatch: pytest.MonkeyPatch,

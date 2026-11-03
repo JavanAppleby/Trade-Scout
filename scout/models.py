@@ -18,10 +18,10 @@ Tri = Literal["true", "false", "unknown"]
 #: ticker) come from the inbox capture files (DESIGN 2.7); neither is a gate-6 kind. "scanner" (one Paper Gains
 #: scanner card per ticker) too, and no gate reads it at all.
 FACT_KINDS = ("wire", "filing", "halt", "scheduled_event", "macro_event", "discord", "earnings_schedule", "scanner")
-WIRE_CLASSES = ("offering", "reverse_split", "listing_notice", "fda", "trial", "contract", "earnings_result",
-                "earnings_date", "other")  # SS 6.4 order, `other` last
+WIRE_CLASSES = ("offering", "reverse_split", "listing_notice", "bankruptcy", "fda", "trial", "contract",
+                "earnings_result", "earnings_date", "other")  # SS 6.4 order, `other` last; bankruptcy: owner, 2026-11-04
 FILING_CLASSES = ("contract_or_other", "earnings_result", "listing_notice", "offering", "reverse_split",
-                  "late_filing")
+                  "late_filing", "bankruptcy", "other")
 SOURCE_STATUSES = ("ok", "stale", "unavailable", "disabled", "refused", "starting")
 HEALTH_RESULTS = ("ok", "not_modified", "http_error", "timeout", "network", "schema", "too_large", "refused",
                   "backoff", "no_http", "host_cap")

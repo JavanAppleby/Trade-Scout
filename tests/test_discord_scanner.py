@@ -280,9 +280,9 @@ def test_reader_never_raises(scout_dir: Path) -> None:
 
 
 def _radar(tmp_path: Path) -> Path:
-    finds = tmp_path / "Radar" / "state" / "finds"
+    finds = tmp_path / "Radar" / "state" / "handoff"
     finds.mkdir(parents=True)
-    rows = [{"candidate_id": "c1", "symbol": "ZETA", "found_at": "2026-11-02T13:40:00Z", "price": 42.0}]
+    rows = [{"format": 1, "candidate_id": "c1", "symbol": "ZETA", "found_at": "2026-11-02T13:40:00Z", "price": 42.0}]
     (finds / "2026-11-02.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     return tmp_path / "Radar"
 

@@ -5,6 +5,7 @@
 
 # --------------------------------------------------------------------------- paths and identity
 radar_dir = ""            # Radar's folder (e.g. 'E:\Radar'); read only. Empty: Radar's finds are skipped.
+radar_handoff_subdir = "state/handoff"  # Radar's hand-off file of finds, <trading day>.jsonl, inside radar_dir
 pilot_dir = ""            # Pilot's folder; read only. Empty: Pilot's positions are skipped.
 levels_dir = "state/levels"   # where Add Levels keeps Jason's files (must be inside Scout's folder)
 inbox_dir = "inbox"       # where the owner drops files for Scout (inbox\jason for level files)
@@ -30,7 +31,7 @@ ticker_exchange_prefixes = ["NASDAQ", "Nasdaq", "Nasdaq CM", "NasdaqCM", "Nasdaq
 wire_title_ticker_suffixes = ["Stock News"]  # a wire title ending "| XXX Stock News" names ticker XXX (Stock Titan); no exchange
 
 # --------------------------------------------------------------------------- the hold answers
-hold_catalyst_classes = ["fda", "trial", "contract", "contract_or_other", "earnings_result"]  # news classes that count as a fresh catalyst (gate 6)
+hold_catalyst_classes = ["fda", "trial", "contract", "earnings_result"]  # news classes that count as a fresh catalyst (gate 6); contract_or_other left out (owner, 2026-11-04)
 earnings_lookback_days = 45       # how far back an "X to report results on <date>" release is searched (gate 5)
 earnings_due_start_days = 10      # EDGAR due window starts this many days after a quarter ends
 earnings_due_end_days_quarter = 50   # ... and ends this many days after a quarter ends
@@ -144,8 +145,8 @@ discord_scanner_brief_max_tickers = 12  # tickers shown per scanner pattern line
 "nowflation.com" = 10
 "api.bls.gov" = 12      # BLS results: 3 requests a read; BLS allows 25 a day without a key
 
-# Words that give a wire headline its class. First match wins, in the fixed order earnings_date,
-# offering, reverse_split, listing_notice, fda, trial, contract, earnings_result; "other" is
+# Words that give a wire headline its class. First match wins, in the fixed order bankruptcy,
+# earnings_date, offering, reverse_split, listing_notice, fda, trial, contract, earnings_result; "other" is
 # everything else. earnings_date comes first so a notice that only names a results date ("to
 # Announce Financial Results for ... on November 3", "to Report Q3 Results and Phase 2 Data on
 # November 12") is never a catalyst and gate 5 reads its date, so its words must be narrow: " ... "
@@ -154,11 +155,15 @@ discord_scanner_brief_max_tickers = 12  # tickers shown per scanner pattern line
 # ATM sales agreements, warrant inducements and convertible notes, so "agreement" (contract) never
 # turns a dilution headline into a catalyst.
 # A bare "to release" would also catch "Agreement to Release Its Products" (a contract).
-# Matching is whole words, any case. Every class must be listed (an empty list is allowed).
+# bankruptcy (owner, 2026-11-04) goes first: a Chapter 11 headline is bad news whatever else it names,
+# and it blocks Radar's buy signals (scout_reader.entry_blocks).
+# Matching is whole words, any case. Every class must be listed (an empty list is allowed), except
+# bankruptcy, which keeps the list shown here when an older table leaves it out.
 [class_keywords]
 offering = ["public offering", "pricing", "priced", "registered direct", "at-the-market", "at the market", "ATM offering", "ATM program", "ATM facility", "equity distribution agreement", "equity purchase agreement", "standby equity", "equity line", "securities purchase agreement", "warrants", "warrant", "inducement agreement", "convertible note", "convertible notes", "convertible senior notes", "convertible debenture", "convertible debentures", "convertible preferred", "convertible bond", "convertible bonds", "convertible promissory", "debt exchange", "exchange of notes", "settlement of notes", "private placement"]
 reverse_split = ["reverse split", "reverse stock split", "share consolidation"]
 listing_notice = ["deficiency", "delisting", "Nasdaq notice", "notice of noncompliance", "minimum bid price"]
+bankruptcy = ["Chapter 11", "Chapter 7", "Chapter 15", "bankruptcy", "voluntary petition", "voluntary petitions", "restructuring support agreement", "creditor protection"]
 fda = ["FDA approval", "FDA approves", "FDA clearance", "510(k) clearance", "PDUFA", "complete response letter", "CRL", "breakthrough therapy designation", "breakthrough device designation", "fast track designation"]
 trial = ["topline", "top-line", "Phase 1", "Phase 2", "Phase 3", "Phase 1/2", "Phase 2/3", "Phase 1b", "Phase 1/2a", "Phase 2a", "Phase 2b", "Phase I", "Phase II", "Phase III", "Phase Ib", "Phase IIa", "Phase IIb", "Phase I/II", "Phase II/III", "pivotal trial"]
 contract = ["contract", "award", "awarded", "agreement", "partnership", "purchase order", "order"]

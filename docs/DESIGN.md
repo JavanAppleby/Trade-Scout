@@ -49,7 +49,7 @@ E:\Scout_dev\
   state\ logs\ reports\ inbox\jason\ inbox\discord\   runtime, git-ignored, created on first run
 ```
 
-`pyproject.toml` (top level): `name = "scout"`, `version = "0.1.0"`, `requires-python = ">=3.11,<3.14"`,
+`pyproject.toml` (top level): `name = "scout"`, `version = "0.2.0"`, `requires-python = ">=3.11,<3.14"`,
 `dependencies = ["anthropic==2.3.0", "truststore==0.10.5"]` (`anthropic` imported lazily, only by
 `scout.llm_client`; an exact pin, because the request shape uses `output_config.effort/format` and
 the `web_*_20260209` tools, which the 1.x SDK lacks; `tests/test_integration.py` checks the shape
@@ -60,7 +60,7 @@ against the installed SDK offline; `truststore` only by `scout.http`, see 2.2), 
 `[tool.pytest.ini_options] pythonpath = [".", "scout_reader", "tests"]`, `testpaths = ["tests"]`.
 Nothing named `webull*` or `trade-guardian` may ever appear (test `test_boundaries.py`).
 
-`scout_reader/pyproject.toml`: `name = "scout-reader"`, `version = "0.1.0"`, `dependencies = []`,
+`scout_reader/pyproject.toml`: `name = "scout-reader"`, `version = "0.2.0"`, `dependencies = []`,
 `requires-python = ">=3.11"`, `packages = ["scout_reader"]`.
 
 ## 2. Package `scout`: modules and public interfaces
@@ -70,7 +70,7 @@ its module. The owning unit is in brackets (section 12).
 
 ### 2.1 Core (unit `scaffold`)
 
-**`scout/__init__.py`**: `__version__ = "0.1.0"`; `FORMAT = 1` (the record format all files carry).
+**`scout/__init__.py`**: `__version__ = "0.2.0"`; `FORMAT = 1` (the record format all files carry).
 
 **`scout/__main__.py`**: `raise SystemExit(cli.main())`.
 
@@ -103,7 +103,9 @@ email is never echoed; `repr` hides it).
 - `load_config(path: Path | str) -> ScoutConfig`; `config_from_dict(data: Mapping, scout_dir: Path)
   -> ScoutConfig`; `CONFIG_KEYS: frozenset[str]`.
 - Validation highlights: `scout_webull_enabled` must be false in v1; `class_keywords` keys must be
-  exactly the SS 6.4 classes; `hold_catalyst_classes` only from known classes; times "HH:MM";
+  exactly the SS 6.4 classes (`bankruptcy`, added 2026-11-04, may be left out and keeps its default
+  list, so an install table written before then still loads); `radar_handoff_subdir` relative,
+  without ".."; `hold_catalyst_classes` only from known classes; times "HH:MM";
   `min_spacing_s` for `nasdaq_halts` >= 60 and for wires >= 30; `levels_dir`, `inbox_dir` inside
   Scout's folder.
 
@@ -219,12 +221,15 @@ class LlmTransport(Protocol):
 - `cli_run(ctx, args) -> int`.
 
 **`scout/inputs.py`**: read-only views of the other bots' files and the owner's lists (SS 2.4).
-- `radar_finds(cfg, day: date) -> list[RadarFind]` (`radar_dir\state\finds\<ET date>.jsonl`;
-  `RadarFind(candidate_id, symbol, found_at, price)`; missing folder or file -> `[]`)
+- `radar_finds(cfg, day: date) -> list[RadarFind]` (owner, 2026-11-04: Radar's real hand-off file
+  `radar_dir\<radar_handoff_subdir>\<trading day>.jsonl`, default `state\handoff`, Radar's format 1
+  with `price` as a string; a line whose `format` is not 1 or whose `trading_day` names another day is
+  skipped; `RadarFind(candidate_id, symbol, found_at, price)`; missing folder or file -> `[]`)
 - `pilot_positions(cfg, now) -> list[str]` (open positions from Pilot's plan folder; the exact Pilot
   file is not yet built, so this reads `pilot_dir\state\plans\*.json` with keys `symbol`, `status`
   and treats an unreadable file as absent; refined when Pilot ships)
-- `covered_symbols(cfg, now) -> list[str]` (Pilot positions, today's Radar finds, `watch_symbols`;
+- `covered_symbols(cfg, now) -> list[str]` (Pilot positions, Radar's finds of today's ET date and of
+  the trading day `now` belongs to (after 20:00 ET Radar writes the next day's file), `watch_symbols`;
   upper-cased, sorted, unique)
 - Every read is open-read-close, never a lock, never a write.
 
@@ -291,10 +296,11 @@ tuple[list[Filing], str | None]` (adds `reportDate` to each filing and returns `
 "MMDD"), `parse_getcurrent_atom(body: bytes) -> AtomPage` (`AtomEntry(guid, form, title, cik,
 company, accepted_at, filed_on, items: tuple[str, ...], link)`; raises `SchemaError` on drift),
 `filing_class(form, items, description) -> str | None` (SS 6.4 table; an 8-K/A keeps only the
-blocking classes offering, reverse_split and listing_notice: it re-files an earlier 8-K, so it is
-never `earnings_result` or `contract_or_other` and never makes gate 6 true on stale news; 5.03 with
-3.03 is `reverse_split`, and next to 5.03 or 3.03 the press-release items 7.01 and 8.01 never give
-`contract_or_other`, because the live description holds only item captions and never "reverse"),
+blocking classes bankruptcy, offering, reverse_split and listing_notice: it re-files an earlier 8-K,
+so it is never `earnings_result` or `contract_or_other` and never makes gate 6 true on stale news;
+5.03 with 3.03 is `reverse_split`. Owner, 2026-11-04: 1.03 is `bankruptcy` and wins over every
+other item; 424B2 and 424B8 have no class (`NOT_OFFERING_424B`); 1.01 or 2.01 is
+`contract_or_other`; 7.01 or 8.01 without any of those is `other`),
 `refuse_dtd(data)` (expat's own doctype and entity handlers, so a DTD is refused in any encoding;
 used by `safe_xml_root` and the halts parser),
 `parse_ticker_rows(body)` (every row of the ticker file, duplicates kept; Radar's
@@ -329,7 +335,8 @@ str` (upper, `.`/`-` class separators as Radar's `normalise_ticker`).
 
 **`scout/classify.py`**: `wire_class(title, keywords: Mapping[str, list[str]]) -> str` (first match
 in `WIRE_MATCH_ORDER`, `other` last; case-insensitive word match); re-exports `filing_class`. The
-order is SS 6.4's with one change: `earnings_date` is tried first. A results-date notice ("to
+order is SS 6.4's with `bankruptcy` first (owner, 2026-11-04: a Chapter 11 headline also names a
+restructuring "agreement"), then `earnings_date`. A results-date notice ("to
 Announce Financial Results for ... on November 3", "to Report Q3 Results and Phase 2 Topline Data on
 November 12") also matches "financial results for", often "agreement" or "order", and for a biotech
 "Phase 2" or "PDUFA"; classed as those it made gate 6 answer true for a notice that only names a
@@ -359,9 +366,12 @@ start), `edgar_atom` (`EveryJob` with the source's spacings), and one job per so
 
 ### 2.3 Layer 1: halts, macro and regime (unit `macro`)
 
-**`scout/halts.py`**: `parse_halts(body: bytes) -> list[HaltRow]` (BOM stripped; `ndaq` namespace;
-Market "NASDAQ" or one letter; HaltTime ET with optional fractional seconds; `pubDate` ignored; no
-order assumed; empty `ResumptionTradeTime` = still halted; raises `SchemaError` on drift);
+**`scout/halts.py`**: `parse_halts(body: bytes) -> list[HaltRow]` and `parse_halts_rows(body) ->
+(rows, skipped reasons)` (BOM stripped; `ndaq` namespace; Market stored as received, any non-empty
+text, or None when missing (owner, 2026-11-04); HaltTime ET with optional fractional seconds;
+`pubDate` ignored; no order assumed; empty `ResumptionTradeTime` = still halted; a bad row is skipped
+and counted, the poll logs a warning per row and writes "skipped N bad row(s): ..." in its health
+record's `error` while staying `ok`; raises `SchemaError` on feed drift or when no row is readable);
 `class HaltPoller(...)`, `poll(now) -> int` (facts `kind = "halt"`, guid = symbol|HaltDate|HaltTime;
 a later row with a resumption writes a new fact with `resumed_at`; the after-20:00 ET
 `&haltdate=MMDDYYYY` read once per day). Hard minimum 60 s spacing in code. A halt or resumption is
@@ -709,6 +719,8 @@ scout_reader/scout_reader/
   calendar.py   [scaffold] the Guardian calendar copy (D1)
   records.py    [scaffold] tolerant file reading, format check, as-of filters, Result
   coverage.py   [wire]     the SS 6.2 gap rule over health records
+  cache.py                 the per-Reader file cache for entry_blocks (3.9; 2026-11-04)
+  blocks.py                entry_blocks: Radar's buy-signal blocks (3.9; 2026-11-04)
   halts.py      [macro]    halt_open_from(...)
   macro.py      [macro]    market_context_from(...)
   jason.py      [levels]   jason_tags_from(...)
@@ -716,7 +728,7 @@ scout_reader/scout_reader/
   discord_schedule.py      gate 5's Discord earnings-list source (2.7; block only)
   scanner.py               Paper Gains scanner alerts, descriptive (2.7; no gate)
   gates.py      [answers]  gate 6, gate 5, news_headline
-  api.py        [answers]  the six public functions, scanner_alerts and Reader
+  api.py        [answers]  the six public functions, scanner_alerts, entry_blocks and Reader
 ```
 
 ### 3.1 Public API (`scout_reader/api.py`, re-exported by `__init__`)
@@ -727,7 +739,7 @@ Result = dict  # {"value": "true"|"false"|"unknown", "evidence": list[str], "sta
 
 class Reader:
     def __init__(self, scout_dir: str | os.PathLike, *, now: Callable[[], datetime] | None = None,
-                 stale_s: float | None = None): ...
+                 stale_s: float | None = None, cache: bool = True): ...
     def news_headline(self, symbol: str, as_of: datetime) -> Result: ...          # + "classes"
     def fresh_catalyst(self, symbol: str, as_of: datetime) -> Result: ...
     def event_before_next_session(self, symbol: str, as_of: datetime) -> Result: ...
@@ -738,6 +750,8 @@ class Reader:
     def market_context(self, as_of: datetime) -> dict: ...       # Results per field
     def scanner_alerts(self, symbol: str, as_of: datetime, *,
                        days: float = 7) -> Result: ...          # + "alerts"; descriptive (2.7)
+    def entry_blocks(self, symbol: str, as_of: datetime, *, lookback_days: int = 3,
+                     macro_before_min: float = 5, macro_after_min: float = 15) -> Result: ...  # + "blocks", "window" (3.9)
 
 # module-level conveniences: same names, first argument scout_dir
 def news_headline(scout_dir, symbol, as_of) -> Result: ...
@@ -747,6 +761,7 @@ def halt_open(scout_dir, symbol, as_of) -> Result: ...
 def jason_tags(scout_dir, symbol, price, as_of, **kw) -> dict: ...
 def market_context(scout_dir, as_of) -> dict: ...
 def scanner_alerts(scout_dir, symbol, as_of, **kw) -> Result: ...
+def entry_blocks(scout_dir_or_reader, symbol, as_of, **kw) -> Result: ...  # a Reader keeps its cache
 ```
 Every public function catches `BaseException` except `KeyboardInterrupt`/`SystemExit` and returns
 `unknown` with reason `"error:<ExceptionType>"`. A naive `as_of` is refused (`unknown`,
@@ -817,7 +832,12 @@ macro event in the window also means `true` (default false).
 ### 3.7 `coverage.py` (unit `wire`)
 `gaps(health_records, source, start, end, *, max_gap_s) -> list[dict]` (each `{"from", "to",
 "why"}`; why in `failed_poll | no_overlap | interval | no_poll_at_start | no_poll_at_end`); interval
-rule D7 using each record's `spacing_s`; `sources_for_gate6(beat) -> list[str]`.
+rule D7 using each record's `spacing_s`; `sources_for_gate6(beat) -> list[str]`. Owner, 2026-11-04:
+a failed poll is a gap only when the next good poll does not overlap or the good-to-good interval is
+over the limit, or no good poll follows it yet (one timed-out EDGAR poll followed by an overlapping
+poll is not a gap). The rule runs on `Poll` tuples (`chain_gaps`), walked from the last good poll
+before the window, which gives the same gaps as a walk over every poll (a test), so `entry_blocks`
+can keep a 3-day chain parsed in its cache.
 
 ### 3.8 `halts.py`, `macro.py`, `jason.py`
 - `halt_open_from(facts, beat, symbol, as_of) -> Result` (`true` with a visible halt fact and no
@@ -831,6 +851,31 @@ rule D7 using each record's `spacing_s`; `sources_for_gate6(beat) -> list[str]`.
   so; `jason_conflict` carries reason codes from the ported `conflict_for` rules, recomputed in pure
   form; `unknown` when no snapshot is visible). Damage or a future format in `jason\snapshots.jsonl`
   turns a `false` tag into `unknown` (rule 4), as for every other answer.
+
+### 3.9 `blocks.py` and `cache.py`: Radar's buy-signal blocks (owner, 2026-11-04)
+SCOUT_SPEC 7.8; the squad-split proposal in Radar's `docs/SQUAD_SPLIT_PROPOSAL.md` (decisions A, B, C, D).
+- `entry_blocks_in(...)`: the blocks for S at as_of: class facts (`offering`, `reverse_split`,
+  `listing_notice`, `bankruptcy`; wire and filing kinds only) first seen on or after
+  `lookback_start(as_of, 3)` (20:00 ET of the trading day before the first of the 3 trading days);
+  `halt_open` from `halts.open_halts` (began on as_of's ET date, not resumed by as_of); `macro_window`
+  for `cpi`, `fomc`, `nfp` events of the latest visible nowflation and BLS history records and the
+  params' FOMC table with `event_at` in [as_of - 15 min, as_of + 5 min].
+- Unlike every other answer, rules 2 and 6 of 3.2 do not hide evidence: blocks on file give `true`
+  with Scout stale (`stale: true`, reasons `block_on_file`, `scout_stale`). `false` needs a fresh beat,
+  params, every gate-6 source `ok` and gap-free over [lookback start, as_of], `nasdaq_halts` `ok`
+  with no gap open, no older unresolved halt in the files read, a fresh macro calendar (as 3.8's
+  `covered`), and no damaged line (rule 4).
+- A 424B2 or 424B8 fact stored as `offering` before the class fix never blocks.
+- The halt and fact search reads the facts files of the lookback window only (not the 30 days
+  `halt_open` reads); an older halt still open is outside it and simply not seen.
+- `cache.FileCache`: one per Reader. A view of a file (facts: only the records a block can come
+  from, indexed by ticker; health: one `Poll` per record with its end, source and feed; beats;
+  `macro\history.jsonl`) is keyed on (path, size, mtime_ns). On growth only the appended bytes are
+  parsed, after checking that the 4 KiB before the old end are unchanged; otherwise, or when the file
+  shrank, it is parsed again from the start. Damage notes follow 3.2 rule 4. A lock makes one Reader
+  safe across threads; at most 96 views are kept. The other answers do not use the cache: they read
+  afresh as before. Measured on the live install's files of 1-3 Nov 2026 (10.8 MB facts, 4.4 MB
+  health a day): first call 0.35 s, repeated calls about 0.02 s.
 
 ## 4. Folder and write rules
 `ScoutPaths(root)`; runtime folders under `root`: `state\{facts,health,answers,labels,llm,macro,
@@ -937,6 +982,7 @@ date "YYYY-MM-DD". Values marked * are this design's additions beyond SS 13.
 | Key | Type | Default |
 |---|---|---|
 | radar_dir | str | "" |
+| radar_handoff_subdir | str | "state/handoff" (Radar's hand-off file, `<trading day>.jsonl`; owner, 2026-11-04) |
 | pilot_dir | str | "" |
 | levels_dir | str | "state/levels" |
 | inbox_dir | str | "inbox" |
@@ -962,7 +1008,7 @@ date "YYYY-MM-DD". Values marked * are this design's additions beyond SS 13.
 | wire_title_ticker_suffixes | list[str] | ["Stock News"] (a wire title ending "\| XXX Stock News" names XXX; Stock Titan) |
 | [host_min_spacing_s] * | table host -> float | "www.sec.gov" = 0.5, "data.sec.gov" = 0.5, "www.nasdaqtrader.com" = 60.0, "www.stocktitan.net" = 30.0 |
 | [host_max_requests_per_day] * | table host -> int | "nowflation.com" = 10 (also a hard cap in code: never above 10, for nowflation.com and every host under it) |
-| [class_keywords] | table class -> list[str] | SS 6.4 lists: offering, reverse_split, listing_notice, fda, trial, contract, earnings_result, earnings_date (exactly these keys; `other` is implicit; ` ... ` inside a keyword matches any text; the earnings_date defaults are "<scheduling phrase> ... results/earnings" pairs, see `scout/classify.py`) |
+| [class_keywords] | table class -> list[str] | SS 6.4 lists: bankruptcy (2026-11-04; may be left out), offering, reverse_split, listing_notice, fda, trial, contract, earnings_result, earnings_date (exactly these keys; `other` is implicit; ` ... ` inside a keyword matches any text; the earnings_date defaults are "<scheduling phrase> ... results/earnings" pairs, see `scout/classify.py`) |
 
 ### 6.3 `[sources.<name>]` (one table per source; every key present in the example)
 Keys: `enabled` (bool), `kind` (str: wire, filing, reference, halt, macro, vix), `url` (str), `paths`*
@@ -1005,7 +1051,7 @@ the reader ignores any source the params do not name.
 ### 6.4 Answers
 | Key | Type | Default |
 |---|---|---|
-| hold_catalyst_classes | list[str] | ["fda", "trial", "contract", "contract_or_other", "earnings_result"] |
+| hold_catalyst_classes | list[str] | ["fda", "trial", "contract", "earnings_result"] (contract_or_other left out, owner, 2026-11-04) |
 | earnings_lookback_days | int | 45 |
 | earnings_due_start_days | int | 10 |
 | earnings_due_end_days_quarter | int | 50 |
@@ -1398,3 +1444,32 @@ SCOUT_SPEC 18. Built in section 2.7, format in `docs/INBOX.md`, keys in 6.9.
   journal and the verification period like every gate-5 source (SCOUT_SPEC 11).
 - **Not a gate:** the `discord_inbox` heartbeat status (honest capture coverage for the owner), every
   other Discord fact, and image transcriptions.
+
+## 18. Owner decisions 2026-11-04: Scout blocks Radar's buy signals (as built, 0.2.0)
+
+The owner approved Radar's squad-split proposal (`E:\Radar_dev\docs\SQUAD_SPLIT_PROPOSAL.md`) with every
+recommended answer. Scout's part is its section 5, items 1-5; SCOUT_SPEC 1, 2, 6.2-6.4, 7.1, 7.5,
+7.8, 9.1, 10.3, 13 and 17 are amended. `scout_reader` is 0.2.0, Scout 0.2.0.
+
+1. **Radar's finds** come from `radar_dir\state\handoff\<trading day>.jsonl` (`radar_handoff_subdir`),
+   the file Radar really writes (2.1). The planned `state\finds\` export was never built.
+2. **Halts**: any Market text is stored, a missing one is None, and one bad row is skipped and
+   counted instead of refusing the feed (2.3). The feed was down all day on 2 and 3 Nov.
+3. **Classes**: `bankruptcy` (8-K 1.03 and wire keywords, tried first); 424B2 and 424B8 have no
+   class; 8-K 7.01 or 8.01 alone is `other`; `contract_or_other` left the default
+   `hold_catalyst_classes` (2.2, 6.4). Facts already stored keep the class they were stored with
+   (append-only); only `entry_blocks` re-checks the 424B2/424B8 form, so old bank notes do not block.
+4. **Coverage**: a failed poll followed in time by an overlapping good poll is not a gap (3.7). This
+   applies to every gate-6 source, not EDGAR only: the rule is the same for all of them.
+5. **`entry_blocks`** (3.9), with its cache.
+
+Choices made in the build (the proposal left them open):
+- `bankruptcy` may be missing from an install's `[class_keywords]` table (its default list
+  stands), so an install config written before 0.2.0 still loads; every other class must still be
+  listed.
+- A 424B2/424B8 is `None`, not a new `debt_note` class: nothing reads such a class, and `None`
+  keeps it out of `news_headline` classes too.
+- The cache serves `entry_blocks` only; gates 5 and 6 still read afresh, so a cache fault can never
+  change a hold answer.
+- `halt_open` in `blocks` uses the halt code as `class`, `macro_window` the release kind.
+

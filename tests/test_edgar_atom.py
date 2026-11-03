@@ -45,7 +45,7 @@ def test_filing_facts(scout_dir, clock):
     assert acme.raw_sha256 and acme.extra["company"] == "ACME CORP"
     assert by[("BETA", "8-K", "0007654321-26-000044")].cls == "offering"
     assert by[("GAMA", "8-K", "0001111111-26-000009")].cls == "listing_notice"
-    assert by[("GOOGL", "8-K", "0001193125-26-000777")].cls == "contract_or_other"
+    assert by[("GOOGL", "8-K", "0001193125-26-000777")].cls == "other"  # 8.01 alone (owner, 2026-11-04)
     unknown = by[(None, "8-K", "0009999999-26-000001")]
     assert unknown.cik == 9999999 and unknown.exchange is None
     assert by[("ACME", "8-K/A", "0001234567-26-000099")].cls is None  # 5.03 without "reverse"

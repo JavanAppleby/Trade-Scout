@@ -426,25 +426,32 @@ def parse_getcurrent_atom(body: bytes) -> AtomPage:
 # --------------------------------------------------------------------------- SS 6.4 filing table
 
 _OFFERING_FORMS = ("S-1", "S-3", "F-1", "F-3")
+# Banks' structured-note prospectuses (424B2) and late-filed prospectuses (424B8) are not a small
+# cap's dilution (owner, 2026-11-04: 8,258 of 9,371 filing facts on 3 Nov were 424B2s): no class.
+NOT_OFFERING_424B = ("424B2", "424B8")
 
 
 def filing_class(form: str, items: Sequence[str] = (), description: str = "") -> str | None:
     """The SS 6.4 filing table. An amendment ("/A") classes as its base form, except that an 8-K/A
     never gets a class that can pass gate 6 (earnings_result, contract_or_other): it re-files or
     corrects an earlier 8-K (most often the financial statements for a 2.01 acquisition weeks after
-    the original), so it is not fresh news; its blocking classes (offering, reverse_split,
-    listing_notice) are kept, since counting those errs the safe way. When an 8-K carries
-    several items, the first class in this order wins: offering (3.02), reverse_split (5.03 with
-    "reverse" in the description, or 5.03 with 3.03), listing_notice (3.01), earnings_result (2.02),
-    contract_or_other (1.01, 2.01, 7.01, 8.01): the same order as the wire classes, where the
-    classes that never pass gate 6 come first. None when no row applies.
+    the original), so it is not fresh news; its blocking classes (bankruptcy, offering,
+    reverse_split, listing_notice) are kept, since counting those errs the safe way. When an 8-K
+    carries several items, the first class in this order wins: bankruptcy (1.03), offering (3.02),
+    reverse_split (5.03 with "reverse" in the description, or 5.03 with 3.03), listing_notice (3.01),
+    earnings_result (2.02), contract_or_other (1.01, 2.01), other (7.01 or 8.01 without any of
+    those): the same order as the wire classes, where the classes that never pass gate 6 come first.
+    424B2 and 424B8 have no class; every other 424B is an offering. None when no row applies.
+
+    Owner, 2026-11-04: Mercer's Chapter 11 8-K (1.01 for the financing with 1.03) was classed
+    contract_or_other, so 1.03 is now `bankruptcy` and comes first; a press release alone (7.01 or
+    8.01) is `other`, never a catalyst.
 
     The getcurrent description is the entry title and the item captions ("Item 5.03: Amendments to
     Articles of Incorporation or Bylaws; Change in Fiscal Year"), so "reverse" is almost never in it
     (third review). A reverse split is filed as 5.03 with 3.03 (Material Modification to Rights) and
     often 8.01 or 7.01 for the press release: 5.03 with 3.03 is classed reverse_split (it can also be
-    a preferred-stock designation; both are blocking, so the error is the safe way), and next to 5.03
-    or 3.03 the press-release items 7.01 and 8.01 never make the filing contract_or_other."""
+    a preferred-stock designation; both are blocking, so the error is the safe way)."""
     f = (form or "").strip().upper()
     amendment = f.endswith("/A")
     if amendment:
@@ -452,12 +459,32 @@ def filing_class(form: str, items: Sequence[str] = (), description: str = "") ->
     reverse = "reverse" in (description or "").lower()
     if f in ("NT 10-Q", "NT 10-K"):
         return "late_filing"
+    if f.startswith(NOT_OFFERING_424B):
+        return None
     if f.startswith(_OFFERING_FORMS) or f.startswith("424B") or f == "EFFECT":
         return "offering"
     if f == "DEF 14A":
         return "reverse_split" if reverse else None
     if f != "8-K":
         return None
+    have = {str(i).strip() for i in items}
+    if "1.03" in have:
+        return "bankruptcy"
+    if "3.02" in have:
+        return "offering"
+    if "5.03" in have and (reverse or "3.03" in have):
+        return "reverse_split"
+    if "3.01" in have:
+        return "listing_notice"
+    if amendment:
+        return None
+    if "2.02" in have:
+        return "earnings_result"
+    if have & {"1.01", "2.01"}:
+        return "contract_or_other"
+    if have & {"7.01", "8.01"}:
+        return "other"
+    return None
     have = {str(i).strip() for i in items}
     if "3.02" in have:
         return "offering"

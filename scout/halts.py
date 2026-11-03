@@ -1,13 +1,19 @@
-"""Nasdaq Trader halt RSS (SCOUT_SPEC 4.1 #6, 6.3, 7.5; DESIGN 2.3). Record only: no bot gates on
-halts in v1, and Guardian's broker refusal stays authoritative.
+"""Nasdaq Trader halt RSS (SCOUT_SPEC 4.1 #6, 6.3, 7.5; DESIGN 2.3). No hold gates on halts; since
+the owner's change of 2026-11-04 an open halt blocks Radar's buy signals through
+`scout_reader.entry_blocks` (block only). Guardian's broker refusal stays authoritative.
 
-Parsing (SCOUT_SPEC 6.3): strip the BOM; elements in the `ndaq` namespace; Market is "NASDAQ" or
-one letter; HaltTime is ET with optional fractional seconds, converted to UTC once here via
+Parsing (SCOUT_SPEC 6.3): strip the BOM; elements in the `ndaq` namespace; Market is stored as
+received, any non-empty text ("NASDAQ", "NYSE", "AMEX", "Non NASDAQ", one letter), or None when
+missing or empty (owner, 2026-11-04: the feed was refused all day on 2 and 3 Nov for those forms);
+HaltTime is ET with optional fractional seconds, converted to UTC once here via
 `scout_reader._et`; `pubDate` is ignored; no item order is assumed; an empty `ResumptionTradeTime`
 means still halted; a multi-day halt appears only under its first HaltDate. Rows are stored as
 received (the feed must not be edited or misrepresented): each fact keeps the row's fields verbatim
-in `extra.row`. Drift (no channel, a missing field, an unreadable date or time, an unknown Market
-form) raises `SchemaError`; the poll then records `schema` and no facts.
+in `extra.row`. Feed drift (not XML, no `<rss>` or no channel) raises `SchemaError`; the poll then
+records `schema` and no facts. A bad row (a missing field, an empty symbol, an unreadable date or
+time) is skipped and counted (owner, 2026-11-04): the poll logs a warning per row, stays `ok` and
+puts the count in its health record's `error`. When every row is bad the feed has drifted, and that
+is `SchemaError` again.
 
 Polling: at least 60 s between requests (`HARD_MIN_SPACING_S`, in code, whatever the config says),
 04:00-20:00 ET, plus one `&haltdate=MMDDYYYY` read after 20:00 ET (the job decides when).
@@ -38,14 +44,13 @@ SOURCE = "nasdaq_halts"
 HARD_MIN_SPACING_S = 60.0  # Nasdaq: "do not query more than once a minute"
 FEED_LIVE = "tradehalts"
 FEED_DATED = "tradehalts_dated"
-REQUIRED = ("HaltDate", "HaltTime", "IssueSymbol", "Market", "ReasonCode", "ResumptionTradeTime")
-OPTIONAL = ("IssueName", "PauseThresholdPrice", "ResumptionDate", "ResumptionQuoteTime")
+REQUIRED = ("HaltDate", "HaltTime", "IssueSymbol", "ReasonCode", "ResumptionTradeTime")
+OPTIONAL = ("IssueName", "Market", "PauseThresholdPrice", "ResumptionDate", "ResumptionQuoteTime")
 _DATE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
 _TIME = re.compile(r"^(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?$")
-_MARKET = re.compile(r"^(NASDAQ|[A-Z])$")
 
 __all__ = ["FEED_DATED", "FEED_LIVE", "HARD_MIN_SPACING_S", "HaltPoller", "HaltRow", "SOURCE", "dated_url",
-           "halt_key", "parse_halts"]
+           "halt_key", "parse_halts", "parse_halts_rows"]
 
 
 @dataclass(frozen=True)
@@ -54,7 +59,7 @@ class HaltRow:
     halt_at: datetime  # aware UTC
     halt_date: str  # as received, "MM/DD/YYYY"
     halt_time: str  # as received
-    market: str
+    market: str | None  # as received; None when the row has no Market
     reason: str
     resumed_at: datetime | None  # aware UTC; None while halted
     issue_name: str | None
@@ -100,7 +105,13 @@ def _local(tag: str) -> tuple[str | None, str]:
 
 
 def parse_halts(body: bytes) -> list[HaltRow]:
-    """Every halt row of the feed (any order). Raises SchemaError on drift."""
+    """Every readable halt row of the feed (any order). Raises SchemaError on feed drift."""
+    return parse_halts_rows(body)[0]
+
+
+def parse_halts_rows(body: bytes) -> tuple[list[HaltRow], list[str]]:
+    """(readable rows, one reason per skipped row). Raises SchemaError on feed drift, and when
+    the feed has items but not one of them is readable."""
     if not isinstance(body, (bytes, bytearray)):
         raise SchemaError("halts: body is not bytes")
     data = bytes(body).lstrip()
@@ -117,34 +128,42 @@ def parse_halts(body: bytes) -> list[HaltRow]:
     if channel is None:
         raise SchemaError("halts: no <channel>")
     rows: list[HaltRow] = []
-    for i, item in enumerate(channel.findall("item")):
-        fields: dict[str, str] = {}
-        for child in item:
-            ns, name = _local(child.tag)
-            if ns:  # the ndaq namespace; pubDate, title and the rest are not read
-                fields[name] = (child.text or "").strip()
-        where = f"item {i}"
-        missing = [k for k in REQUIRED if k not in fields]
-        if missing:
-            raise SchemaError(f"halts {where}: missing {', '.join(missing)}")
-        symbol = fields["IssueSymbol"].strip()
-        if not symbol:
-            raise SchemaError(f"halts {where}: empty IssueSymbol")
-        market = fields["Market"].strip()
-        if not _MARKET.match(market):
-            raise SchemaError(f"halts {where}: unknown Market form {market[:12]!r}")
-        hday = _day(fields["HaltDate"], where)
-        halt_at = _et(hday, fields["HaltTime"], where)
-        resumed_at = None
-        if fields["ResumptionTradeTime"].strip():
-            rdate = fields.get("ResumptionDate", "").strip()
-            rday = _day(rdate, where) if rdate else hday
-            resumed_at = _et(rday, fields["ResumptionTradeTime"], where)
-        name = fields.get("IssueName")
-        rows.append(HaltRow(symbol=symbol, halt_at=halt_at, halt_date=fields["HaltDate"].strip(),
-                            halt_time=fields["HaltTime"].strip(), market=market, reason=fields["ReasonCode"].strip(),
-                            resumed_at=resumed_at, issue_name=name or None, row=dict(fields)))
-    return rows
+    skipped: list[str] = []
+    items = channel.findall("item")
+    for i, item in enumerate(items):
+        try:
+            rows.append(_row(item, f"item {i}"))
+        except SchemaError as exc:
+            skipped.append(str(exc)[:200])
+    if items and not rows:
+        raise SchemaError(f"halts: no readable row of {len(items)} ({skipped[0]})")
+    return rows, skipped
+
+
+def _row(item: ET.Element, where: str) -> HaltRow:
+    fields: dict[str, str] = {}
+    for child in item:
+        ns, name = _local(child.tag)
+        if ns:  # the ndaq namespace; pubDate, title and the rest are not read
+            fields[name] = (child.text or "").strip()
+    missing = [k for k in REQUIRED if k not in fields]
+    if missing:
+        raise SchemaError(f"halts {where}: missing {', '.join(missing)}")
+    symbol = fields["IssueSymbol"].strip()
+    if not symbol:
+        raise SchemaError(f"halts {where}: empty IssueSymbol")
+    market = fields.get("Market", "").strip() or None
+    hday = _day(fields["HaltDate"], where)
+    halt_at = _et(hday, fields["HaltTime"], where)
+    resumed_at = None
+    if fields["ResumptionTradeTime"].strip():
+        rdate = fields.get("ResumptionDate", "").strip()
+        rday = _day(rdate, where) if rdate else hday
+        resumed_at = _et(rday, fields["ResumptionTradeTime"], where)
+    name = fields.get("IssueName")
+    return HaltRow(symbol=symbol, halt_at=halt_at, halt_date=fields["HaltDate"].strip(),
+                   halt_time=fields["HaltTime"].strip(), market=market, reason=fields["ReasonCode"].strip(),
+                   resumed_at=resumed_at, issue_name=name or None, row=dict(fields))
 
 
 def dated_url(url: str, day: date) -> str:
@@ -227,10 +246,16 @@ class HaltPoller:
         sha = None
         if got.ok and got.body is not None:
             try:
-                rows = parse_halts(got.body)
+                rows, skipped = parse_halts_rows(got.body)
             except SchemaError as exc:
                 result, error = "schema", str(exc)[:200]
             else:
+                for why in skipped[:5]:
+                    log.warning("halts row skipped: %s", why)
+                if skipped:
+                    error = f"skipped {len(skipped)} bad row(s): {skipped[0]}"[:200]
+                    if len(skipped) > 5:
+                        log.warning("halts: %d more bad row(s) skipped", len(skipped) - 5)
                 sha = self.raw.save(SOURCE, f"{feed}.xml", got.body, now) if self._changed(got.body) else self.last_sha
         try:
             new = self._facts(now, rows, sha, url, feed) if result == "ok" else 0

@@ -26,6 +26,7 @@ reader.news_headline("ACME", as_of)                # any wire or filing news sin
 reader.halt_open("ACME", as_of)                    # an open Nasdaq trading halt
 reader.jason_tags("ACME", 3.20, as_of)             # on_jason_list, near_jason_level, jason_conflict, jason_market_frame
 reader.market_context(as_of)                       # macro_event_next_session, inflation_regime, vix, next_macro_event
+reader.entry_blocks("ACME", as_of)                 # 0.2.0: known bad news that blocks a Radar buy signal; adds "blocks"
 ```
 
 The same six names exist as plain functions that take `scout_dir` first, for example
@@ -42,6 +43,36 @@ Each answer is a dict:
 
 `scout_reader.api.hold_allowed(fresh_catalyst_result, event_result)` is true only for gate 6
 `true` and gate 5 `false`, both fresh. Every other pair blocks a hold.
+
+## `entry_blocks` (0.2.0; owner, 2026-11-04)
+
+Radar's question before a buy signal: "is there known bad news on file for this stock right now?"
+Scout can only stop a buy, never start one.
+
+```python
+reader = Reader(r"E:\Scout")   # keep this one Reader: it caches the day files it has read
+res = reader.entry_blocks("ACME", as_of, lookback_days=3, macro_before_min=5, macro_after_min=15)
+# {"value": "true", "evidence": ["3f2a..."], "stale": False, "reasons": ["block_on_file"],
+#  "blocks": [{"kind": "offering", "class": "offering", "fact_id": "3f2a...",
+#              "first_seen_at": "2026-11-03T11:01:07Z", "title": "8-K - ACME CORP (Filer)"}],
+#  "window": {"facts_from": "...", "first_trading_day": "2026-11-02", "macro": ["...", "..."]}}
+```
+
+- **Blocks** (`kind`): `offering`, `reverse_split`, `listing_notice`, `bankruptcy` (a wire or filing
+  first seen in the last 3 trading days, counted back from as_of's trading day with the 20:00 ET
+  rollover); `halt_open` (a halt that began today and has not resumed); `macro_window` (a CPI
+  release, FOMC decision or jobs report from 5 minutes before to 15 minutes after its time).
+- **`true`** when any block is on file, **even when Scout is stale or a source is down**: known bad
+  news always blocks (`stale` then says so).
+- **`false`** only when nothing is on file and Scout is fresh, every news and filing source was
+  polled without a gap over the 3 trading days, the halt feed is working and the macro calendar is
+  fresh. **`unknown`** otherwise; it does not block (Radar marks the signal "Scout unknown").
+- Discord posts, scanner cards and AI-written labels never count.
+- Speed: a Reader keeps what it parsed, keyed on each file's path, size and modification time, and
+  reads only what was appended since; repeated calls take a few hundredths of a second on 10 MB day
+  files. `Reader(scout_dir, cache=False)` reads every file afresh and gives the same answers.
+- The module function `scout_reader.entry_blocks(reader_or_folder, symbol, as_of, ...)` accepts the
+  Reader too; pass the Reader so the cache is kept between calls.
 
 ## What the answers mean
 

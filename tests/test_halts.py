@@ -8,7 +8,8 @@ import pytest
 from helpers_fakes import FakeBoard, FakeFactSink, FakeFetcher, FakeHealthSink, FakeRawSink, fetch_result
 from helpers_macro import HALTS_URL, halts_body
 
-from scout.halts import (FEED_DATED, FEED_LIVE, HARD_MIN_SPACING_S, HaltPoller, dated_url, halt_key, parse_halts)
+from scout.halts import (FEED_DATED, FEED_LIVE, HARD_MIN_SPACING_S, HaltPoller, dated_url, halt_key, parse_halts,
+                         parse_halts_rows)
 from scout.jobs_macro import halts_tick
 from scout.macro import SchemaError, fact_id
 
@@ -88,10 +89,19 @@ def test_without_bom_and_empty_feed() -> None:
     assert parse_halts(halts_body("tradehalts_empty_SYNTHETIC.xml")) == []
 
 
+@pytest.mark.parametrize("market,stored", [
+    (b"<ndaq:Market>NYSE</ndaq:Market>", "NYSE"), (b"<ndaq:Market>AMEX</ndaq:Market>", "AMEX"),
+    (b"<ndaq:Market>Non NASDAQ</ndaq:Market>", "Non NASDAQ"), (b"<ndaq:Market></ndaq:Market>", None), (b"", None),
+])
+def test_any_market_text_or_none_is_accepted_and_stored(market: bytes, stored: str | None) -> None:
+    """The forms the live feed sent on 2 and 3 Nov 2026 (owner, 2026-11-04): stored as received."""
+    rows = {r.symbol: r for r in parse_halts(_swap(b"<ndaq:Market>N</ndaq:Market>", market))}
+    assert len(rows) == 5 and rows["WXYZ"].market == stored
+    assert ("Market" in rows["WXYZ"].row) == bool(market)
+
+
 @pytest.mark.parametrize("old,new", [
     (b"<ndaq:ResumptionTradeTime></ndaq:ResumptionTradeTime>", b""),  # a required field missing
-    (b"<ndaq:Market>N</ndaq:Market>", b"<ndaq:Market>NYSE</ndaq:Market>"),  # unknown Market form
-    (b"<ndaq:Market>N</ndaq:Market>", b"<ndaq:Market></ndaq:Market>"),
     (b"<ndaq:HaltTime>09:45:00</ndaq:HaltTime>", b"<ndaq:HaltTime>9:45</ndaq:HaltTime>"),
     (b"<ndaq:HaltDate>04/16/2019</ndaq:HaltDate>", b"<ndaq:HaltDate>2019-04-16</ndaq:HaltDate>"),
     (b"<ndaq:HaltDate>04/16/2019</ndaq:HaltDate>", b"<ndaq:HaltDate>13/45/2019</ndaq:HaltDate>"),
@@ -99,9 +109,16 @@ def test_without_bom_and_empty_feed() -> None:
     (b"<ndaq:ResumptionTradeTime>10:30:00</ndaq:ResumptionTradeTime>",
      b"<ndaq:ResumptionTradeTime>soon</ndaq:ResumptionTradeTime>"),
 ])
-def test_drift_refuses_the_whole_feed_never_skips_a_row(old: bytes, new: bytes) -> None:
-    with pytest.raises(SchemaError):
-        parse_halts(_swap(old, new))
+def test_a_bad_row_is_skipped_and_counted_never_the_whole_feed(old: bytes, new: bytes) -> None:
+    rows, skipped = parse_halts_rows(_swap(old, new))
+    assert len(rows) == 4 and len(skipped) == 1 and skipped[0].startswith("halts item ")
+    assert len(parse_halts(_swap(old, new))) == 4
+
+
+def test_every_row_bad_is_feed_drift() -> None:
+    body = halts_body().replace(b"<ndaq:HaltDate>", b"<ndaq:Nope>").replace(b"</ndaq:HaltDate>", b"</ndaq:Nope>")
+    with pytest.raises(SchemaError, match="no readable row"):
+        parse_halts(body)
 
 
 @pytest.mark.parametrize("body", [
@@ -196,7 +213,7 @@ def test_later_resumption_writes_a_new_fact(cfg, clock, et) -> None:
 
 
 def test_schema_drift_records_schema_and_no_facts(cfg, clock, et) -> None:
-    bad = _swap(b"<ndaq:Market>N</ndaq:Market>", b"<ndaq:Market>NYSE</ndaq:Market>")
+    bad = b'<?xml version="1.0"?><rss version="2.0"></rss>'  # no channel
     poller, _f, (raw, facts, health, board) = _poller(cfg, clock, bad)
     assert poller.poll(et("2026-11-02", "10:00")) == 0
     assert facts.facts == [] and raw.saved == []
@@ -367,3 +384,15 @@ def test_a_dtd_in_a_utf16_halt_feed_is_refused() -> None:
             '<rss><channel/></rss>').encode("utf-16")
     with pytest.raises(SchemaError, match="DTD"):
         parse_halts(body)
+
+
+def test_a_bad_row_is_logged_and_the_rest_are_stored(cfg, clock, et, caplog) -> None:  # noqa: ANN001
+    bad = _swap(b"<ndaq:HaltTime>09:45:00</ndaq:HaltTime>", b"<ndaq:HaltTime>9:45</ndaq:HaltTime>")
+    bad = _swap(b"<ndaq:Market>N</ndaq:Market>", b"<ndaq:Market>NYSE</ndaq:Market>", bad)
+    poller, _f, (_raw, facts, health, board) = _poller(cfg, clock, bad)
+    with caplog.at_level("WARNING", logger="scout.halts"):
+        assert poller.poll(et("2026-11-02", "10:00")) == 4
+    assert health.records[-1].result == "ok" and health.records[-1].error.startswith("skipped 1 bad row(s)")
+    assert board.sources["nasdaq_halts"].status == "ok"
+    assert any("halts row skipped" in r.getMessage() for r in caplog.records)
+    assert "WXYZ" not in {f.ticker for f in facts.facts}  # the bad row; the NYSE market alone is fine

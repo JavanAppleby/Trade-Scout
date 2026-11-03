@@ -32,6 +32,11 @@ KW = ScoutConfig().class_keywords
     # first match in the fixed order wins: an offering tied to a contract is an offering
     ("Acme Prices Public Offering to Fund New Contract", "offering"),
     ("Acme Announces FDA Approval and Reverse Split", "reverse_split"),
+    # bankruptcy (owner, 2026-11-04) goes first, whatever else the title names
+    ("Mercer International Files Voluntary Chapter 11 Petitions", "bankruptcy"),
+    ("Acme Enters Restructuring Support Agreement and Files for Bankruptcy Protection", "bankruptcy"),
+    ("Acme Obtains Court Approval of Chapter 15 Recognition", "bankruptcy"),
+    ("Acme to Report Third Quarter Results; Files Chapter 11", "bankruptcy"),
 ])
 def test_wire_class(title, cls):
     assert wire_class(title, KW) == cls
@@ -49,8 +54,15 @@ def test_keywords_are_config_and_case_insensitive():
 @pytest.mark.parametrize("form, items, desc, cls", [
     ("8-K", ["1.01"], "", "contract_or_other"),
     ("8-K", ["2.01", "9.01"], "", "contract_or_other"),
-    ("8-K", ["7.01"], "", "contract_or_other"),
-    ("8-K", ["8.01"], "", "contract_or_other"),
+    ("8-K", ["7.01"], "", "other"),  # a press release alone is never a catalyst (owner, 2026-11-04)
+    ("8-K", ["8.01", "9.01"], "", "other"),
+    ("8-K", ["7.01", "8.01"], "", "other"),
+    ("8-K", ["1.01", "8.01"], "", "contract_or_other"),
+    ("8-K", ["1.03"], "", "bankruptcy"),
+    ("8-K", ["1.01", "1.03", "2.03", "7.01"], "", "bankruptcy"),  # Mercer, 3 Nov 2026: was contract_or_other
+    ("8-K", ["1.03", "3.02"], "", "bankruptcy"),
+    ("8-K/A", ["1.03"], "", "bankruptcy"),  # a blocking class is kept on an amendment
+    ("8-K/A", ["8.01"], "", None),
     ("8-K", ["2.02", "9.01"], "", "earnings_result"),
     ("8-K", ["3.01"], "", "listing_notice"),
     ("8-K", ["3.02"], "", "offering"),
@@ -67,6 +79,8 @@ def test_keywords_are_config_and_case_insensitive():
     ("S-1", [], "", "offering"), ("S-1/A", [], "", "offering"), ("S-3", [], "", "offering"),
     ("S-3ASR", [], "", "offering"), ("F-1", [], "", "offering"), ("F-3", [], "", "offering"),
     ("424B5", [], "", "offering"), ("424B3", [], "", "offering"), ("EFFECT", [], "", "offering"),
+    ("424B1", [], "", "offering"), ("424B4", [], "", "offering"), ("424B7", [], "", "offering"),
+    ("424B2", [], "", None), ("424B8", [], "", None), ("424b2", [], "", None),  # banks' notes (owner, 2026-11-04)
     ("NT 10-Q", [], "", "late_filing"), ("NT 10-K", [], "", "late_filing"),
     ("10-Q", [], "", None), ("6-K", [], "", None), ("S-8", [], "", None), ("", [], "", None),
 ])
@@ -204,11 +218,11 @@ def _live_description(items):
 
 
 @pytest.mark.parametrize("items, cls", [
-    (["5.03", "8.01", "9.01"], None),
-    (["5.03", "7.01", "9.01"], None),
+    (["5.03", "8.01", "9.01"], "other"),
+    (["5.03", "7.01", "9.01"], "other"),
     (["3.03", "5.03", "9.01"], "reverse_split"),
     (["3.03", "5.03", "8.01", "9.01"], "reverse_split"),
-    (["3.03", "8.01"], None),
+    (["3.03", "8.01"], "other"),
     (["1.01", "5.03"], "contract_or_other"),  # a material agreement still counts
 ])
 def test_a_reverse_split_8k_from_live_captions_is_never_a_catalyst(items, cls):
@@ -216,3 +230,20 @@ def test_a_reverse_split_8k_from_live_captions_is_never_a_catalyst(items, cls):
     8-K (5.03 with 8.01 or 3.03) was classed contract_or_other through its press-release item and
     made gate 6 true."""
     assert filing_class("8-K", items, _live_description(items)) == cls
+
+
+def test_bankruptcy_keywords_may_be_left_out_of_an_older_table(scout_dir):  # noqa: ANN001
+    """A [class_keywords] table written before 2026-11-04 has no bankruptcy list: the default stands."""
+    from scout.config import DEFAULT_CLASS_KEYWORDS, config_from_dict  # noqa: PLC0415
+    from scout.config_load import ConfigError  # noqa: PLC0415
+
+    table = {k: list(v) for k, v in DEFAULT_CLASS_KEYWORDS.items() if k != "bankruptcy"}
+    cfg = config_from_dict({"class_keywords": table}, scout_dir)
+    assert cfg.class_keywords["bankruptcy"] == DEFAULT_CLASS_KEYWORDS["bankruptcy"]
+    del table["offering"]
+    with pytest.raises(ConfigError, match="missing offering"):
+        config_from_dict({"class_keywords": table}, scout_dir)
+
+
+def test_contract_or_other_is_no_longer_a_default_catalyst():
+    assert "contract_or_other" not in ScoutConfig().hold_catalyst_classes

@@ -29,6 +29,13 @@ records for it may still arrive.
 for Radar's later tags) hand the records to `scout_reader.halts`, `scout_reader.jason`,
 `scout_reader.macro` and `scout_reader.scanner`, imported on first use; a missing module answers
 `unknown` ("not_built:<module>"). Gate 6 asks `scout_reader.coverage` for gaps the same way.
+
+`entry_blocks` (owner, 2026-11-04) is Radar's question before a buy signal: known bad news on file
+(an offering, reverse split, listing notice or bankruptcy in the last 3 trading days, an open halt,
+a CPI / FOMC / jobs release minutes away). It differs from the others in one way: evidence on file
+makes it `true` even when Scout is stale (rule 2) or a source is not ok (rule 6); those only turn
+`false` into `unknown`. It reads through the Reader's file cache (`scout_reader.cache`), so keep one
+Reader for repeated calls; `cache=False` reads every file afresh (same answers, slower).
 """
 
 from __future__ import annotations
@@ -41,12 +48,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from scout_reader import blocks as B
 from scout_reader import gates
 from scout_reader import records as R
+from scout_reader.cache import FileCache
 
 __all__ = [
-    "Reader", "event_before_next_session", "fresh_catalyst", "halt_open", "hold_allowed", "jason_tags",
-    "market_context", "news_headline", "scanner_alerts",
+    "Reader", "entry_blocks", "event_before_next_session", "fresh_catalyst", "halt_open", "hold_allowed",
+    "jason_tags", "market_context", "news_headline", "scanner_alerts",
 ]
 
 Result = dict[str, Any]
@@ -115,13 +124,15 @@ class _Scan:
 
 
 class Reader:
-    """Reads one Scout folder. Cheap to build; every call reads the files it needs afresh."""
+    """Reads one Scout folder. Cheap to build. Every call reads the files it needs afresh, except
+    `entry_blocks`, which keeps what it parsed in this Reader's cache (`cache=False`: no cache)."""
 
     def __init__(self, scout_dir: str | os.PathLike[str], *, now: Callable[[], datetime] | None = None,
-                 stale_s: float | None = None) -> None:
+                 stale_s: float | None = None, cache: bool = True) -> None:
         self.scout_dir = scout_dir
         self.now = now
         self.stale_s = stale_s
+        self.cache: FileCache | None = FileCache() if cache else None
 
     # ------------------------------------------------------------------ shared context
 
@@ -452,7 +463,39 @@ class Reader:
         return self._guard(lambda: self._scanner(symbol, as_of, days), lambda r: dict(r, alerts=[]))
 
 
+    # ------------------------------------------------------------------ Radar's entry blocks
+
+    def _blocks(self, symbol: object, as_of: datetime, lookback_days: object, before_min: object,
+                after_min: object) -> Result:
+        refused = self._refuse(symbol, as_of)
+        if refused is not None:
+            return dict(refused, blocks=[])
+        sym = str(symbol).strip().upper()
+        days = int(lookback_days) if _number(lookback_days) and 0 < lookback_days < 60 else B.DEFAULT_LOOKBACK_DAYS  # type: ignore[operator]
+        before = float(before_min) if _number(before_min) and 0 <= before_min <= 1440 else B.DEFAULT_MACRO_BEFORE_MIN  # type: ignore[operator]
+        after = float(after_min) if _number(after_min) and 0 <= after_min <= 1440 else B.DEFAULT_MACRO_AFTER_MIN  # type: ignore[operator]
+        cache = self.cache if self.cache is not None else FileCache()
+        params, p_reasons = self._params(as_of)
+        beat, b_reasons = B.find_beat(self._root(), cache, as_of, self._stale_s(params))
+        return B.entry_blocks_in(self._root(), cache, params, p_reasons, beat, b_reasons, sym, as_of, days, before,
+                                 after)
+
+    def entry_blocks(self, symbol: str, as_of: datetime, *, lookback_days: int = B.DEFAULT_LOOKBACK_DAYS,
+                     macro_before_min: float = B.DEFAULT_MACRO_BEFORE_MIN,
+                     macro_after_min: float = B.DEFAULT_MACRO_AFTER_MIN) -> Result:
+        """Any known bad news that blocks a buy signal for `symbol` at `as_of` (block only; owner,
+        2026-11-04; SS 7.8). `true` when a block is on file, even with Scout stale; `false` only when
+        Scout is fresh and every source it needs is ok and covered; `unknown` otherwise. `blocks`
+        lists {kind, class, fact_id, first_seen_at, title}, kinds as `scout_reader.blocks.BLOCK_KINDS`."""
+        return self._guard(lambda: self._blocks(symbol, as_of, lookback_days, macro_before_min, macro_after_min),
+                           lambda r: dict(r, blocks=[]))
+
+
 # --------------------------------------------------------------------------- module-level conveniences
+
+
+def _number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == value  # NaN is not
 
 
 def _safe(fn: Callable[[], Any], fallback: Callable[[Result], Any]) -> Any:
@@ -497,3 +540,8 @@ def market_context(scout_dir: str | os.PathLike[str], as_of: datetime) -> dict[s
 def scanner_alerts(scout_dir: str | os.PathLike[str], symbol: str, as_of: datetime, **kw: Any) -> Result:
     return _safe(lambda: Reader(scout_dir).scanner_alerts(symbol, as_of, **kw), lambda r: dict(r, alerts=[]))
 
+
+def entry_blocks(scout_dir: str | os.PathLike[str] | Reader, symbol: str, as_of: datetime, **kw: Any) -> Result:
+    """`Reader.entry_blocks`; pass a Reader (not a folder) for repeated calls, so its cache is kept."""
+    return _safe(lambda: (scout_dir if isinstance(scout_dir, Reader) else Reader(scout_dir)).entry_blocks(
+        symbol, as_of, **kw), lambda r: dict(r, blocks=[]))

@@ -114,11 +114,11 @@ def test_positions_once_a_day_and_cap(scout_dir: Path, clock: ManualClock, tmp_p
 
 
 def test_gap_fill(scout_dir: Path, clock: ManualClock, tmp_path: Path) -> None:
-    finds = tmp_path / "Radar" / "state" / "finds"
+    finds = tmp_path / "Radar" / "state" / "handoff"
     finds.mkdir(parents=True)
     (finds / "2026-11-02.jsonl").write_text(
-        json.dumps({"candidate_id": "c1", "symbol": "XYZ", "found_at": "2026-11-02T14:00:00Z", "price": 4.0}) + "\n"
-        + json.dumps({"candidate_id": "c2", "symbol": "NEWS", "found_at": "2026-11-02T14:00:00Z", "price": 2.0}) + "\n",
+        json.dumps({"format": 1, "candidate_id": "c1", "symbol": "XYZ", "found_at": "2026-11-02T14:00:00Z", "price": 4.0}) + "\n"
+        + json.dumps({"format": 1, "candidate_id": "c2", "symbol": "NEWS", "found_at": "2026-11-02T14:00:00Z", "price": 2.0}) + "\n",
         encoding="utf-8")
     cfg = make_config(scout_dir, llm_enabled=True, radar_dir=str(tmp_path / "Radar"))
     paths = ScoutPaths.from_config(cfg)

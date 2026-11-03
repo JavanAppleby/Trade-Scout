@@ -83,19 +83,30 @@ def test_other_symbols_and_kinds_do_not_count(world: Path) -> None:
     assert fresh_catalyst(world, S, AS_OF)["value"] == "false"
 
 
-@pytest.mark.parametrize("cls", ["fda", "trial", "contract", "contract_or_other", "earnings_result"])
+@pytest.mark.parametrize("cls", ["fda", "trial", "contract", "earnings_result"])
 def test_hold_catalyst_classes_pass(world: Path, cls: str) -> None:
     _facts(world, fact(S, published=AS_OF - timedelta(minutes=5), cls=cls, kind="filing" if "or" in cls else "wire"))
     assert fresh_catalyst(world, S, AS_OF)["value"] == "true"
 
 
-@pytest.mark.parametrize("cls", ["offering", "reverse_split", "listing_notice", "other", "earnings_date"])
+def test_contract_or_other_counts_only_when_the_owner_lists_it(scout_dir: Path, cfg: ScoutConfig) -> None:
+    """Owner, 2026-11-04: left out of the default hold_catalyst_classes; still allowed in config."""
+    good_world(scout_dir, cfg, AS_OF)
+    _facts(scout_dir, fact(S, published=AS_OF - timedelta(minutes=5), cls="contract_or_other", kind="filing"))
+    assert fresh_catalyst(scout_dir, S, AS_OF)["value"] == "false"
+    write_params(scout_dir, cfg, AS_OF - timedelta(days=1),
+                 hold_catalyst_classes=["fda", "contract_or_other"])
+    assert fresh_catalyst(scout_dir, S, AS_OF)["value"] == "true"
+
+
+@pytest.mark.parametrize("cls", ["offering", "reverse_split", "listing_notice", "bankruptcy", "other",
+                                 "earnings_date"])
 def test_never_pass_classes(scout_dir: Path, cfg: ScoutConfig, cls: str) -> None:
     """SS 14: these never make gate 6 true, even when the config lists them (earnings_date: third
     review, a notice that only names a date is never a catalyst)."""
     good_world(scout_dir, cfg, AS_OF, params=False)
     write_params(scout_dir, cfg, AS_OF - timedelta(days=1),
-                 hold_catalyst_classes=["fda", "offering", "reverse_split", "listing_notice", "other",
+                 hold_catalyst_classes=["fda", "offering", "reverse_split", "listing_notice", "bankruptcy", "other",
                                         "earnings_date"])
     _facts(scout_dir, fact(S, published=AS_OF - timedelta(minutes=5), cls=cls))
     assert fresh_catalyst(scout_dir, S, AS_OF)["value"] == "false"

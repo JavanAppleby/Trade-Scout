@@ -48,7 +48,7 @@ def _subs(*tickers: str) -> FakeSubmissions:
 @pytest.fixture
 def bots(tmp_path: Path) -> tuple[Path, Path]:
     radar, pilot = tmp_path / "Radar", tmp_path / "Pilot"
-    (radar / "state" / "finds").mkdir(parents=True)
+    (radar / "state" / "handoff").mkdir(parents=True)
     (pilot / "state" / "plans").mkdir(parents=True)
     return radar, pilot
 
@@ -61,8 +61,8 @@ def cfg2(scout_dir: Path, bots: tuple[Path, Path]) -> ScoutConfig:
 
 
 def _find(radar: Path, day: str, symbol: str) -> None:
-    with open(radar / "state" / "finds" / f"{day}.jsonl", "a", encoding="utf-8") as fh:
-        fh.write(json.dumps({"candidate_id": f"c-{symbol}", "symbol": symbol, "found_at": f"{day}T15:00:00Z",
+    with open(radar / "state" / "handoff" / f"{day}.jsonl", "a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"format": 1, "candidate_id": f"c-{symbol}", "symbol": symbol, "found_at": f"{day}T15:00:00Z",
                              "price": 3.2}) + "\n")
 
 

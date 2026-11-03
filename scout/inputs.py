@@ -7,10 +7,12 @@ cannot be read, is simply absent. Scout reads nothing of Guardian's.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
+from scout_reader.gates import trading_day_of
 from scout_reader.records import read_jsonl
 
 from scout.clock import et_date
@@ -34,12 +36,20 @@ def _folder(cfg: ScoutConfig, value: str) -> Path | None:
 
 
 def radar_finds(cfg: ScoutConfig, day: date) -> list[RadarFind]:
-    """Radar's finds export for ET date `day` (`radar_dir/state/finds/<date>.jsonl`)."""
+    """Radar's finds for trading day `day`: its hand-off file `radar_dir/<radar_handoff_subdir>/<day>.jsonl`
+    (owner, 2026-11-04; Radar's format 1: `candidate_id`, `trading_day`, `symbol`, `found_at`, `price`
+    as a string, and more keys Scout does not read). A line with another `format`, or whose
+    `trading_day` names a different day, is skipped."""
     folder = _folder(cfg, cfg.radar_dir)
     if folder is None:
         return []
     out: list[RadarFind] = []
-    for rec in read_jsonl(folder / "state" / "finds" / f"{day.isoformat()}.jsonl"):
+    for rec in read_jsonl(folder / cfg.radar_handoff_subdir / f"{day.isoformat()}.jsonl"):
+        fmt = rec.get("format")
+        if fmt != 1 or isinstance(fmt, bool):
+            continue
+        if rec.get("trading_day") not in (None, day.isoformat()):
+            continue
         symbol = rec.get("symbol")
         if not isinstance(symbol, str) or not symbol.strip():
             continue
@@ -47,6 +57,8 @@ def radar_finds(cfg: ScoutConfig, day: date) -> list[RadarFind]:
         try:
             price_f = float(price) if price is not None and not isinstance(price, bool) else None
         except (TypeError, ValueError):
+            price_f = None
+        if price_f is not None and not math.isfinite(price_f):
             price_f = None
         out.append(RadarFind(candidate_id=str(rec.get("candidate_id", "")), symbol=symbol.strip().upper(),
                              found_at=str(rec.get("found_at", "")), price=price_f))
@@ -80,8 +92,9 @@ def pilot_positions(cfg: ScoutConfig, now: datetime) -> list[str]:
 
 
 def covered_symbols(cfg: ScoutConfig, now: datetime) -> list[str]:
-    """Pilot positions, today's Radar finds and `watch_symbols`: upper-cased, sorted, unique."""
+    """Pilot positions, Radar's finds of today (ET date and trading day) and `watch_symbols`: upper-cased, sorted, unique."""
     symbols = set(pilot_positions(cfg, now))
-    symbols.update(f.symbol for f in radar_finds(cfg, et_date(now)))
+    for day in sorted({et_date(now), trading_day_of(now)}):  # after 20:00 ET Radar writes the next day's file
+        symbols.update(f.symbol for f in radar_finds(cfg, day))
     symbols.update(s.upper() for s in cfg.watch_symbols)
     return sorted(symbols)

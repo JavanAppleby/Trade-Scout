@@ -26,10 +26,10 @@ DAY = date(2026, 11, 2)
 
 
 def _radar(tmp_path: Path) -> Path:
-    finds = tmp_path / "Radar" / "state" / "finds"
+    finds = tmp_path / "Radar" / "state" / "handoff"
     finds.mkdir(parents=True)
-    rows = [{"candidate_id": "c1", "symbol": "ACME", "found_at": "2026-11-02T13:40:00Z", "price": 3.5},
-            {"candidate_id": "c2", "symbol": "ZETA", "found_at": "2026-11-02T13:41:00Z", "price": 42.0}]
+    rows = [{"format": 1, "candidate_id": "c1", "symbol": "ACME", "found_at": "2026-11-02T13:40:00Z", "price": 3.5},
+            {"format": 1, "candidate_id": "c2", "symbol": "ZETA", "found_at": "2026-11-02T13:41:00Z", "price": 42.0}]
     (finds / "2026-11-02.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     return tmp_path / "Radar"
 

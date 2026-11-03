@@ -9,8 +9,9 @@
 - `false` otherwise.
 
 Halt facts group by `extra.halt_key` (symbol|HaltDate|HaltTime): the first-seen fact and any later
-resumption fact share it. A scheduled resumption later than as_of does not count yet. Record only:
-no bot gates on halts in v1.
+resumption fact share it. A scheduled resumption later than as_of does not count yet. No hold gates
+on halts; `open_halts` also serves `scout_reader.blocks`, where an open halt blocks Radar's buy
+signals (owner, 2026-11-04).
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ from scout_reader._et import utc_to_et
 SOURCE = "nasdaq_halts"
 LOOKBACK_DAYS = 7  # how many ET days of facts files `load_halt_facts` reads
 
-__all__ = ["LOOKBACK_DAYS", "SOURCE", "halt_open_at", "halt_open_from", "load_halt_facts"]
+__all__ = ["LOOKBACK_DAYS", "SOURCE", "halt_open_at", "halt_open_from", "load_halt_facts", "open_halts"]
 
 
 def _aware(as_of: Any) -> bool:
@@ -74,6 +75,23 @@ def _halt_open(facts: Iterable[Mapping[str, Any]], beat: Mapping[str, Any] | Non
     why = _source_reason(beat)
     if why is not None:
         return R.UNKNOWN(why)
+    open_today, open_older = open_halts(facts, sym, as_of)
+    open_today_ids: list[str] = []
+    for key, recs in open_today:
+        open_today_ids.extend([str(r.get("fact_id")) for r in recs if r.get("fact_id")] or [key])
+    if open_today_ids:
+        return R.result("true", evidence=open_today_ids)
+    if open_older:
+        return R.result("unknown", reasons=[f"halt_unresolved_since:{d}" for d in sorted(set(open_older))])
+    return R.result("false")
+
+
+def open_halts(facts: Iterable[Mapping[str, Any]], symbol: str,
+               as_of: datetime) -> tuple[list[tuple[str, list[Mapping[str, Any]]]], list[str]]:
+    """(halts of `symbol` open at as_of that began on as_of's ET date, as (halt key, its visible
+    records); ET dates of open halts that began earlier). Visible records only; no beat check, so
+    `scout_reader.blocks` can count an open halt on file even when Scout is stale."""
+    sym = str(symbol or "").strip().upper()
     groups: dict[str, list[Mapping[str, Any]]] = {}
     for rec in facts or ():
         if not isinstance(rec, Mapping) or not R.known(rec) or rec.get("kind") != "halt":
@@ -82,7 +100,7 @@ def _halt_open(facts: Iterable[Mapping[str, Any]], beat: Mapping[str, Any] | Non
             continue
         groups.setdefault(_key(rec), []).append(rec)
     today = utc_to_et(as_of).date()
-    open_today: list[str] = []
+    open_today: list[tuple[str, list[Mapping[str, Any]]]] = []
     open_older: list[str] = []
     for key, recs in sorted(groups.items()):
         halted = [R.parse_time(r.get("halt_time")) for r in recs]
@@ -92,16 +110,11 @@ def _halt_open(facts: Iterable[Mapping[str, Any]], beat: Mapping[str, Any] | Non
         resumed = any((t := R.parse_time(r.get("resumed_at"))) is not None and t <= as_of for r in recs)
         if resumed:
             continue
-        ids = [str(r.get("fact_id")) for r in recs if r.get("fact_id")]
         if utc_to_et(halted_at).date() == today:
-            open_today.extend(ids or [key])
+            open_today.append((key, recs))
         else:
             open_older.append(utc_to_et(halted_at).date().isoformat())
-    if open_today:
-        return R.result("true", evidence=open_today)
-    if open_older:
-        return R.result("unknown", reasons=[f"halt_unresolved_since:{d}" for d in sorted(set(open_older))])
-    return R.result("false")
+    return open_today, open_older
 
 
 def load_halt_facts(scout_dir: str | os.PathLike[str], as_of: datetime,

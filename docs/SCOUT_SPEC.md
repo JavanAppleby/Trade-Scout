@@ -3,7 +3,10 @@
 Status: APPROVED (2026-11-01): the owner accepted every recommended default in §16 ("accept
 defaults"), so each §16 answer below is **decided** as its bold default. Later the same day the
 owner decided how Jason's material and the Paper Gains Discord reach Scout (§18, "Owner decisions
-2026-11-01"); §2 rule 10, §4.1 #12, §5.2, §10.2 and §17 are amended to match. Repo:
+2026-11-01"); §2 rule 10, §4.1 #12, §5.2, §10.2 and §17 are amended to match. On 2026-11-04 the owner
+approved Radar's squad split (Radar's `docs/SQUAD_SPLIT_PROPOSAL.md`): Scout may now stop Radar's buy
+signals (block only), and §1, §2 rules 4-5, §6.2-6.4, §7.1, §7.5, §7.8 (new), §9.1, §10.3, §13 and §17
+are amended, each marked "owner, 2026-11-04". Repo:
 JavanAppleby/Trade-Scout (`E:\Scout_dev`). Scout never trades.
 **Decided** marks the owner's decisions recorded in `docs/HANDOFF.md` §3, `PILOT_SPEC.md` §16 or the
 owner's message of 2026-10-31. **Proposed** marks this spec's suggestions. §16 lists what the owner
@@ -36,8 +39,12 @@ evidence. v1 delivers three things:
    - gate 6, `fresh_catalyst(S, as_of)`: news from the last trading day;
    - gate 5, `event_before_next_session(S, as_of)`: no scheduled earnings or other known event.
    Both rest on deterministic facts and fail closed.
-2. **Tags on Radar's finds**: wire news, its class, an open halt, Jason's list and levels, the
-   macro and regime context. Descriptive only, never filters.
+2. **Radar's finds and buy signals**: tags on Radar's finds (wire news, its class, an open halt,
+   Jason's list and levels, the macro and regime context), descriptive only; and, since the owner's
+   change of 2026-11-04, **blocks on Radar's buy signals** (`entry_blocks`, §7.8): known bad news on
+   file (an offering, reverse split, listing notice or bankruptcy in the last 3 trading days, an
+   open halt, a CPI / FOMC / jobs release minutes away) stops a signal. Block only: Scout never
+   makes a stock ready, and Scout `unknown` does not block (Radar marks the signal "Scout unknown").
 3. **A daily market brief** for the owner before the US open.
 
 Success is evidence, not code. Scout's answers are checked for at least 20 trading days before any
@@ -54,11 +61,13 @@ hold may use them (§11). An LLM output is evidence to be scored; it gates nothi
    proposed): `E:\Scout` (the install the owner runs) and `E:\Scout_dev` (where Claude works), with
    a private GitHub repo the owner creates empty when the build starts.
 4. **Writes only inside its own folder; reads the others' files read-only** (proposed; the same rule
-   PILOT_SPEC §2 and §4.1 propose). Scout reads Radar's finds export (`radar_dir`, §9.1), Pilot's
+   PILOT_SPEC §2 and §4.1 propose). Scout reads Radar's hand-off file of finds (`radar_dir`, §9.1), Pilot's
    plan folder (`pilot_dir`) and the owner's `E:\Scout\inbox\`. It reads nothing of Guardian's.
 5. **Changes another bot only through its own files**, which the others read as data through
-   `scout_reader` (§10.4). A missing, stale or corrupt Scout file means `unknown`, and `unknown`
-   never allows a hold.
+   `scout_reader` (§10.3). A missing, stale or corrupt Scout file means `unknown`, and `unknown`
+   never allows a hold. **Scout can only stop a buy, never start one** (owner, 2026-11-04): for
+   Radar's buy signals `unknown` does not block (the buy goes ahead marked "Scout unknown"), but
+   known bad news on file always blocks, even when Scout is stale or a source is down (§7.8).
 6. **Web text and LLM output are untrusted data** (proposed). An LLM answer is a recorded,
    schema-validated label with its sources. It is never an instruction, never runs a tool that
    writes, and never reaches a broker or another bot's settings (§8.4).
@@ -120,7 +129,7 @@ changes. Each phase is an owner decision; phases are build order, not a limit on
 | 4 | PR Newswire RSS (all releases) | Title, link, guid, `pubDate`, exchange tags "(NASDAQ: XXX)" | V (RSS 2.0, 20 items) | every 60 s 04:00-20:00 ET | Terms of the RSS UNVERIFIED: store title, link and times only until the owner reads them (build step 2) |
 | 4b | Stock Titan RSS (`www.stocktitan.net/rss`, added 2026-11-04 by the owner) | Title ending "\| XXX Stock News", link, guid, `pubDate` | V (RSS 2.0, 100 items) | every 60 s 04:00-20:00 ET, 600 s otherwise | Terms name its RSS feeds as an allowed way to collect data (personal use); 30 requests in 5 minutes. Reposts GlobeNewswire, Business Wire and the other wires |
 | 5 | ~~GlobeNewswire RSS (public companies)~~ | - | Removed 2026-11-03 (owner) | - | Refused Scout's declared User-Agent (403, Akamai) on 2026-11-01 and 2026-11-03; reading it would need permission, and Scout uses only sources that allow automated reading without asking |
-| 6 | Nasdaq Trader halt RSS (`feed=tradehalts`; `&haltdate=MMDDYYYY` once after 20:00 ET) | Halts and LULD pauses, reason codes, resumption times | V | at least 60 s apart (hard minimum in code), 04:00-20:00 ET | Free; "do not query more than once a minute"; must not edit or misrepresent the feed, so rows are stored as received. Record only |
+| 6 | Nasdaq Trader halt RSS (`feed=tradehalts`; `&haltdate=MMDDYYYY` once after 20:00 ET) | Halts and LULD pauses, reason codes, resumption times | V | at least 60 s apart (hard minimum in code), 04:00-20:00 ET | Free; "do not query more than once a minute"; must not edit or misrepresent the feed, so rows are stored as received. An open halt blocks Radar's buy signals (§7.8; owner, 2026-11-04) |
 | 7 | nowflation.com `/data/release_calendar.json`, `/data/realtime.json`, `/forecasts/index.json`; fallback `/nowflation.ics` | CPI, NFP, PCE and FOMC times; inflation nowcast | V | once at start; 08:20 ET daily; 08:50 ET on release days; at most 10 requests a day | Free with credit "Nowflation" and a link; no reselling or redistributing the raw files; robots.txt allows ClaudeBot; JSON paths undocumented |
 | 8 | BLS release schedule `.ics` | CPI and Employment Situation times (cross-check of #7) | V (no DTSTAMP) | weekly | Public; lenient parser |
 | 9 | FOMC decision dates | static table in config | federalreserve.gov, by hand | — | 2027 dates tentative |
@@ -250,8 +259,10 @@ for replay and relabelling and never republished.
 
 ### 6.2 Coverage, so "false" can be trusted
 A poll **overlaps** the previous one when it contains a guid already seen, or returns fewer items
-than the feed's maximum. A **gap** is any interval with a failed poll, a poll without overlap, or more
-than `source_max_gap_s` (180) between polls. PR Newswire's feed holds only 20 items and the
+than the feed's maximum. A **gap** is any interval with a poll without overlap, or more than
+`source_max_gap_s` (180) between good polls. A failed poll is a gap only when the next good poll
+does not overlap or the good-to-good interval exceeds the limit, or no good poll follows it yet
+(owner, 2026-11-04: one timed-out EDGAR poll is not a gap when the next poll overlaps). PR Newswire's feed holds only 20 items and the
 2026-10-31 sample was a Saturday; around 08:00 and 16:00 ET on weekdays 20 items can pass within one
 poll, which this rule records as a gap. Build step 2 measures the weekday rate before any `false` is
 trusted, and shortens the spacing (never below 30 s) if needed. Stock Titan's feed holds 100 items
@@ -265,37 +276,53 @@ trusted, and shortens the spacing (never below 30 s) if needed. Stock Titan's fe
   `parse_submissions` and `flags_from_filings` are copied with a provenance header and a shared
   fixture test; `flags_from_filings` takes a `RadarConfig`, so the copy goes through a small adapter
   (§16 Q10 asks about a shared library instead).
-- **Halts:** strip the BOM; parse with the `ndaq` namespace; Market is "NASDAQ" or one letter; HaltTime
-  is ET with optional fractional seconds; ignore `pubDate`; never assume item order; empty
-  `ResumptionTradeTime` means still halted; a multi-day halt appears only under its first HaltDate.
+- **Halts:** strip the BOM; parse with the `ndaq` namespace; Market is stored as received, any
+  non-empty text ("NASDAQ", "NYSE", "AMEX", "Non NASDAQ", a letter) or none (owner, 2026-11-04: those
+  forms refused the whole feed on 2 and 3 Nov); HaltTime is ET with optional fractional seconds;
+  ignore `pubDate`; never assume item order; empty `ResumptionTradeTime` means still halted; a
+  multi-day halt appears only under its first HaltDate. A bad row (a missing field, an unreadable
+  date or time) is skipped, logged and counted in the poll's health record; only a feed with no
+  readable row at all, or that is not the halt feed, is refused.
 - **Scheduled events** from structured calendars (nowflation, BLS, the FOMC table).
 
 Facts go to `state\facts\<date>.jsonl` (§10.2). **Facts never depend on an LLM.**
 
 ### 6.4 Class (deterministic, from title and form only)
-- **Wire titles**, keyword lists in config, first match in this fixed order: `offering` (public
-  offering, pricing, registered direct, ATM, warrants), `reverse_split`, `listing_notice`
+- **Wire titles**, keyword lists in config, first match in this fixed order: `bankruptcy` (Chapter
+  11, Chapter 7, Chapter 15, bankruptcy, voluntary petition, restructuring support agreement;
+  owner, 2026-11-04), `earnings_date` ("to report / announce / release ... results"), `offering`
+  (public offering, pricing, registered direct, ATM, warrants), `reverse_split`, `listing_notice`
   (deficiency, delisting, Nasdaq notice), `fda` (approval, clearance, PDUFA, CRL), `trial`
   (topline, Phase 1/2/3 data), `contract` (contract, award, agreement, partnership, order),
-  `earnings_result`, `earnings_date` ("to report / announce / release ... results"), `other`.
-- **Filings:**
+  `earnings_result`, `other`. (`earnings_date` moved ahead of the others at the third review.)
+- **Filings** (several 8-K items: the first row that applies, top to bottom):
 
   | Form or item | Class |
   |---|---|
-  | 8-K 1.01, 2.01, 7.01, 8.01 | `contract_or_other` |
-  | 8-K 2.02 | `earnings_result` |
+  | 8-K 1.03 (owner, 2026-11-04) | `bankruptcy` |
+  | 424B2, 424B8 (banks' note prospectuses, late-filed prospectuses; owner, 2026-11-04) | none |
+  | 8-K 3.02; S-1, S-3, F-1, F-3, EFFECT; 424B1, 424B3, 424B4, 424B5, 424B7 | `offering` |
+  | 8-K 5.03 or DEF 14A with "reverse" in the description; 8-K 5.03 with 3.03 | `reverse_split` |
   | 8-K 3.01 | `listing_notice` |
-  | 8-K 3.02; S-1, S-3, F-1, F-3, 424B*, EFFECT | `offering` |
-  | 8-K 5.03 or DEF 14A with "reverse" in the description | `reverse_split` |
+  | 8-K 2.02 | `earnings_result` |
+  | 8-K 1.01, 2.01 | `contract_or_other` |
+  | 8-K 7.01 or 8.01 without any item above (owner, 2026-11-04) | `other` |
   | NT 10-Q, NT 10-K | `late_filing` |
+
+  An 8-K/A keeps only the classes that never pass gate 6 (bankruptcy, offering, reverse_split,
+  listing_notice). Owner, 2026-11-04: Mercer's Chapter 11 8-K was classed `contract_or_other`
+  through its financing agreement (1.01), and 8,258 of 9,371 filing facts on 3 Nov were banks'
+  424B2 notes classed `offering`.
 
 ## 7. The hold answers and other context
 ### 7.1 Gate 6: `fresh_catalyst(S, as_of)`
 - **Window:** from the prior trading day's close (16:00 ET; 13:00 on an early close) to `as_of`.
 - **true** when at least one fact names S, has `published_at` and `first_seen_at` in the window,
-  and has a class in `hold_catalyst_classes`. Proposed default: `fda`, `trial`, `contract`,
-  `contract_or_other`, `earnings_result`. `other` is left out (it would make any headline count);
-  adding it is §16 Q6.
+  and has a class in `hold_catalyst_classes`. Default: `fda`, `trial`, `contract`,
+  `earnings_result`. `other` is left out (it would make any headline count); adding it is §16 Q6.
+  `contract_or_other` (8-K 1.01 or 2.01) left the default on 2026-11-04 (owner): a filed agreement is
+  often a financing, not news; the owner may list it again. `offering`, `reverse_split`,
+  `listing_notice`, `bankruptcy`, `other` and `earnings_date` never count, whatever the config says.
 - **false** when no such fact exists, every enabled wire and EDGAR source had no gap (§6.2) over the
   window, and the heartbeat is fresh.
 - **unknown** otherwise.
@@ -405,12 +432,13 @@ each quarter.
   cannot call news while it inherits Guardian's 3.0.2 pin. Who calls it is §16 Q8.
 - **If AU has no news:** nothing in v1 changes; v1 never relied on it. Phase 2 widens the wires.
 
-### 7.5 Halts (record only)
+### 7.5 Halts
 Halt facts (§6.3) feed `halt_open(S, as_of)` and Radar's tag. Radar's `halted_today` heuristic is
 recorded beside them over the journal, which answers Radar's open question O7 (Radar DESIGN.md and
 DECISIONS.md). A stale feed means `unknown`, never "not halted". Guardian's broker refusal
-(TICKER_IS_HALT) stays authoritative. **No bot gates on halts in v1**; Pilot's entries never read
-Scout (PILOT_SPEC §18).
+(TICKER_IS_HALT) stays authoritative. No hold gates on halts. **Since 2026-11-04 (owner) a halt
+still open blocks Radar's buy signal** through `entry_blocks` (§7.8); Pilot's entries still never
+read Scout, because Radar does (PILOT_SPEC §2 as amended).
 
 ### 7.6 Market regime (record only)
 v1 uses no Webull, so regime comes from daily data: the Cboe VIX close, the inflation regime, and the
@@ -435,6 +463,33 @@ thresholds in config. VIXY is used only for its daily change (its level decays).
   series failed or its newest month trails the current month by more than two.
 - **Use:** record and report only. It changes no answer and no gate. Whether it helps is tested later
   against the trade journals (enough closed trades in each jobs-trend label), before any use.
+
+### 7.8 Radar's buy-signal blocks: `entry_blocks(S, as_of)` (owner, 2026-11-04)
+Radar asks once when a mover passes every buy check (Radar's SCREENER_SPEC as amended). Scout can
+only stop the signal, never start it. Windows (decisions A and D of the squad-split proposal):
+
+| Block (`kind`) | On file when |
+|---|---|
+| `offering`, `reverse_split`, `listing_notice`, `bankruptcy` | a wire or filing fact naming S with that class (§6.4) first seen within the last 3 trading days, counted back from as_of's trading day (20:00 ET rollover), so on a Wednesday from Friday 20:00 ET |
+| `halt_open` | a halt of S that began on as_of's ET date with no resumption by as_of |
+| `macro_window` | a scheduled CPI release, FOMC decision or jobs report from 5 minutes before to 15 minutes after its time, from nowflation, BLS or the FOMC table |
+
+- **true** when any block is on file at as_of (`first_seen_at` and `published_at` <= as_of),
+  **even when Scout is stale or a source is not ok**: known bad news always blocks.
+- **false** only when no block is on file, Scout is fresh, the params are in force, every gate-6
+  source is `ok` with no gap (§6.2) over the 3-trading-day window, the halt feed is `ok` with no
+  gap open, no earlier halt of S is unresolved, the macro calendar is fresh (nowflation, or BLS with
+  the FOMC table reaching past the window), and no file read had a damaged line.
+- **unknown** otherwise. Staleness and sources only ever turn `false` into `unknown`. Radar lets
+  the buy go ahead marked "Scout unknown" (decision B); an answer slower than 0.5 s counts as
+  unknown on Radar's side.
+- Discord posts, scanner cards and LLM labels never count (decision C; §2 rule 7). A 424B2 or 424B8
+  filing never counts as an offering, also when stored as one before the class fix.
+- `blocks` lists each block as {`kind`, `class`, `fact_id`, `first_seen_at`, `title`} (`class` is
+  the halt code for a halt and the release kind, `cpi`, `fomc` or `nfp`, for a macro window).
+- Repeated calls are fast (well under 0.1 s on 10 MB day files): a Reader keeps a cache of each
+  day file keyed on (path, size, modification time), reads only the bytes appended since, and
+  gives identical answers with and without it (a test).
 
 ## 8. Layer 2: the Claude API (permitted; on only when the owner says, §16 Q2)
 ### 8.1 Rules for every call (proposed; each tested with a mocked client)
@@ -537,9 +592,14 @@ there at build).
 ## 9. What the other bots change (each in its own repo, its own spec change, behind tests)
 ### 9.1 Radar (proposed; each item a Radar spec change for the owner)
 1. **`scout_dir`** key; empty means no Scout, and Radar's output is identical (a test). Radar
-   installs `scout_reader` at a pinned tag.
-2. **A finds export**: `state\finds\<ET date>.jsonl` in Radar's folder (candidate_id, symbol,
-   found_at, price), append-only, written as each find happens. Scout reads it.
+   installs `scout_reader` at a pinned tag (2026-11-04: Radar carries a checked copy of it instead,
+   so its CI needs no second token).
+2. **The finds file** (owner, 2026-11-04: the file Radar really writes): Radar's hand-off file
+   `state\handoff\<trading day>.jsonl` (format 1: `format`, `candidate_id`, `trading_day`,
+   `session`, `symbol`, `found_at`, `price` as a string, and more keys Scout does not read),
+   append-only, written as each find happens. Scout reads it (`radar_handoff_subdir`,
+   "state/handoff"); a line with another `format` is skipped. The earlier `state\finds\` export was
+   never built, so Scout had answered nothing for Radar until then.
 3. **Tags as of `found_at`**, computed when Radar builds its report or closes the day, never in its
    tick loop, and frozen with the find facts: `scout_news_headline` (true/false/unknown, item ids),
    `scout_news_class`, `scout_halt_open`, `on_jason_list` (with `source_kind`, `direction`),
@@ -547,7 +607,10 @@ there at build).
    counts and the tag says so), `jason_conflict` (reason codes), `jason_market_frame`,
    `macro_event_next_session`, `inflation_regime`. A tag computed while Scout was stale is unknown.
    Radar's own `news_filing` and `dilution_risk` stay Radar's; Scout neither recomputes nor renames
-   them.
+   them. These tags stay descriptive.
+3a. **Blocks on buy signals** (owner, 2026-11-04): Radar asks `entry_blocks` (§7.8) once when a
+   mover passes every buy check, and a block stops the signal. Block only: Scout never makes a
+   stock ready, and Scout `unknown` lets the signal go ahead marked "Scout unknown".
 4. **A late field** `scout_news_by_plus30`, filled 30 minutes after the find, for evaluation only and
    never shown as known at the find (Scout's polling lag means some news is first seen after the
    find).
@@ -625,9 +688,13 @@ paragraph is added when the LLM is on. Times in ET and Brisbane.
 
 ### 10.3 `scout_reader` (pure)
 `news_headline(S, as_of)`, `fresh_catalyst(S, as_of)`, `event_before_next_session(S, as_of)`,
-`halt_open(S, as_of)`, `jason_tags(S, price, as_of)`, `market_context(as_of)`. Each returns
+`halt_open(S, as_of)`, `jason_tags(S, price, as_of)`, `market_context(as_of)`, and since 0.2.0
+(owner, 2026-11-04) `entry_blocks(S, as_of, lookback_days=3, macro_before_min=5,
+macro_after_min=15)` (§7.8), which adds `blocks`. Each returns
 `{value: "true"|"false"|"unknown", evidence, stale, reasons}`, applies the as-of rule (§2 rule 9),
-and never raises: every exception becomes `unknown` with a reason.
+and never raises: every exception becomes `unknown` with a reason. `entry_blocks` takes a
+`Reader` or Scout's folder; a kept Reader caches the day files it read (`Reader(..., cache=False)`
+turns that off).
 
 ## 11. Verifying the sources before holds (PILOT_SPEC §10.2 "until one is verified")
 "Verified" is not defined in PILOT_SPEC; proposed:
@@ -661,8 +728,9 @@ and never raises: every exception becomes `unknown` with a reason.
   weekly; Cboe daily.
 
 ## 13. Configuration (Scout's `config.toml`; documented in `config.example.toml`; proposed defaults)
-- **Paths:** `radar_dir` (""), `pilot_dir` (""), `levels_dir` ("state/levels"), `inbox_dir`
-  ("inbox"), `watch_symbols` ([]). Empty means that input is skipped and the brief says so.
+- **Paths:** `radar_dir` (""), `radar_handoff_subdir` ("state/handoff"; owner, 2026-11-04),
+  `pilot_dir` (""), `levels_dir` ("state/levels"), `inbox_dir` ("inbox"), `watch_symbols` ([]).
+  Empty means that input is skipped and the brief says so.
 - **Identity:** `contact_email` ("": no HTTP at all), `scout_user_agent`.
 - **Sources:** `[sources.<name>]` with `enabled`, `url`, `min_spacing_s`, `allowed_hosts`,
   `terms_note`; `source_max_gap_s` (180), `source_backoff_max_min` (30), `fetch_max_bytes`
@@ -752,7 +820,7 @@ Each step is its own commit with its tests; the owner installs outside US hours.
    *Owner, only if §16 Q2 is yes: create a dedicated Anthropic workspace with a Console spend limit,
    put its key in `E:\Scout\.env`, set `llm_enabled = true`.*
 6. **Install and run** `E:\Scout` beside Radar for the five-day operational acceptance (§14).
-7. **Radar consumes** (Radar spec change and release: `scout_dir`, finds export, tags, late field).
+7. **Radar consumes** (Radar spec change and release: `scout_dir`, the hand-off file of finds, tags, late field; since 2026-11-04 `entry_blocks` on buy signals).
    *Owner: approve the Radar change; install; set `scout_dir`.*
 8. **Verification period** (§11), at least 20 trading days. *Owner: 10 hand checks a week.*
 9. **Pilot and Guardian:** Pilot's hold ticket in its paper build; Guardian's ticket read with
@@ -805,10 +873,12 @@ Each step is its own commit with its tests; the owner installs outside US hours.
 
 ## 17. Not in v1
 - Any order; any Webull request from Scout.
-- Any input to Pilot's entries, including halts.
+- Any input to Pilot's entries, including halts (Radar's buy signals, which Pilot buys from, carry
+  Scout's blocks since 2026-11-04; Pilot itself still never reads Scout for an entry).
 - Any input to Guardian beyond Pilot's hold ticket.
 - Any LLM label or J3 finding changing a gate.
-- Macro events, regime or halts as gates.
+- Macro events, regime or halts as hold gates. (Since 2026-11-04 an open halt and a CPI / FOMC /
+  jobs window block Radar's buy signals, §7.8; regime never does.)
 - Any login by the Scout program to Discord, YouTube or another site with the owner's account, and
   any fetch of Jason's material by Scout (the owner's scheduled Claude tasks gather it, §18); J6
   drafting and the old-format converters.

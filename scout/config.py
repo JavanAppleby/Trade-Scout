@@ -29,6 +29,7 @@ __all__ = [
 
 LLM_JOBS = ("J1", "J3", "J4")
 CLASS_KEYWORD_KEYS = tuple(c for c in WIRE_CLASSES if c != "other")
+ADDED_CLASS_KEYWORDS = ("bankruptcy",)  # may be left out of a [class_keywords] table: the default list stands
 _REEXPORTED = (EFFORTS, KNOWN_CLASSES, LOG_LEVELS, SOURCE_KINDS, WEEKDAYS)  # older imports use scout.config
 
 
@@ -137,6 +138,8 @@ DEFAULT_CLASS_KEYWORDS: dict[str, tuple[str, ...]] = {
                  "debt exchange", "exchange of notes", "settlement of notes", "private placement"),
     "reverse_split": ("reverse split", "reverse stock split", "share consolidation"),
     "listing_notice": ("deficiency", "delisting", "Nasdaq notice", "notice of noncompliance", "minimum bid price"),
+    "bankruptcy": ("Chapter 11", "Chapter 7", "Chapter 15", "bankruptcy", "voluntary petition", "voluntary petitions",
+                   "restructuring support agreement", "creditor protection"),
     "fda": ("FDA approval", "FDA approves", "FDA clearance", "510(k) clearance", "PDUFA", "complete response letter",
             "CRL", "breakthrough therapy designation", "breakthrough device designation", "fast track designation"),
     "trial": ("topline", "top-line", "Phase 1", "Phase 2", "Phase 3", "Phase 1/2", "Phase 2/3", "Phase 1b",
@@ -209,6 +212,7 @@ class ScoutConfig:
 
     # 6.1 paths and identity
     radar_dir: str = ""
+    radar_handoff_subdir: str = "state/handoff"  # Radar's finds, <trading day>.jsonl (owner, 2026-11-04)
     pilot_dir: str = ""
     levels_dir: str = "state/levels"
     inbox_dir: str = "inbox"
@@ -241,7 +245,7 @@ class ScoutConfig:
     sources: Mapping[str, SourceConfig] = field(default_factory=lambda: _frozen({}))
 
     # 6.4 answers
-    hold_catalyst_classes: tuple[str, ...] = ("fda", "trial", "contract", "contract_or_other", "earnings_result")
+    hold_catalyst_classes: tuple[str, ...] = ("fda", "trial", "contract", "earnings_result")  # owner, 2026-11-04
     earnings_lookback_days: int = 45
     earnings_due_start_days: int = 10
     earnings_due_end_days_quarter: int = 50
@@ -533,10 +537,12 @@ def _tables(data: Mapping[str, Any]) -> dict[str, Any]:
     if "class_keywords" in data:
         t = as_table("class_keywords", data["class_keywords"])
         check_keys("class_keywords", t, set(CLASS_KEYWORD_KEYS))
-        missing = [k for k in CLASS_KEYWORD_KEYS if k not in t]
+        # a class added after the install's table was written keeps its default list (owner, 2026-11-04)
+        missing = [k for k in CLASS_KEYWORD_KEYS if k not in t and k not in ADDED_CLASS_KEYWORDS]
         if missing:
             raise ConfigError(f"class_keywords: every class must be listed; missing {', '.join(missing)}")
-        out["class_keywords"] = _frozen({k: as_str_list(f"class_keywords.{k}", t[k]) for k in CLASS_KEYWORD_KEYS})
+        out["class_keywords"] = _frozen({k: as_str_list(f"class_keywords.{k}", t[k]) if k in t
+                                         else DEFAULT_CLASS_KEYWORDS[k] for k in CLASS_KEYWORD_KEYS})
     given_sources = as_table("sources", data.get("sources", {}))
     sources = {n: _source(n, {}, DEFAULT_SOURCES[n]) for n in DEFAULT_SOURCES}
     for name, table in given_sources.items():

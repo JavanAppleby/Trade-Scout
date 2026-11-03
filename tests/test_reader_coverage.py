@@ -36,12 +36,52 @@ def test_a_full_chain_is_covered():
     assert gaps(records, "prnewswire", T0, T0 + timedelta(minutes=60), max_gap_s=180) == []
 
 
-def test_failed_poll_is_a_gap():
+def _fail(records: list[dict], i: int, result: str = "timeout") -> None:
+    records[i] = rec(datetime.fromisoformat(records[i]["start"].replace("Z", "+00:00")), result=result)
+
+
+def test_a_failed_poll_followed_by_an_overlapping_poll_in_time_is_not_a_gap():
+    """Owner, 2026-11-04: one timed-out poll is not a gap when the next good poll overlaps the one
+    before it and comes within the interval limit (SS 6.2)."""
     records = chain(T0 - timedelta(minutes=5), 70)
-    records[20] = rec(datetime.fromisoformat(records[20]["start"].replace("Z", "+00:00")), result="timeout")
+    _fail(records, 20)
+    assert gaps(records, "prnewswire", T0, T0 + timedelta(minutes=60), max_gap_s=180) == []
+    _fail(records, 40, "http_error")
+    _fail(records, 41, "network")  # 19:00 to 21:02 between good polls: 180 s, still within the limit
+    assert gaps(records, "prnewswire", T0, T0 + timedelta(minutes=60), max_gap_s=180) == []
+
+
+def test_a_failed_poll_is_a_gap_when_the_next_good_poll_does_not_overlap():
+    records = chain(T0 - timedelta(minutes=5), 70)
+    _fail(records, 20)
+    records[21]["overlap"] = False
     got = gaps(records, "prnewswire", T0, T0 + timedelta(minutes=60), max_gap_s=180)
-    assert [g["why"] for g in got] == ["failed_poll"]
+    assert [g["why"] for g in got] == ["failed_poll", "no_overlap"]
     assert got[0]["from"] == "2026-11-02T21:14:00Z" and got[0]["to"] == "2026-11-02T21:15:00Z"
+
+
+def test_a_failed_poll_is_a_gap_when_the_good_to_good_interval_is_too_long():
+    records = chain(T0 - timedelta(minutes=5), 70)
+    for i in (20, 21, 22):  # good polls at 21:14 and 21:18: 240 s apart, over the 180 s limit
+        _fail(records, i)
+    got = gaps(records, "prnewswire", T0, T0 + timedelta(minutes=60), max_gap_s=180)
+    assert sorted({g["why"] for g in got}) == ["failed_poll", "interval"]
+    assert {"from": "2026-11-02T21:14:00Z", "to": "2026-11-02T21:18:00Z", "why": "interval"} in got
+
+
+def test_a_failed_poll_with_no_good_poll_after_it_is_a_gap():
+    records = chain(T0 - timedelta(minutes=5), 30)
+    _fail(records, 29)  # the last poll (21:24) failed; the window ends at 21:25
+    got = gaps(records, "prnewswire", T0, T0 + timedelta(minutes=25), max_gap_s=180)
+    assert [g["why"] for g in got] == ["failed_poll"]
+    assert got[0] == {"from": "2026-11-02T21:23:00Z", "to": "2026-11-02T21:24:00Z", "why": "failed_poll"}
+
+
+def test_a_failed_poll_before_any_good_poll_stays_a_gap():
+    records = chain(T0 + timedelta(minutes=1), 30)
+    _fail(records, 0)
+    got = gaps(records, "prnewswire", T0, T0 + timedelta(minutes=25), max_gap_s=180)
+    assert "failed_poll" in [g["why"] for g in got]
 
 
 def test_poll_without_overlap_is_a_gap():
@@ -149,7 +189,8 @@ def test_coverage_module_is_stdlib_only():
     tree = ast.parse(Path(coverage.__file__).read_text(encoding="utf-8"))
     mods = {(n.module or "") if isinstance(n, ast.ImportFrom) else n.names[0].name
             for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))}
-    assert all(m.split(".")[0] in {"__future__", "collections", "datetime", "typing", "scout_reader"} for m in mods)
+    assert all(m.split(".")[0] in {"__future__", "bisect", "collections", "datetime", "typing", "scout_reader"}
+               for m in mods)
 
 
 def test_an_expected_feed_with_no_records_is_a_gap():
@@ -171,3 +212,44 @@ def test_params_list_the_feeds_of_each_gate6_source(tmp_path: Path):
     cfg = config_from_dict({"edgar_atom_forms": ["8-K", "424B"]}, tmp_path)
     feeds = cfg.reader_params()["gate6_feeds"]
     assert feeds["edgar_atom"] == ["8-K", "424B"] and feeds["prnewswire"] == ["rss"]
+
+
+def _walk_all(chain, start, end, max_gap_s):
+    """The gap rule walked over every poll up to `end` (no shortcut), for the equivalence test."""
+    raw, anchor, failed, limit = [], None, [], max_gap_s
+    polls = [p for p in chain if p[0] <= end]
+    for at, good, overlap, spacing in polls:
+        limit = max(max_gap_s, 2.0 * spacing)
+        if not good:
+            (failed if anchor is not None else raw).append((anchor or at, at, "failed_poll"))
+            continue
+        if anchor is not None and not overlap:
+            raw += [(anchor, at, "no_overlap"), *failed]
+        elif anchor is not None and (at - anchor).total_seconds() > limit:
+            raw += [(anchor, at, "interval"), *failed]
+        failed, anchor = [], at
+    raw += failed
+    first_good = next((p[0] for p in polls if p[1]), None)
+    if first_good is None or first_good > start:
+        raw.append((start, first_good or end, "no_poll_at_start"))
+    if anchor is None or (end - anchor).total_seconds() > limit:
+        raw.append((anchor or start, end, "no_poll_at_end"))
+    return [{"from": iso(max(a, start)), "to": iso(min(b, end)), "why": w} for a, b, w in raw
+            if not (b < start or a > end)]
+
+
+def test_the_walk_from_the_last_good_poll_before_the_window_gives_the_same_gaps():
+    import random  # noqa: PLC0415
+
+    rng = random.Random(20261104)
+    for _ in range(300):
+        at, chain = T0 - timedelta(hours=2), []
+        for _i in range(rng.randint(0, 60)):
+            at += timedelta(seconds=rng.choice((30, 60, 60, 120, 200, 400)))
+            chain.append((at, rng.random() > 0.2, rng.random() > 0.1, rng.choice((60.0, 600.0))))
+        start = T0 - timedelta(minutes=rng.randint(-60, 120))
+        end = start + timedelta(minutes=rng.randint(0, 90))
+        got = coverage.chain_gaps(chain, start, end, 180.0)
+        want = _walk_all(chain, start, end, 180.0)
+        key = lambda g: (g["from"], g["to"], g["why"])  # noqa: E731
+        assert sorted(got, key=key) == sorted(want, key=key)

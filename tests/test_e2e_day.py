@@ -168,9 +168,9 @@ def _snapshot(folder: Path) -> dict[str, bytes]:
 
 def _write_setup(root: Path) -> tuple[Path, Path]:
     scout_dir, radar, pilot = root / "Scout", root / "Radar", root / "Pilot"
-    (radar / "state" / "finds").mkdir(parents=True)
-    (radar / "state" / "finds" / f"{DAY}.jsonl").write_text(
-        json.dumps({"candidate_id": "c1", "symbol": "MUDV", "found_at": "2026-11-02T15:00:00Z", "price": 4.2}) + "\n",
+    (radar / "state" / "handoff").mkdir(parents=True)
+    (radar / "state" / "handoff" / f"{DAY}.jsonl").write_text(
+        json.dumps({"format": 1, "candidate_id": "c1", "symbol": "MUDV", "found_at": "2026-11-02T15:00:00Z", "price": 4.2}) + "\n",
         encoding="utf-8")
     (pilot / "state" / "plans").mkdir(parents=True)
     (pilot / "state" / "plans" / "p1.json").write_text(json.dumps({"symbol": "ACME", "status": "open"}),

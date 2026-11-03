@@ -127,10 +127,10 @@ def test_not_run_off_session_or_disabled(llm_cfg: ScoutConfig, lpaths: ScoutPath
 
 def test_pending_skips_dear_radar_tickers_and_future(scout_dir: Path, clock: ManualClock, tmp_path: Path) -> None:
     radar = tmp_path / "Radar"
-    (radar / "state" / "finds").mkdir(parents=True)
-    (radar / "state" / "finds" / "2026-11-02.jsonl").write_text(
-        json.dumps({"candidate_id": "c1", "symbol": "XYZ", "found_at": T, "price": 45.0}) + "\n"
-        + json.dumps({"candidate_id": "c2", "symbol": "ABC", "found_at": T, "price": 3.1}) + "\n", encoding="utf-8")
+    (radar / "state" / "handoff").mkdir(parents=True)
+    (radar / "state" / "handoff" / "2026-11-02.jsonl").write_text(
+        json.dumps({"format": 1, "candidate_id": "c1", "symbol": "XYZ", "found_at": T, "price": 45.0}) + "\n"
+        + json.dumps({"format": 1, "candidate_id": "c2", "symbol": "ABC", "found_at": T, "price": 3.1}) + "\n", encoding="utf-8")
     cfg = make_config(scout_dir, llm_enabled=True, radar_dir=str(radar))
     paths = ScoutPaths.from_config(cfg)
     _two_facts(scout_dir)

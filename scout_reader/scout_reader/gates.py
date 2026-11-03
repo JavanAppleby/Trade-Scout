@@ -33,7 +33,8 @@ __all__ = [
 CATALYST_KINDS = ("wire", "filing")
 # SS 14: these classes never make gate 6 true, whatever the config says. `earnings_date` is a
 # notice that only names a date: it is gate 5's source, never a catalyst (third review).
-NEVER_PASS = frozenset({"offering", "reverse_split", "listing_notice", "other", "earnings_date"})
+# `bankruptcy` (owner, 2026-11-04) is bad news, never a catalyst.
+NEVER_PASS = frozenset({"offering", "reverse_split", "listing_notice", "bankruptcy", "other", "earnings_date"})
 MACRO_KINDS = ("macro_event", "scheduled_event")
 _ROLLOVER = time(20, 0)
 

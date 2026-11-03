@@ -114,8 +114,8 @@ def test_anthropic_only_in_llm_client() -> None:
 def test_a_run_writes_only_inside_scouts_folder(tmp_path: Path, write_audit) -> None:  # noqa: ANN001
     scout_dir, radar_dir = tmp_path / "Scout", tmp_path / "Radar"
     scout_dir.mkdir()
-    (radar_dir / "state" / "finds").mkdir(parents=True)
-    (radar_dir / "state" / "finds" / "2026-11-02.jsonl").write_text('{"symbol": "ABCD"}\n', encoding="utf-8")
+    (radar_dir / "state" / "handoff").mkdir(parents=True)
+    (radar_dir / "state" / "handoff" / "2026-11-02.jsonl").write_text('{"format": 1, "symbol": "ABCD"}\n', encoding="utf-8")
     before = sorted((p, p.stat().st_mtime_ns) for p in radar_dir.rglob("*"))
     cfg = config_from_dict({"radar_dir": str(radar_dir)}, scout_dir)
     paths = ScoutPaths.from_config(cfg)
