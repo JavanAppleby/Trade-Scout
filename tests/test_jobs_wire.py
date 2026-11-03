@@ -31,30 +31,32 @@ def context(cfg, clock, transport):
 def test_jobs_and_intervals(scout_dir, clock):
     cfg = wire_config(scout_dir, sources=TEST_WIRE)
     jobs = build_jobs(context(cfg, clock, FakeTransport()))
-    assert [j.name for j in jobs] == ["edgar_tickers", "edgar_atom", "prnewswire", "testwire"]
+    assert [j.name for j in jobs] == ["edgar_tickers", "edgar_atom", "prnewswire", "stocktitan",
+                                     "testwire"]
     by = {j.name: j for j in jobs}
     assert all(isinstance(j, EveryJob) for j in jobs)
     assert by["edgar_atom"].interval_s == 60 and by["edgar_atom"].idle_interval_s == 600
     assert by["prnewswire"].interval_s == 60 and by["edgar_tickers"].interval_s == 60
     assert by["testwire"].interval_s == 60
+    assert by["stocktitan"].interval_s == 60 and by["stocktitan"].idle_interval_s == 600
 
 
 def test_globenewswire_is_gone(scout_dir, clock):
     """Removed on 2026-11-03 (it refuses automated readers): no source, no job, no board entry."""
     ctx = context(wire_config(scout_dir), clock, FakeTransport())
-    assert [j.name for j in build_jobs(ctx)] == ["edgar_tickers", "edgar_atom", "prnewswire"]
+    assert [j.name for j in build_jobs(ctx)] == ["edgar_tickers", "edgar_atom", "prnewswire", "stocktitan"]
     assert "globenewswire" not in ctx.cfg.sources and "globenewswire" not in ctx.board.sources
 
 
 def test_disabled_sources_get_no_job(scout_dir, clock):
     cfg = wire_config(scout_dir, sources={"testwire": {**TEST_WIRE["testwire"], "enabled": False}, "edgar_atom": {"enabled": False}})
     ctx = context(cfg, clock, FakeTransport())
-    assert [j.name for j in build_jobs(ctx)] == ["edgar_tickers", "prnewswire"]
+    assert [j.name for j in build_jobs(ctx)] == ["edgar_tickers", "prnewswire", "stocktitan"]
     assert ctx.board.sources["testwire"].status == "disabled"
 
 
 def test_end_to_end_polls_write_facts_health_and_raw(scout_dir, clock, write_audit):
-    cfg = wire_config(scout_dir, sources=TEST_WIRE)  # two gate-6 wires
+    cfg = wire_config(scout_dir, sources=TEST_WIRE)  # three gate-6 wires
     transport = full_transport(cfg)
     ctx = context(cfg, clock, transport)
     jobs = build_jobs(ctx)
@@ -65,16 +67,16 @@ def test_end_to_end_polls_write_facts_health_and_raw(scout_dir, clock, write_aud
             heartbeat.beat(clock.now())
             clock.advance(60)
     facts = read_jsonl(ctx.paths.facts / "2026-11-02.jsonl")
-    # 9 filings, one fact per ticker under the CIK (ACME/ACMEW, GOOGL/GOOG add 4), 21 + 3 wire facts
-    assert len({f["fact_id"] for f in facts}) == len(facts) == 9 + 4 + 21 + 3
-    assert {f["source"] for f in facts} == {"edgar_atom", "prnewswire", "testwire"}
+    # 9 filings, one fact per ticker under the CIK (ACME/ACMEW, GOOGL/GOOG add 4), 21 + 4 + 3 wire facts
+    assert len({f["fact_id"] for f in facts}) == len(facts) == 9 + 4 + 21 + 4 + 3
+    assert {f["source"] for f in facts} == {"edgar_atom", "prnewswire", "stocktitan", "testwire"}
     acme = [f for f in facts if f["source"] == "edgar_atom" and f["ticker"] == "ACME"]
     assert acme and acme[0]["exchange"] == "Nasdaq"
     health = read_jsonl(ctx.paths.health / "2026-11-02.jsonl")
     assert {h["source"] for h in health} >= {"edgar_atom", "prnewswire", "testwire", "edgar_tickers"}
     assert len([h for h in health if h["source"] == "edgar_atom"]) == 5 * len(FORMS)
     assert any((ctx.paths.raw / "prnewswire").rglob("*.xml"))
-    for name in ("edgar_atom", "prnewswire", "testwire", "edgar_tickers"):
+    for name in ("edgar_atom", "prnewswire", "stocktitan", "testwire", "edgar_tickers"):
         assert ctx.board.sources[name].status == "ok", name
     beats = read_jsonl(ctx.paths.beats / "2026-11-02.jsonl")
     assert beats[-1]["sources"]["prnewswire"] == "ok" and beats[-1]["gap_open"]["prnewswire"] is False

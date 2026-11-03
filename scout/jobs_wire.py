@@ -3,7 +3,8 @@
 - `edgar_tickers`: checked every minute; reads the CIK map at start and once per ET day from 03:50
   ET (a failed read is tried again after 10 minutes).
 - `edgar_atom`: every `min_spacing_s` (60 s) 04:00-20:00 ET, `idle_spacing_s` (600 s) otherwise.
-- every source of kind "wire" (`prnewswire`): every `min_spacing_s` (60 s).
+- every source of kind "wire" (`prnewswire`, `stocktitan`): every `min_spacing_s` (60 s), `idle_spacing_s`
+  outside 04:00-20:00 ET.
 A disabled source gets no job (the board shows it `disabled`). One CoverageTracker serves every
 source of this module.
 """

@@ -27,9 +27,14 @@ def test_defaults_match_design(scout_dir: Path) -> None:
     assert c.fomc_dates[0] == date(2026, 1, 28) and len(c.fomc_dates) == 8
     assert c.llm_enabled is False and c.scout_webull_enabled is False
     # GlobeNewswire was removed on 2026-11-03: it refuses automated readers (403 from Akamai)
-    assert set(c.sources) == {"edgar_atom", "edgar_submissions", "edgar_tickers", "prnewswire",
+    assert set(c.sources) == {"edgar_atom", "edgar_submissions", "edgar_tickers", "prnewswire", "stocktitan",
                               "nasdaq_halts", "nowflation", "bls", "cboe_vix"}
     assert c.source("prnewswire").terms_ok is False
+    st = c.source("stocktitan")  # owner, 2026-11-04
+    assert (st.kind, st.url, st.allowed_hosts) == ("wire", "https://www.stocktitan.net/rss", ("www.stocktitan.net",))
+    assert st.gate6 is True and st.terms_ok is False and st.max_items == 100
+    assert c.host_min_spacing_s["www.stocktitan.net"] == 30.0 and c.wire_title_ticker_suffixes == ("Stock News",)
+    assert "stocktitan.net" not in c.llm_allowed_domains  # its terms allow the RSS feed, not page reading
     assert "globenewswire.com" not in c.llm_allowed_domains
     assert c.source("cboe_vix").url.startswith("https://cdn-api.cboe.com/")
     assert c.source("cboe_vix").allowed_hosts == ("cdn-api.cboe.com",)
@@ -38,7 +43,7 @@ def test_defaults_match_design(scout_dir: Path) -> None:
     assert c.llm_job("J1").model == "claude-haiku-5-5" and c.llm_job("J4").max_tokens == 3000
     assert c.price("claude-sonnet-5-5").output_per_mtok == 10.0 and c.price("no-such-model") is None
     assert c.web_search_usd_per_1000 == 10.0
-    assert [s.name for s in c.enabled_sources("wire")] == ["prnewswire"]
+    assert [s.name for s in c.enabled_sources("wire")] == ["prnewswire", "stocktitan"]
 
 
 def test_example_loads_to_the_defaults() -> None:
@@ -170,10 +175,10 @@ def test_an_old_globenewswire_table_is_refused(scout_dir: Path) -> None:
 
 def test_reader_params(scout_dir: Path) -> None:
     p = config_from_dict({}, scout_dir).reader_params()
-    assert p["gate6_sources"] == ["edgar_atom", "prnewswire"]
-    assert set(p["gate6_feeds"]) == {"edgar_atom", "prnewswire"}
+    assert p["gate6_sources"] == ["edgar_atom", "prnewswire", "stocktitan"]
+    assert set(p["gate6_feeds"]) == {"edgar_atom", "prnewswire", "stocktitan"}
     on = config_from_dict({"sources": TEST_WIRE}, scout_dir).reader_params()  # a second gate-6 wire
-    assert on["gate6_sources"] == ["edgar_atom", "prnewswire", "testwire"]
+    assert on["gate6_sources"] == ["edgar_atom", "prnewswire", "stocktitan", "testwire"]
     assert on["gate6_feeds"]["testwire"] == ["rss"]
     assert p["fomc_decision_time_et"] == "14:00" and p["fomc_dates"][0] == "2026-01-28"
     assert set(p) == {"hold_catalyst_classes", "earnings_lookback_days", "earnings_due_start_days",

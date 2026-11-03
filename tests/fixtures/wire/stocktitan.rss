@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- _SYNTHETIC: invented items in the shape of Stock Titan's RSS feed (checked against one live read on 2026-11-04). -->
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/" xmlns:sy="http://purl.org/rss/1.0/modules/syndication/">
+  <channel>
+    <title>Latest News | Stock Titan</title>
+    <link>https://www.stocktitan.net/news/live.html</link>
+    <description>Latest 100 stock news updates from stocktitan.net</description>
+    <atom:link href="https://www.stocktitan.net/rss" rel="self" type="application/rss+xml"/>
+    <language>en-us</language>
+    <lastBuildDate>Mon, 02 Nov 2026 13:31:00 GMT</lastBuildDate>
+    <ttl>1</ttl>
+    <sy:updatePeriod>hourly</sy:updatePeriod>
+    <sy:updateFrequency>60</sy:updateFrequency>
+    <image>
+      <url>https://static.stocktitan.net/img/stock_titan_thumbnail.png</url>
+      <title>Stock Titan</title>
+      <link>https://www.stocktitan.net</link>
+    </image>
+    <item>
+      <title>Zentrova Therapeutics Announces Pricing of $6 Million Public Offering | ZNTV Stock News</title>
+      <link>https://www.stocktitan.net/news/ZNTV/zentrova-therapeutics-announces-pricing-of-6-million-public-a1b2c3d4e5f6.html</link>
+      <pubDate>Mon, 02 Nov 2026 13:31:00 GMT</pubDate>
+      <guid isPermaLink="true">https://www.stocktitan.net/news/ZNTV/zentrova-therapeutics-announces-pricing-of-6-million-public-a1b2c3d4e5f6.html</guid>
+      <media:content url="https://static.stocktitan.net/company-logo/zntv-lg.png" type="image/png" medium="image" width="600" height="600"/>
+    </item>
+    <item>
+      <title>UPDATE -- Quellmark Receives FDA Clearance for Its Wound System (NASDAQ: QLMK) | QLMK Stock News</title>
+      <link>https://www.stocktitan.net/news/QLMK/update-quellmark-receives-fda-clearance-for-its-wound-b7c8d9e0f1a2.html</link>
+      <pubDate>Mon, 02 Nov 2026 13:20:00 GMT</pubDate>
+      <guid isPermaLink="true">https://www.stocktitan.net/news/QLMK/update-quellmark-receives-fda-clearance-for-its-wound-b7c8d9e0f1a2.html</guid>
+    </item>
+    <item>
+      <title>Harbor &amp; Pine Holdings Declares Quarterly Dividend | HPHX.B Stock News</title>
+      <link>https://www.stocktitan.net/news/HPHX.B/harbor-pine-holdings-declares-quarterly-dividend-c3d4e5f6a7b8.html</link>
+      <pubDate>Mon, 02 Nov 2026 13:05:00 GMT</pubDate>
+      <guid isPermaLink="true">https://www.stocktitan.net/news/HPHX.B/harbor-pine-holdings-declares-quarterly-dividend-c3d4e5f6a7b8.html</guid>
+    </item>
+    <item>
+      <title>Market Wrap: Small Caps Lead the Open</title>
+      <link>https://www.stocktitan.net/news/market-wrap-small-caps-lead-the-open-d9e0f1a2b3c4.html</link>
+      <pubDate>Mon, 02 Nov 2026 13:00:00 GMT</pubDate>
+      <guid isPermaLink="true">https://www.stocktitan.net/news/market-wrap-small-caps-lead-the-open-d9e0f1a2b3c4.html</guid>
+    </item>
+  </channel>
+</rss>

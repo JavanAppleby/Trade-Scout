@@ -27,6 +27,7 @@ ticker_map_retry_s = 600          # a failed read of SEC's ticker list is tried 
 # earnings by 10-Q alone); they are never a gate-6 class and not gate-6 coverage.
 edgar_atom_forms = ["8-K", "6-K", "S-1", "S-3", "F-1", "F-3", "424B", "EFFECT", "NT 10-Q", "NT 10-K", "10-Q", "10-K"]  # one EDGAR feed each
 ticker_exchange_prefixes = ["NASDAQ", "Nasdaq", "Nasdaq CM", "NasdaqCM", "Nasdaq GM", "NasdaqGM", "Nasdaq GS", "NasdaqGS", "NASDAQ Capital Market", "Nasdaq Global Market", "Nasdaq Global Select Market", "NYSE", "NYSE American", "NYSE MKT", "NYSE Arca", "OTCQB", "OTCQX", "OTC Pink", "OTC", "Cboe BZX"]  # "(NASDAQ: XXX)" tags in titles
+wire_title_ticker_suffixes = ["Stock News"]  # a wire title ending "| XXX Stock News" names ticker XXX (Stock Titan); no exchange
 
 # --------------------------------------------------------------------------- the hold answers
 hold_catalyst_classes = ["fda", "trial", "contract", "contract_or_other", "earnings_result"]  # news classes that count as a fresh catalyst (gate 6)
@@ -131,6 +132,7 @@ discord_scanner_brief_max_tickers = 12  # tickers shown per scanner pattern line
 "www.sec.gov" = 0.5
 "data.sec.gov" = 0.5
 "www.nasdaqtrader.com" = 60.0
+"www.stocktitan.net" = 30.0
 
 # Most requests a day to one host.
 [host_max_requests_per_day]
@@ -211,6 +213,21 @@ idle_spacing_s = 60.0
 allowed_hosts = ["www.prnewswire.com"]
 terms_note = "Titles, links and times only until the owner reads the terms (terms_ok = false)."
 max_items = 20
+gate6 = true
+terms_ok = false
+
+# Owner, 2026-11-04. Reposts small-cap releases from GlobeNewswire, Business Wire and the other wires;
+# its terms name its RSS feeds as an allowed way to collect data. Keeps only the newest 100 items.
+[sources.stocktitan]
+enabled = true
+kind = "wire"
+url = "https://www.stocktitan.net/rss"
+paths = []
+min_spacing_s = 60.0
+idle_spacing_s = 600.0
+allowed_hosts = ["www.stocktitan.net"]
+terms_note = "Its terms name its RSS feeds as an allowed way to collect data; personal use; at most 30 requests in 5 minutes."
+max_items = 100
 gate6 = true
 terms_ok = false
 

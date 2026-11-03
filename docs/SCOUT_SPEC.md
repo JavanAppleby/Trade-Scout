@@ -118,6 +118,7 @@ changes. Each phase is an owner decision; phases are build order, not a limit on
 | 2 | SEC EDGAR submissions JSON per CIK | Last periodic report: form, `reportDate`, `fiscalYearEnd`; 8-K 2.02 dates | V (Radar uses it) | on demand, cached per CIK per day | as above |
 | 3 | SEC `company_tickers_exchange.json` | CIK to ticker and exchange | V (Radar uses it) | daily | as above |
 | 4 | PR Newswire RSS (all releases) | Title, link, guid, `pubDate`, exchange tags "(NASDAQ: XXX)" | V (RSS 2.0, 20 items) | every 60 s 04:00-20:00 ET | Terms of the RSS UNVERIFIED: store title, link and times only until the owner reads them (build step 2) |
+| 4b | Stock Titan RSS (`www.stocktitan.net/rss`, added 2026-11-04 by the owner) | Title ending "\| XXX Stock News", link, guid, `pubDate` | V (RSS 2.0, 100 items) | every 60 s 04:00-20:00 ET, 600 s otherwise | Terms name its RSS feeds as an allowed way to collect data (personal use); 30 requests in 5 minutes. Reposts GlobeNewswire, Business Wire and the other wires |
 | 5 | ~~GlobeNewswire RSS (public companies)~~ | - | Removed 2026-11-03 (owner) | - | Refused Scout's declared User-Agent (403, Akamai) on 2026-11-01 and 2026-11-03; reading it would need permission, and Scout uses only sources that allow automated reading without asking |
 | 6 | Nasdaq Trader halt RSS (`feed=tradehalts`; `&haltdate=MMDDYYYY` once after 20:00 ET) | Halts and LULD pauses, reason codes, resumption times | V | at least 60 s apart (hard minimum in code), 04:00-20:00 ET | Free; "do not query more than once a minute"; must not edit or misrepresent the feed, so rows are stored as received. Record only |
 | 7 | nowflation.com `/data/release_calendar.json`, `/data/realtime.json`, `/forecasts/index.json`; fallback `/nowflation.ics` | CPI, NFP, PCE and FOMC times; inflation nowcast | V | once at start; 08:20 ET daily; 08:50 ET on release days; at most 10 requests a day | Free with credit "Nowflation" and a link; no reselling or redistributing the raw files; robots.txt allows ClaudeBot; JSON paths undocumented |
@@ -252,7 +253,8 @@ than the feed's maximum. A **gap** is any interval with a failed poll, a poll wi
 than `source_max_gap_s` (180) between polls. PR Newswire's feed holds only 20 items and the
 2026-10-31 sample was a Saturday; around 08:00 and 16:00 ET on weekdays 20 items can pass within one
 poll, which this rule records as a gap. Build step 2 measures the weekday rate before any `false` is
-trusted, and shortens the spacing (never below 30 s) if needed.
+trusted, and shortens the spacing (never below 30 s) if needed. Stock Titan's feed holds 100 items
+(about 100 in 20 minutes at a busy open), so a 60 s poll overlaps.
 
 ### 6.3 Normalisers (no LLM)
 - **Tickers:** a regex on exchange tags ("(NASDAQ: XXX)", "(NYSE American: XXX)", "(NYSE: XXX)",

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from scout.config import ScoutConfig
-from scout.tickers import normalise, tickers_in
+from scout.tickers import normalise, tickers_in, title_suffix_ticker
 
 PREFIXES = ScoutConfig().ticker_exchange_prefixes
 
@@ -75,3 +75,22 @@ def test_common_exchange_tag_spellings(text, expected):
     """Regression (third review): these spellings gave no ticker, so the fact was stored with
     ticker None and a date notice never reached gate 5."""
     assert tickers_in(text, PREFIXES) == expected
+
+
+@pytest.mark.parametrize("title, expected", [
+    ("Acme Prices Offering | ACME Stock News", "ACME"),
+    ("Acme Prices Offering | ACME  Stock  News  ", "ACME"),
+    ("Harbor &amp; Pine Declares Dividend | HPHX.B Stock News", "HPHX-B"),
+    ("Latest News | Stock Titan", None),
+    ("Acme | acme Stock News", None),  # a lower-case word is not a ticker
+    ("Acme Stock News", None),  # no "|"
+    ("Acme | ACME Stock News today", None),  # the suffix must end the title
+    ("Acme | ACMEXYZQ Stock News", None),  # longer than a ticker
+])
+def test_title_suffix_ticker(title, expected):
+    assert title_suffix_ticker(title, ("Stock News",)) == expected
+
+
+def test_title_suffix_list_is_config():
+    assert title_suffix_ticker("Acme | ACME Stock News", ()) is None
+    assert title_suffix_ticker("Acme | ACME Company News", ("Stock News", "Company News")) == "ACME"

@@ -238,7 +238,7 @@ def test_heartbeat_all_day_with_every_source(day: Day) -> None:
     assert "globenewswire" not in noon["sources"]
     assert not any("globenewswire" in url for url, *_ in day.http.calls)
     params = day.jsonl("params.jsonl")
-    assert params[0]["gate6_sources"] == ["edgar_atom", "prnewswire"]
+    assert params[0]["gate6_sources"] == ["edgar_atom", "prnewswire", "stocktitan"]
 
 
 def test_only_known_urls_and_no_failed_source(day: Day) -> None:

@@ -194,6 +194,25 @@ def test_a_success_resets_the_403_count(scout_dir, clock):
     assert poller.forbidden_in_a_row == 0 and poller.refused_on is None
 
 
+def test_stocktitan_ticker_from_the_title_end(scout_dir, clock):
+    """Owner, 2026-11-04: Stock Titan names the ticker as "| ZNTV Stock News" with no exchange; an
+    exchange tag in the same title wins and the ticker is not stored twice."""
+    cfg, url, poller, fetcher, raw, facts, health, board = setup(scout_dir, clock, "stocktitan")
+    assert poller.poll(clock.now()) == 4
+    assert [(f.ticker, f.exchange, f.cls) for f in facts.facts] == [
+        ("ZNTV", None, "offering"), ("QLMK", "NASDAQ", "fda"), ("HPHX-B", None, "other"), (None, None, "other")]
+    assert {f.source for f in facts.facts} == {"stocktitan"} and facts.facts[0].title.endswith("| ZNTV Stock News")
+    h = health.records[0]
+    assert (h.result, h.items, h.new_items) == ("ok", 4, 4) and board.sources["stocktitan"].status == "ok"
+
+
+def test_title_end_suffix_is_config(scout_dir, clock):
+    cfg, url, poller, fetcher, raw, facts, health, board = setup(scout_dir, clock, "stocktitan",
+                                                                wire_title_ticker_suffixes=[])
+    poller.poll(clock.now())
+    assert [f.ticker for f in facts.facts] == [None, "QLMK", None, None]
+
+
 def test_tickers_from_categories(scout_dir, clock):
     cfg, url, poller, fetcher, raw, facts, health, board = setup(scout_dir, clock, "testwire", sources=TEST_WIRE)
     poller.poll(clock.now())

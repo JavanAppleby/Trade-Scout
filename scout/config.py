@@ -94,6 +94,11 @@ DEFAULT_SOURCES: dict[str, dict[str, Any]] = {
         enabled=True, kind="wire", url="https://www.prnewswire.com/rss/news-releases-list.rss", paths=[],
         min_spacing_s=60.0, idle_spacing_s=60.0, allowed_hosts=["www.prnewswire.com"], terms_note=_WIRE_TERMS,
         max_items=20, gate6=True, terms_ok=False),
+    "stocktitan": dict(  # owner, 2026-11-04: reposts GlobeNewswire, Business Wire and the other wires
+        enabled=True, kind="wire", url="https://www.stocktitan.net/rss", paths=[], min_spacing_s=60.0,
+        idle_spacing_s=600.0, allowed_hosts=["www.stocktitan.net"],
+        terms_note="Its terms name its RSS feeds as an allowed way to collect data; personal use; at most 30 "
+                   "requests in 5 minutes.", max_items=100, gate6=True, terms_ok=False),
     "nasdaq_halts": dict(
         enabled=True, kind="halt", url="https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts", paths=[],
         min_spacing_s=60.0, idle_spacing_s=0.0, allowed_hosts=["www.nasdaqtrader.com"],
@@ -159,7 +164,8 @@ DEFAULT_CLASS_KEYWORDS: dict[str, tuple[str, ...]] = {
 # 10-Q or 10-K alone; never a gate-6 class, so their feeds are not gate-6 coverage.
 PERIODIC_FORMS = frozenset({"10-Q", "10-K", "20-F", "40-F"})
 
-DEFAULT_HOST_MIN_SPACING: dict[str, float] = {"www.sec.gov": 0.5, "data.sec.gov": 0.5, "www.nasdaqtrader.com": 60.0}
+DEFAULT_HOST_MIN_SPACING: dict[str, float] = {"www.sec.gov": 0.5, "data.sec.gov": 0.5, "www.nasdaqtrader.com": 60.0,
+                                              "www.stocktitan.net": 30.0}
 DEFAULT_HOST_MAX_PER_DAY: dict[str, int] = {"nowflation.com": 10}
 DEFAULT_LLM_JOBS: dict[str, dict[str, Any]] = {
     "J1": dict(enabled=True, model="claude-haiku-5-5", effort="low", max_tokens=4000),
@@ -223,6 +229,7 @@ class ScoutConfig:
                                                  "Nasdaq Global Market", "Nasdaq Global Select Market", "NYSE",
                                                  "NYSE American", "NYSE MKT", "NYSE Arca", "OTCQB", "OTCQX",
                                                  "OTC Pink", "OTC", "Cboe BZX")
+    wire_title_ticker_suffixes: tuple[str, ...] = ("Stock News",)
     host_min_spacing_s: Mapping[str, float] = field(default_factory=lambda: _frozen(DEFAULT_HOST_MIN_SPACING))
     host_max_requests_per_day: Mapping[str, int] = field(default_factory=lambda: _frozen(DEFAULT_HOST_MAX_PER_DAY))
     class_keywords: Mapping[str, tuple[str, ...]] = field(default_factory=lambda: _frozen(DEFAULT_CLASS_KEYWORDS))

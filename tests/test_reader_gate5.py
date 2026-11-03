@@ -177,7 +177,8 @@ def test_macro_events_count_only_when_the_owner_says(scout_dir: Path, cfg: Scout
 
 def test_source_not_ok_and_stale(scout_dir: Path, cfg: ScoutConfig) -> None:
     _world(scout_dir, cfg)
-    write_beats(scout_dir, AS_OF, AS_OF, sources={"edgar_atom": "ok", "testwire": "ok", "prnewswire": "stale"})
+    write_beats(scout_dir, AS_OF, AS_OF, sources={"edgar_atom": "ok", "testwire": "ok", "stocktitan": "ok",
+                                                        "prnewswire": "stale"})
     assert gate5(scout_dir, S, AS_OF)["reasons"] == ["source_not_ok:prnewswire"]
     later = AS_OF + timedelta(minutes=10)
     res = gate5(scout_dir, S, later)

@@ -55,6 +55,7 @@ def full_transport(cfg: ScoutConfig) -> FakeTransport:
     responses: dict[str, Any] = {
         cfg.source("edgar_tickers").url: ok(fixture("company_tickers_exchange_excerpt.json")),
         cfg.source("prnewswire").url: ok(fixture("prnewswire.rss")),
+        cfg.source("stocktitan").url: ok(fixture("stocktitan.rss")),
         cfg.source("edgar_submissions").url.format(cik=1234567): ok(fixture("submissions_calendar_filer.json")),
         cfg.source("edgar_submissions").url.format(cik=7654321): ok(fixture("submissions_june_fy_filer.json")),
     }

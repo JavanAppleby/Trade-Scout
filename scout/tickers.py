@@ -11,6 +11,10 @@ on ",", ";", "and", "&" and a "/" that comes before another prefix ("(Nasdaq: AC
 prefix is followed by ":" or by a dash with a space each side ("(Nasdaq - ACME)"; "Nasdaq-listed" is
 not a tag). HTML tags are removed first ("(NASDAQ: <a ...>ACME</a>)"). Each (exchange, ticker) pair
 appears once, in order.
+
+`title_suffix_ticker` reads the one ticker a reposting site puts at the end of a title, after a "|"
+and before a configured suffix (`wire_title_ticker_suffixes`): Stock Titan writes
+"Acme Prices Offering | ACME Stock News". The symbol must be upper case; the exchange is not named.
 """
 
 from __future__ import annotations
@@ -20,13 +24,14 @@ import html
 import re
 from collections.abc import Iterable, Sequence
 
-__all__ = ["normalise", "tickers_in"]
+__all__ = ["normalise", "tickers_in", "title_suffix_ticker"]
 
 _TAG = re.compile(r"\(([^()]{1,200})\)")
 _SYMBOL = r"[A-Za-z][A-Za-z0-9]{0,5}(?:[.\-/][A-Za-z0-9]{1,2})?"
 _HTML_TAG = re.compile(r"<[^<>]{0,500}>")
 _SPLIT = re.compile(r"[,;]|\s+(?:and|&)\s+|\s*/\s*(?=[A-Za-z][A-Za-z .\-]{0,30}\s*:)", re.IGNORECASE)
 _ANY_PREFIX = re.compile(r"^\s*[A-Za-z][A-Za-z .\-]{0,30}\s*:")
+_UPPER_SYMBOL = r"[A-Z][A-Z0-9]{0,5}(?:[.\-/][A-Z0-9]{1,2})?"
 
 
 def normalise(sym: str) -> str:
@@ -84,3 +89,15 @@ def tickers_in(text: str, prefixes: Iterable[str]) -> list[tuple[str, str]]:
             if pair not in out:
                 out.append(pair)
     return out
+
+
+@functools.lru_cache(maxsize=8)
+def _suffix_pattern(suffixes: tuple[str, ...]) -> re.Pattern[str]:
+    alternation = "|".join(r"\s+".join(map(re.escape, x.split())) for x in suffixes if x.strip()) or r"(?!x)x"
+    return re.compile(rf"\|\s*(?P<sym>{_UPPER_SYMBOL})\s+(?:{alternation})\s*$")
+
+
+def title_suffix_ticker(title: str, suffixes: Iterable[str]) -> str | None:
+    """The TICKER in "... | TICKER <suffix>" at the end of `title`, or None."""
+    m = _suffix_pattern(tuple(suffixes)).search(html.unescape(title or ""))
+    return normalise(m.group("sym")) if m else None

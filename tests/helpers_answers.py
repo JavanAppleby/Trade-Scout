@@ -24,7 +24,7 @@ from scout.models import DueWindowRecord, Fact, Filing, PeriodicInfo
 from helpers_fakes import write_records
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "answers"
-GATE6_SOURCES = ("edgar_atom", "prnewswire", "testwire")  # testwire: the invented second wire (helpers_wire)
+GATE6_SOURCES = ("edgar_atom", "prnewswire", "stocktitan", "testwire")  # testwire: the invented second wire (helpers_wire)
 BEAT_ONLY_SOURCES = ("nasdaq_halts", "nowflation", "bls", "cboe_vix")
 OK_RESULTS = ("ok", "not_modified")
 

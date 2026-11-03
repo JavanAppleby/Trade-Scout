@@ -1,10 +1,11 @@
-"""PR Newswire RSS (SCOUT_SPEC 4.1 #4, 6.1-6.4; DESIGN 2.2, 7).
+"""RSS wires: PR Newswire and Stock Titan (SCOUT_SPEC 4.1 #4, 6.1-6.4; DESIGN 2.2, 7).
 
 One poll: fetch the feed -> parse (a changed shape is a SchemaError: health "schema", status
 `unavailable`, no facts) -> the items not seen before -> raw store (title, link, guid and pubDate
 only while `terms_ok` is false) -> tickers from the exchange tags in the title, the description and
-any "EXCHANGE:TICKER" category -> one fact per ticker (one with no ticker when none is named) ->
-the health record (overlap, gap) and the status board.
+any "EXCHANGE:TICKER" category, then the "| TICKER Stock News" end of a title (no exchange) -> one
+fact per ticker (one with no ticker when none is named) -> the health record (overlap, gap) and the
+status board.
 
 The description is read in memory for its exchange tags only; it is never stored. A source that
 answers 403 `refused_after_403s` times in a row is marked `refused` and not polled again that ET
@@ -30,7 +31,7 @@ from scout.health import CoverageTracker, board_state, status_for
 from scout.interfaces import FactSink, Fetcher, HealthSink, RawSink, StatusBoard
 from scout.models import Fact
 from scout.raw import keeps_full_body, reduced_item
-from scout.tickers import tickers_in
+from scout.tickers import tickers_in, title_suffix_ticker
 
 __all__ = ["RssItem", "WirePoller", "parse_rss"]
 
@@ -85,14 +86,20 @@ def parse_rss(body: bytes) -> list[RssItem]:
     return out
 
 
-def item_tickers(item: RssItem, prefixes: Sequence[str]) -> list[tuple[str, str]]:
-    """(exchange, ticker) pairs from the title, the description and "EXCH:TICKER" categories."""
+def item_tickers(item: RssItem, prefixes: Sequence[str],
+                 suffixes: Sequence[str] = ()) -> list[tuple[str | None, str]]:
+    """(exchange, ticker) pairs from the title, the description and "EXCH:TICKER" categories, then
+    (None, ticker) from a "| TICKER Stock News" title end when that ticker is not already named."""
     text = " ".join([item.title, item.description, *(f"({c})" for c in item.raw_categories)])
-    return tickers_in(text, prefixes)
+    pairs: list[tuple[str | None, str]] = list(tickers_in(text, prefixes))
+    end = title_suffix_ticker(item.title, suffixes)
+    if end is not None and all(t != end for _, t in pairs):
+        pairs.append((None, end))
+    return pairs
 
 
 class WirePoller:
-    """Polls one RSS wire source (`prnewswire`)."""
+    """Polls one RSS wire source (`prnewswire`, `stocktitan`)."""
 
     def __init__(self, cfg: ScoutConfig, source_name: str, fetcher: Fetcher, raw: RawSink, facts: FactSink,
                  health: HealthSink, board: StatusBoard, clock: Clock, *, tracker: CoverageTracker | None = None,
@@ -176,7 +183,8 @@ class WirePoller:
             reduced_item(item.title, item.link, item.guid, item.pub_date)
         digest = self.raw.save(self.name, f"{hashlib.sha256(item.guid.encode()).hexdigest()[:16]}.xml", body, now)
         cls = wire_class(item.title, self.cfg.class_keywords)
-        pairs: list[tuple[str | None, str | None]] = list(item_tickers(item, self.cfg.ticker_exchange_prefixes))
+        pairs: list[tuple[str | None, str | None]] = list(item_tickers(item, self.cfg.ticker_exchange_prefixes,
+                                                                       self.cfg.wire_title_ticker_suffixes))
         if not pairs:
             pairs = [(None, None)]
         added = 0

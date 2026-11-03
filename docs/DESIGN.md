@@ -281,7 +281,7 @@ by **Update Scout**).
 
 **`scout/raw.py`**: `class RawStore(paths)` implementing `RawSink`
 (`raw\<source>\<ET date>\<HHMMSS>-<name>` written once; the sha256 returned and stored on facts).
-PR Newswire stores a reduced body (title, link, guid, pubDate only) until
+PR Newswire and Stock Titan store a reduced body (title, link, guid, pubDate only) until
 `terms_ok = true` in their source table (SS 4.1 #4).
 
 **`scout/edgar_parse.py`**: pure parsers. Radar's `parse_ticker_map`, `parse_submissions`,
@@ -316,7 +316,9 @@ is built from the first row's CIK (status `ambiguous_ticker`, so gate 5 answers 
 **`scout/wire_rss.py`**: `parse_rss(body: bytes) -> list[RssItem]` (`RssItem(guid, title, link,
 published_at, raw_categories)`; strips a BOM; raises `SchemaError` on drift); `class WirePoller(cfg,
 source_name, fetcher, raw, facts, health, board, clock)`; `poll(now) -> int`. Used for every source of kind
-`wire` (`prnewswire`; GlobeNewswire was removed on 2026-11-03, see 6.3). A wire that answers
+`wire` (`prnewswire`, `stocktitan`; GlobeNewswire was removed on 2026-11-03, see 6.3). Tickers come from
+exchange tags (`tickers_in`), then from a title that ends "| XXX Stock News" (`title_suffix_ticker`,
+`wire_title_ticker_suffixes`; Stock Titan's form, no exchange) when XXX is not already named. A wire that answers
 `refused_after_403s` (3) consecutive 403s is marked `refused` and not polled again that day.
 
 **`scout/tickers.py`**: `tickers_in(text, prefixes) -> list[tuple[str, str]]` (exchange, ticker;
@@ -353,7 +355,7 @@ date>.jsonl`); `class CoverageTracker` (per source and feed: last poll end, seen
 `gap_open(source) -> bool` for the heartbeat).
 
 **`scout/jobs_wire.py`**: `build_jobs(ctx) -> list[Job]`: `edgar_tickers` (daily 03:50 ET and at
-start), `edgar_atom` (`EveryJob` with the source's spacings), and one job per source of kind `wire` (`prnewswire`).
+start), `edgar_atom` (`EveryJob` with the source's spacings), and one job per source of kind `wire` (`prnewswire`, `stocktitan`).
 
 ### 2.3 Layer 1: halts, macro and regime (unit `macro`)
 
@@ -950,7 +952,8 @@ date "YYYY-MM-DD". Values marked * are this design's additions beyond SS 13.
 | ticker_map_retry_s * | int | 600 (a failed read of SEC's ticker list is retried after this; added at integration) |
 | edgar_atom_forms * | list[str] | ["8-K", "6-K", "S-1", "S-3", "F-1", "F-3", "424B", "EFFECT", "NT 10-Q", "NT 10-K", "10-Q", "10-K"] (10-Q and 10-K for the gate-5 check only; periodic forms are left out of `gate6_feeds`) |
 | ticker_exchange_prefixes | list[str] | ["NASDAQ", "Nasdaq", "NYSE", "NYSE American", "NYSE MKT", "NYSE Arca", "OTCQB", "OTCQX", "OTC", "Cboe BZX"] |
-| [host_min_spacing_s] * | table host -> float | "www.sec.gov" = 0.5, "data.sec.gov" = 0.5, "www.nasdaqtrader.com" = 60.0 |
+| wire_title_ticker_suffixes | list[str] | ["Stock News"] (a wire title ending "\| XXX Stock News" names XXX; Stock Titan) |
+| [host_min_spacing_s] * | table host -> float | "www.sec.gov" = 0.5, "data.sec.gov" = 0.5, "www.nasdaqtrader.com" = 60.0, "www.stocktitan.net" = 30.0 |
 | [host_max_requests_per_day] * | table host -> int | "nowflation.com" = 10 (also a hard cap in code: never above 10, for nowflation.com and every host under it) |
 | [class_keywords] | table class -> list[str] | SS 6.4 lists: offering, reverse_split, listing_notice, fda, trial, contract, earnings_result, earnings_date (exactly these keys; `other` is implicit; ` ... ` inside a keyword matches any text; the earnings_date defaults are "<scheduling phrase> ... results/earnings" pairs, see `scout/classify.py`) |
 
@@ -966,17 +969,27 @@ Keys: `enabled` (bool), `kind` (str: wire, filing, reference, halt, macro, vix),
 | edgar_submissions | true | reference | https://data.sec.gov/submissions/CIK{cik:010d}.json | 0 / 0 (on demand) | data.sec.gov | 0 | false |
 | edgar_tickers | true | reference | https://www.sec.gov/files/company_tickers_exchange.json | 86400 / 86400 | www.sec.gov | 0 | false |
 | prnewswire | true | wire | https://www.prnewswire.com/rss/news-releases-list.rss | 60 / 60 | www.prnewswire.com | 20 | true |
+| stocktitan | true | wire | https://www.stocktitan.net/rss | 60 / 600 | www.stocktitan.net | 100 | true |
 | nasdaq_halts | true | halt | https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts | 60 / 0 (not polled 20:00-04:00 except the one dated read) | www.nasdaqtrader.com | 0 | false |
 | nowflation | true | macro | https://nowflation.com, paths ["/data/release_calendar.json", "/data/realtime.json", "/forecasts/index.json", "/nowflation.ics"] | schedule-driven | nowflation.com | 0 | false |
 | bls | true | macro | https://www.bls.gov/schedule/news_release/bls.ics (UNVERIFIED path; confirm at build step 2) | 604800 | www.bls.gov | 0 | false |
 | cboe_vix | true | vix | https://cdn-api.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv | 86400 | cdn-api.cboe.com | 0 | false |
 
-`terms_ok` is false for `prnewswire` until the owner reads its terms.
+`terms_ok` is false for `prnewswire` until the owner reads its terms, and for `stocktitan` (its items
+carry only a title, link, guid and time, so nothing is lost).
+
+**Stock Titan was added (2026-11-04, owner).** It reposts releases from GlobeNewswire, Business Wire,
+PR Newswire and the smaller wires within minutes, each title ending "| XXX Stock News". Its terms ban
+bots in general but name "our provided RSS feeds" as an authorised way to collect data, for personal
+non-commercial use; robots.txt allows `/rss`. The feed allows 30 requests in 5 minutes
+(`RateLimit-Policy: 30;w=300`) and keeps the newest 100 items (about 100 in 20 minutes at a busy
+open), so a 60 s poll overlaps. Only the feed is read: `stocktitan.net` is not in
+`llm_allowed_domains`.
 
 **GlobeNewswire was removed (2026-11-03, owner).** Its feed answered 403 to Scout's declared
 User-Agent on 2026-11-01 and again on 2026-11-03 (Akamai bot protection), and reading it would need
 GlobeNewswire's permission. The owner's rule: Scout uses only sources that allow automated reading
-without asking. Gate 6 rests on `edgar_atom` and `prnewswire`. Business Wire (feed deactivated;
+without asking. Gate 6 rests on `edgar_atom`, `prnewswire` and (from 2026-11-04) `stocktitan`. Business Wire (feed deactivated;
 robots.txt disallows `/rss/`) and ACCESS Newswire (robots.txt disallows `/rss`) were checked the same
 day and are out for the same reason. Older beats and health records may still name `globenewswire`;
 the reader ignores any source the params do not name.
@@ -1107,7 +1120,7 @@ levels file), `write_params`, then the loop of section 2.1. Jobs (owner unit):
 |---|---|---|
 | edgar_tickers | start, daily 03:50 ET | wire |
 | edgar_atom | 60 s 04:00-20:00 ET, 600 s otherwise | wire |
-| prnewswire (every source of kind wire) | 60 s | wire |
+| prnewswire, stocktitan (every source of kind wire) | 60 s (stocktitan 600 s 20:00-04:00 ET) | wire |
 | nasdaq_halts | 60 s 04:00-20:00 ET (the job is checked every 1 s; the poller keeps the 60 s from the real send); once after 20:00 ET with `haltdate` | macro |
 | nowflation | start; 08:20 ET; 08:50 ET on release days (at most 10 requests a day) | macro |
 | bls | start, then every `[sources.bls] min_spacing_s` | macro |
@@ -1160,7 +1173,7 @@ parenthesised block ending in `exit /b`, read whole by cmd before `git pull` can
 4. Per-host spacing: waits (via the clock's `sleep`) until `max(host_min_spacing_s[host] or
    http_default_host_spacing_s, hard minimum, backoff)` has passed since the host's last request.
    Hard minimums in code: `www.nasdaqtrader.com` 60 s; `www.sec.gov`/`data.sec.gov` 0.5 s;
-   `www.prnewswire.com` 30 s (SS 12; the validator also refuses a wire
+   `www.prnewswire.com` and `www.stocktitan.net` 30 s (SS 12; the validator also refuses a wire
    `idle_spacing_s` other than 0 or >= 30). A stored last request in the future counts as the
    spacing passed, and no wait is longer than the spacing.
 5. Headers: `User-Agent: cfg.user_agent()`, `Accept-Encoding: gzip, deflate`, and when `conditional`
