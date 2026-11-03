@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from helpers_fakes import FakeBoard, FakeFactSink, FakeFetcher, FakeHealthSink, FakeRawSink, fetch_result
 from helpers_macro import HALTS_URL, halts_body
+from scout_reader import blocks as reader_blocks
 
 from scout.halts import (FEED_DATED, FEED_LIVE, HARD_MIN_SPACING_S, HaltPoller, dated_url, halt_key, parse_halts,
                          parse_halts_rows)
@@ -393,6 +394,7 @@ def test_a_bad_row_is_logged_and_the_rest_are_stored(cfg, clock, et, caplog) -> 
     with caplog.at_level("WARNING", logger="scout.halts"):
         assert poller.poll(et("2026-11-02", "10:00")) == 4
     assert health.records[-1].result == "ok" and health.records[-1].error.startswith("skipped 1 bad row(s)")
+    assert health.records[-1].error.startswith(reader_blocks._SKIPPED)  # noqa: SLF001 - entry_blocks reads it
     assert board.sources["nasdaq_halts"].status == "ok"
     assert any("halts row skipped" in r.getMessage() for r in caplog.records)
     assert "WXYZ" not in {f.ticker for f in facts.facts}  # the bad row; the NYSE market alone is fine

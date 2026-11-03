@@ -54,9 +54,9 @@ def test_keywords_are_config_and_case_insensitive():
 @pytest.mark.parametrize("form, items, desc, cls", [
     ("8-K", ["1.01"], "", "contract_or_other"),
     ("8-K", ["2.01", "9.01"], "", "contract_or_other"),
-    ("8-K", ["7.01"], "", "other"),  # a press release alone is never a catalyst (owner, 2026-11-04)
-    ("8-K", ["8.01", "9.01"], "", "other"),
-    ("8-K", ["7.01", "8.01"], "", "other"),
+    ("8-K", ["7.01"], "", "contract_or_other"),  # no longer a default catalyst (owner, 2026-11-04)
+    ("8-K", ["8.01", "9.01"], "", "contract_or_other"),
+    ("8-K", ["7.01", "8.01"], "", "contract_or_other"),
     ("8-K", ["1.01", "8.01"], "", "contract_or_other"),
     ("8-K", ["1.03"], "", "bankruptcy"),
     ("8-K", ["1.01", "1.03", "2.03", "7.01"], "", "bankruptcy"),  # Mercer, 3 Nov 2026: was contract_or_other
@@ -80,7 +80,8 @@ def test_keywords_are_config_and_case_insensitive():
     ("S-3ASR", [], "", "offering"), ("F-1", [], "", "offering"), ("F-3", [], "", "offering"),
     ("424B5", [], "", "offering"), ("424B3", [], "", "offering"), ("EFFECT", [], "", "offering"),
     ("424B1", [], "", "offering"), ("424B4", [], "", "offering"), ("424B7", [], "", "offering"),
-    ("424B2", [], "", None), ("424B8", [], "", None), ("424b2", [], "", None),  # banks' notes (owner, 2026-11-04)
+    ("424B2", [], "", None), ("424b2", [], "", None),  # banks' notes (owner, 2026-11-04)
+    ("424B8", [], "", "offering"),  # a prospectus filed late can be real dilution
     ("NT 10-Q", [], "", "late_filing"), ("NT 10-K", [], "", "late_filing"),
     ("10-Q", [], "", None), ("6-K", [], "", None), ("S-8", [], "", None), ("", [], "", None),
 ])
@@ -218,11 +219,11 @@ def _live_description(items):
 
 
 @pytest.mark.parametrize("items, cls", [
-    (["5.03", "8.01", "9.01"], "other"),
-    (["5.03", "7.01", "9.01"], "other"),
+    (["5.03", "8.01", "9.01"], None),
+    (["5.03", "7.01", "9.01"], None),
     (["3.03", "5.03", "9.01"], "reverse_split"),
     (["3.03", "5.03", "8.01", "9.01"], "reverse_split"),
-    (["3.03", "8.01"], "other"),
+    (["3.03", "8.01"], None),
     (["1.01", "5.03"], "contract_or_other"),  # a material agreement still counts
 ])
 def test_a_reverse_split_8k_from_live_captions_is_never_a_catalyst(items, cls):

@@ -300,13 +300,12 @@ Facts go to `state\facts\<date>.jsonl` (§10.2). **Facts never depend on an LLM.
   | Form or item | Class |
   |---|---|
   | 8-K 1.03 (owner, 2026-11-04) | `bankruptcy` |
-  | 424B2, 424B8 (banks' note prospectuses, late-filed prospectuses; owner, 2026-11-04) | none |
-  | 8-K 3.02; S-1, S-3, F-1, F-3, EFFECT; 424B1, 424B3, 424B4, 424B5, 424B7 | `offering` |
+  | 424B2 (banks' note prospectuses; owner, 2026-11-04) | none |
+  | 8-K 3.02; S-1, S-3, F-1, F-3, EFFECT; 424B1, 424B3, 424B4, 424B5, 424B7, 424B8 | `offering` |
   | 8-K 5.03 or DEF 14A with "reverse" in the description; 8-K 5.03 with 3.03 | `reverse_split` |
   | 8-K 3.01 | `listing_notice` |
   | 8-K 2.02 | `earnings_result` |
-  | 8-K 1.01, 2.01 | `contract_or_other` |
-  | 8-K 7.01 or 8.01 without any item above (owner, 2026-11-04) | `other` |
+  | 8-K 1.01, 2.01; 7.01 or 8.01 without 5.03 or 3.03 | `contract_or_other` |
   | NT 10-Q, NT 10-K | `late_filing` |
 
   An 8-K/A keeps only the classes that never pass gate 6 (bankruptcy, offering, reverse_split,
@@ -471,20 +470,22 @@ only stop the signal, never start it. Windows (decisions A and D of the squad-sp
 | Block (`kind`) | On file when |
 |---|---|
 | `offering`, `reverse_split`, `listing_notice`, `bankruptcy` | a wire or filing fact naming S with that class (§6.4) first seen within the last 3 trading days, counted back from as_of's trading day (20:00 ET rollover), so on a Wednesday from Friday 20:00 ET |
-| `halt_open` | a halt of S that began on as_of's ET date with no resumption by as_of |
+| `halt_open` | a halt of S in the facts files of the 3-trading-day window with no resumption by as_of, also one that began on an earlier ET date (its date is added as the reason `halt_unresolved_since:<date>`, so a missed resumption can be seen; owner, 2026-11-04) |
 | `macro_window` | a scheduled CPI release, FOMC decision or jobs report from 5 minutes before to 15 minutes after its time, from nowflation, BLS or the FOMC table |
 
 - **true** when any block is on file at as_of (`first_seen_at` and `published_at` <= as_of),
   **even when Scout is stale or a source is not ok**: known bad news always blocks.
 - **false** only when no block is on file, Scout is fresh, the params are in force, every gate-6
   source is `ok` with no gap (§6.2) over the 3-trading-day window, the halt feed is `ok` with no
-  gap open, no earlier halt of S is unresolved, the macro calendar is fresh (nowflation, or BLS with
-  the FOMC table reaching past the window), and no file read had a damaged line.
+  gap open, no halt poll in the window skipped a bad row (`halt_rows_skipped`: that row may have
+  been S's halt), the macro calendar is fresh (nowflation, or BLS with the FOMC table reaching past
+  the window), and no file read had a damaged line.
 - **unknown** otherwise. Staleness and sources only ever turn `false` into `unknown`. Radar lets
   the buy go ahead marked "Scout unknown" (decision B); an answer slower than 0.5 s counts as
   unknown on Radar's side.
-- Discord posts, scanner cards and LLM labels never count (decision C; §2 rule 7). A 424B2 or 424B8
-  filing never counts as an offering, also when stored as one before the class fix.
+- Discord posts, scanner cards and LLM labels never count (decision C; §2 rule 7). A 424B2 filing
+  never counts as an offering, and an 8-K with item 1.03 always counts as a bankruptcy, also when
+  stored with another class before the class fix.
 - `blocks` lists each block as {`kind`, `class`, `fact_id`, `first_seen_at`, `title`} (`class` is
   the halt code for a halt and the release kind, `cpi`, `fomc` or `nfp`, for a macro window).
 - Repeated calls are fast (well under 0.1 s on 10 MB day files): a Reader keeps a cache of each

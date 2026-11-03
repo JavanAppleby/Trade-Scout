@@ -82,15 +82,17 @@ def _halt_open(facts: Iterable[Mapping[str, Any]], beat: Mapping[str, Any] | Non
     if open_today_ids:
         return R.result("true", evidence=open_today_ids)
     if open_older:
-        return R.result("unknown", reasons=[f"halt_unresolved_since:{d}" for d in sorted(set(open_older))])
+        return R.result("unknown", reasons=[f"halt_unresolved_since:{d}" for d in sorted({o[0] for o in open_older})])
     return R.result("false")
 
 
 def open_halts(facts: Iterable[Mapping[str, Any]], symbol: str,
-               as_of: datetime) -> tuple[list[tuple[str, list[Mapping[str, Any]]]], list[str]]:
+               as_of: datetime) -> tuple[list[tuple[str, list[Mapping[str, Any]]]],
+                                         list[tuple[str, str, list[Mapping[str, Any]]]]]:
     """(halts of `symbol` open at as_of that began on as_of's ET date, as (halt key, its visible
-    records); ET dates of open halts that began earlier). Visible records only; no beat check, so
-    `scout_reader.blocks` can count an open halt on file even when Scout is stale."""
+    records); open halts that began earlier, as (their ET date, halt key, visible records)). Visible
+    records only; no beat check, so `scout_reader.blocks` can count an open halt on file even when
+    Scout is stale."""
     sym = str(symbol or "").strip().upper()
     groups: dict[str, list[Mapping[str, Any]]] = {}
     for rec in facts or ():
@@ -101,7 +103,7 @@ def open_halts(facts: Iterable[Mapping[str, Any]], symbol: str,
         groups.setdefault(_key(rec), []).append(rec)
     today = utc_to_et(as_of).date()
     open_today: list[tuple[str, list[Mapping[str, Any]]]] = []
-    open_older: list[str] = []
+    open_older: list[tuple[str, str, list[Mapping[str, Any]]]] = []
     for key, recs in sorted(groups.items()):
         halted = [R.parse_time(r.get("halt_time")) for r in recs]
         halted_at = min((h for h in halted if h is not None), default=None)
@@ -113,7 +115,7 @@ def open_halts(facts: Iterable[Mapping[str, Any]], symbol: str,
         if utc_to_et(halted_at).date() == today:
             open_today.append((key, recs))
         else:
-            open_older.append(utc_to_et(halted_at).date().isoformat())
+            open_older.append((utc_to_et(halted_at).date().isoformat(), key, recs))
     return open_today, open_older
 
 

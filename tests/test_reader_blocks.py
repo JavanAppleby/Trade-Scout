@@ -126,14 +126,28 @@ def test_discord_scanner_and_labels_never_block(scout_dir: Path, cfg: ScoutConfi
 
 
 def test_a_424b2_stored_as_an_offering_never_blocks(scout_dir: Path, cfg: ScoutConfig) -> None:
-    """Facts written before the 2026-11-04 class fix carry class offering for banks' 424B2 notes."""
+    """Facts written before the 2026-11-04 class fix carry class offering for banks' 424B2 notes. A
+    424B8 (a prospectus filed late) still blocks: it can be a small cap's real dilution."""
     _world(scout_dir, cfg)
-    _facts(scout_dir, fact(S, published=AS_OF - timedelta(hours=1), cls="offering", kind="filing", form="424B2"),
-           fact(S, published=AS_OF - timedelta(hours=1), cls="offering", kind="filing", form="424B8", title="b8"))
+    _facts(scout_dir, fact(S, published=AS_OF - timedelta(hours=1), cls="offering", kind="filing", form="424B2"))
     assert _ask(scout_dir)["value"] == "false"
     _facts(scout_dir, fact(S, published=AS_OF - timedelta(hours=1), cls="offering", kind="filing", form="424B5",
-                           title="b5"))
-    assert [b["title"] for b in _ask(scout_dir)["blocks"]] == ["b5"]
+                           title="b5"),
+           fact(S, published=AS_OF - timedelta(hours=1), cls="offering", kind="filing", form="424B8", title="b8"))
+    assert sorted(b["title"] for b in _ask(scout_dir)["blocks"]) == ["b5", "b8"]
+
+
+def test_a_chapter_11_8k_stored_as_contract_or_other_blocks(scout_dir: Path, cfg: ScoutConfig) -> None:
+    """The Mercer case: an 8-K with item 1.03 stored before the class fix as contract_or_other."""
+    _world(scout_dir, cfg)
+    f = fact(S, published=AS_OF - timedelta(hours=1), cls="contract_or_other", kind="filing", form="8-K",
+             items=("1.01", "1.03"), title="Mercer 8-K")
+    _facts(scout_dir, f, fact(S, published=AS_OF - timedelta(hours=1), cls="contract_or_other", kind="wire",
+                              items=("1.03",), title="a wire never has items"))
+    res = _ask(scout_dir)
+    assert res["value"] == "true" and res["blocks"] == [{
+        "kind": "bankruptcy", "class": "bankruptcy", "fact_id": f["fact_id"], "first_seen_at": f["first_seen_at"],
+        "title": "Mercer 8-K"}]
 
 
 # --------------------------------------------------------------------------- stale or sources not ok
@@ -212,12 +226,39 @@ def test_an_open_halt_blocks_and_a_resumed_one_does_not(scout_dir: Path, cfg: Sc
     assert _ask(scout_dir, as_of=resumed - timedelta(seconds=1))["value"] == "true"  # as of then, still halted
 
 
-def test_an_older_unresolved_halt_is_unknown(scout_dir: Path, cfg: ScoutConfig) -> None:
+def test_an_older_unresolved_halt_blocks(scout_dir: Path, cfg: ScoutConfig) -> None:
+    """A halt from an earlier ET date with no resumption on file is known bad news: it blocks, with
+    its date as a reason so a missed resumption can be seen. Also when Scout is stale."""
     _world(scout_dir, cfg)
-    halted = et_at("2026-11-03", "15:00")
-    _facts(scout_dir, _halt(S, halted, halted + timedelta(seconds=30)))
+    halted = et_at("2026-11-03", "17:30")
+    h = _halt(S, halted, halted + timedelta(seconds=30), code="H10")
+    _facts(scout_dir, h)
     res = _ask(scout_dir)
-    assert res["value"] == "unknown" and res["reasons"] == ["halt_unresolved_since:2026-11-03"]
+    assert res["value"] == "true" and res["reasons"] == ["block_on_file", "halt_unresolved_since:2026-11-03"]
+    assert [(b["kind"], b["fact_id"]) for b in res["blocks"]] == [("halt_open", h["fact_id"])]
+    early = _ask(scout_dir, as_of=et_at("2026-11-04", "04:05"))  # Wednesday pre-market, no beat then
+    assert early["value"] == "true" and early["stale"] is True
+    assert early["reasons"] == ["block_on_file", "scout_stale", "halt_unresolved_since:2026-11-03"]
+    resumed = et_at("2026-11-04", "09:30")
+    _facts(scout_dir, _halt(S, halted, resumed + timedelta(seconds=30), resumed=resumed, code="H10",
+                            guid=f"{h['guid']}|resumed|{iso(resumed)}"))
+    assert _ask(scout_dir)["value"] == "false"
+
+
+def test_a_halt_poll_that_skipped_a_bad_row_makes_false_unknown(scout_dir: Path, cfg: ScoutConfig) -> None:
+    """The skipped row may have been this stock's halt, so the halt feed did not cover it."""
+    _world(scout_dir, cfg)
+    at = AS_OF - timedelta(hours=1)
+    poll = {"source": "nasdaq_halts", "feed": "live", "kind": "halts", "enabled": True, "gate6": False,
+            "start": iso(at), "end": iso(at + timedelta(seconds=1)), "result": "ok", "http_status": 200, "items": 3,
+            "new_items": 0, "overlap": None, "spacing_s": 60.0, "gap_before": False,
+            "error": "skipped 1 bad row(s): halts item 2: missing HaltTime"}
+    late = {**poll, "start": iso(AS_OF - timedelta(seconds=1)), "end": iso(AS_OF + timedelta(seconds=5))}
+    write_records(scout_dir, "health", [{**poll, "error": None}, late])
+    assert _ask(scout_dir)["value"] == "false"  # the late poll had not ended by as_of
+    write_records(scout_dir, "health", [poll])
+    res = _ask(scout_dir)
+    assert res["value"] == "unknown" and res["reasons"] == ["halt_rows_skipped"]
 
 
 @pytest.mark.parametrize("offset_min, blocked", [(5, True), (6, False), (-15, True), (-16, False), (0, True)])
@@ -343,7 +384,10 @@ def test_repeated_calls_are_fast_on_10_mb_day_files(scout_dir: Path, cfg: ScoutC
     size = sum(_big_facts_day(scout_dir, d, 13_500) for d in ("2026-11-02", "2026-11-03", "2026-11-04"))
     assert size > 3 * 10_000_000
     reader = Reader(scout_dir)
+    t = time.perf_counter()
     first = reader.entry_blocks(S, AS_OF)
+    cold = time.perf_counter() - t
+    assert cold < 10.0  # the first call reads every file of the window once
     best = 1.0
     for i in range(5):
         t = time.perf_counter()
@@ -351,3 +395,22 @@ def test_repeated_calls_are_fast_on_10_mb_day_files(scout_dir: Path, cfg: ScoutC
         best = min(best, time.perf_counter() - t)
         assert res["value"] == first["value"] == "false"
     assert best < 0.1
+    # the files grow between calls, as they do while Scout runs: only the new bytes are read
+    state = scout_dir / "state"
+    beat = json.loads((state / "beats" / "2026-11-04.jsonl").read_text("utf-8").splitlines()[-1])
+    poll = json.loads((state / "health" / "2026-11-04.jsonl").read_text("utf-8").splitlines()[-1])
+    assert reader.cache is not None
+    tails, took = reader.cache.tail_reads, []
+    for i in range(1, 6):
+        at = AS_OF + timedelta(seconds=10 * i)
+        _append_line(state / "facts" / "2026-11-04.jsonl",
+                     fact("ZZ", published=at, cls="offering", kind="filing", title=f"grow{i}"))
+        _append_line(state / "health" / "2026-11-04.jsonl",
+                     {**poll, "start": iso(at - timedelta(seconds=1)), "end": iso(at)})
+        _append_line(state / "beats" / "2026-11-04.jsonl", {**beat, "at": iso(at)})
+        t = time.perf_counter()
+        res = reader.entry_blocks(S, at)
+        took.append(time.perf_counter() - t)
+        assert res["value"] == "false"
+    assert reader.cache.tail_reads >= tails + 15
+    assert sorted(took)[2] < 0.1  # the median

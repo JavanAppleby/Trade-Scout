@@ -85,7 +85,7 @@ def test_the_handoff_sub_folder_is_a_config_key(tmp_path: Path, scout_dir: Path)
         json.dumps({"format": 1, "symbol": "MOVD", "trading_day": "2026-11-03"}) + "\n", "utf-8")
     cfg = config_from_dict({"radar_dir": str(radar), "radar_handoff_subdir": "out"}, scout_dir)
     assert [f.symbol for f in radar_finds(cfg, date(2026, 11, 3))] == ["MOVD"]
-    for bad in ("", "../elsewhere", "C:/abs"):
+    for bad in ("", "../elsewhere", "C:/abs", "C:state", "/state", r"\\server\share"):
         with pytest.raises(ConfigError):
             config_from_dict({"radar_dir": str(radar), "radar_handoff_subdir": bad}, scout_dir)
 

@@ -93,8 +93,9 @@ def validate(c: Any) -> None:
                and is_within((c.scout_dir / rel).resolve(strict=False), c.scout_dir),
                f"{name}: must be a folder inside Scout's folder")
     sub = Path(c.radar_handoff_subdir)
-    _check(bool(c.radar_handoff_subdir.strip()) and not sub.is_absolute() and ".." not in sub.parts,
-           "radar_handoff_subdir: must be a folder inside Radar's folder (relative, no '..')")
+    _check(bool(c.radar_handoff_subdir.strip()) and not sub.is_absolute() and not sub.drive and not sub.anchor
+           and ".." not in sub.parts,
+           "radar_handoff_subdir: must be a folder inside Radar's folder (relative, no drive, no '..')")
     for name in ("radar_dir", "pilot_dir"):
         value = getattr(c, name)
         if value.strip():

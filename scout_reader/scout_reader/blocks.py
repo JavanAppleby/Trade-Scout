@@ -6,17 +6,18 @@ Scout can only stop a buy, never start one. The blocks, each with its window:
 | kind | on file when |
 |---|---|
 | `offering`, `reverse_split`, `listing_notice`, `bankruptcy` | a wire or filing fact naming the stock with that class, first seen within the last `lookback_days` trading days (counted back from as_of's trading day, 20:00 ET rollover) |
-| `halt_open` | a halt of the stock that began on as_of's ET date and has no resumption by as_of |
+| `halt_open` | a halt of the stock that began within the lookback window and has no resumption by as_of |
 | `macro_window` | a scheduled CPI release, FOMC decision or jobs report with `event_at` in [as_of - after, as_of + before] |
 
 Every record must be visible at as_of (`first_seen_at` and `published_at` <= as_of, SS 2 rule 9).
-Discord posts, scanner cards and LLM labels never count (decision C; SS 2 rule 7). A 424B2 or 424B8
-filing never counts as an offering, also when it was stored as one before the class fix.
+Discord posts, scanner cards and LLM labels never count (decision C; SS 2 rule 7). A 424B2 filing
+never counts as an offering, and an 8-K with item 1.03 always counts as a bankruptcy, also when it was
+stored with another class before the 2026-11-04 class fix.
 
 The answer: `true` when any block is on file, **even when Scout is stale or a source is not ok**
 (known bad news always blocks). Otherwise `false` only when Scout is fresh, the params are in force,
 every gate-6 source is ok with no gap over the lookback window (SS 6.2), the halt feed is ok with no
-gap open, no older halt of the stock is still unresolved, the macro calendar is fresh (nowflation,
+gap open, no halt row was skipped in the window, the macro calendar is fresh (nowflation,
 or BLS with the FOMC table reaching past the window), and no file read had a damaged line;
 `unknown` otherwise. Staleness only ever turns `false` into `unknown`. Radar treats `unknown` as
 "Scout unknown" and lets the buy go ahead (decision B).
@@ -52,12 +53,13 @@ __all__ = [
 BLOCK_CLASSES = ("offering", "reverse_split", "listing_notice", "bankruptcy")
 BLOCK_KINDS = (*BLOCK_CLASSES, "halt_open", "macro_window")
 MACRO_EVENT_KINDS = ("cpi", "fomc", "nfp")  # nfp: the jobs report
-NOT_OFFERING_FORMS = ("424B2", "424B8")
+NOT_OFFERING_FORMS = ("424B2",)
 DEFAULT_LOOKBACK_DAYS = 3  # decision A
 DEFAULT_MACRO_BEFORE_MIN = 5  # decision D
 DEFAULT_MACRO_AFTER_MIN = 15
 _ROLLOVER = time(20, 0)
 _POLL_TAIL = timedelta(hours=1)  # polls that started this close to as_of may have ended after it
+_SKIPPED = "skipped "  # how `scout.halts` starts the health `error` of an ok poll that skipped bad rows
 
 Result = dict[str, Any]
 
@@ -80,14 +82,28 @@ def lookback_start(as_of: datetime, days: int) -> tuple[date, datetime]:
 # --------------------------------------------------------------------------- cached views
 
 
+def _block_class(rec: Mapping[str, Any]) -> str | None:
+    """The blocking class of a wire or filing fact, re-checked against the 2026-11-04 class fix for
+    facts stored before it: a 424B2 is never an offering, an 8-K with item 1.03 is a bankruptcy."""
+    kind = rec.get("kind")
+    if kind not in CATALYST_KINDS:
+        return None
+    items = rec.get("items")
+    if kind == "filing" and isinstance(items, list) and "1.03" in items:
+        return "bankruptcy"
+    cls = rec.get("class")
+    if cls not in BLOCK_CLASSES:
+        return None
+    if cls == "offering" and str(rec.get("form") or "").strip().upper().startswith(NOT_OFFERING_FORMS):
+        return None
+    return str(cls)
+
+
 def _fact_item(rec: dict[str, Any]) -> dict[str, Any] | None:
     """The facts a block can come from: wire and filing facts with a blocking class, halts."""
     if not R.known(rec):
         return None
-    kind = rec.get("kind")
-    if kind == "halt":
-        return rec
-    if kind in CATALYST_KINDS and rec.get("class") in BLOCK_CLASSES:
+    if rec.get("kind") == "halt" or _block_class(rec) is not None:
         return rec
     return None
 
@@ -98,13 +114,16 @@ def _ticker(rec: Mapping[str, Any]) -> str:
 
 
 def _poll_item(rec: dict[str, Any]) -> tuple[Any, ...] | None:
-    """A `coverage.Poll` followed by (end, source, feed), for a health record with readable times."""
+    """A `coverage.Poll` followed by (end, source, feed, skipped bad rows), for a health record with
+    readable times."""
     if not R.known(rec):
         return None
     at, end = R.parse_time(rec.get("start")), R.parse_time(rec.get("end"))
     if at is None or end is None:
         return None
-    return (*cov.poll_of(at, rec), end, str(rec.get("source") or ""), str(rec.get("feed") or ""))
+    error = rec.get("error")
+    skipped = rec.get("result") == "ok" and isinstance(error, str) and error.startswith(_SKIPPED)
+    return (*cov.poll_of(at, rec), end, str(rec.get("source") or ""), str(rec.get("feed") or ""), skipped)
 
 
 def _beat_item(rec: dict[str, Any]) -> tuple[datetime, dict[str, Any]] | None:
@@ -177,26 +196,27 @@ def _block(kind: str, cls: object, fact_id: object, first_seen_at: object, title
 def _fact_blocks(facts: Iterable[Mapping[str, Any]], as_of: datetime, first: date) -> list[dict[str, Any]]:
     out = []
     for rec in facts:
-        cls = rec.get("class")
-        if rec.get("kind") not in CATALYST_KINDS or cls not in BLOCK_CLASSES or not R.visible(rec, as_of):
+        cls = _block_class(rec)
+        if cls is None or not R.visible(rec, as_of):
             continue
-        if cls == "offering" and str(rec.get("form") or "").strip().upper().startswith(NOT_OFFERING_FORMS):
-            continue  # stored as an offering before the 2026-11-04 class fix
         seen = R.parse_time(rec.get("first_seen_at"))
         if seen is None or trading_day_of(seen) < first:
             continue
-        out.append(_block(str(cls), cls, rec.get("fact_id"), rec.get("first_seen_at"), rec.get("title")))
+        out.append(_block(cls, cls, rec.get("fact_id"), rec.get("first_seen_at"), rec.get("title")))
     return out
 
 
 def _halt_blocks(facts: Iterable[Mapping[str, Any]], symbol: str, as_of: datetime) -> tuple[list[dict[str, Any]], list[str]]:
+    """(a `halt_open` block for every halt of S in the facts read with no resumption by as_of, the ET
+    dates of those that began before as_of's ET date). An older one blocks too (known bad news on
+    file); its date is kept as a reason so a missed resumption can be seen."""
     open_today, open_older = open_halts(facts, symbol, as_of)
     out = []
-    for key, recs in open_today:
+    for key, recs in open_today + [(key, recs) for _d, key, recs in open_older]:
         rec = min(recs, key=lambda r: str(r.get("first_seen_at")))
         out.append(_block("halt_open", rec.get("halt_code"), rec.get("fact_id") or key, rec.get("first_seen_at"),
                           f"halted {rec.get('halt_time')} ({rec.get('halt_code') or 'no code'})"))
-    return out, sorted(set(open_older))
+    return out, sorted({d for d, _k, _r in open_older})
 
 
 def _macro(history: Sequence[Mapping[str, Any]], params: Mapping[str, Any] | None, beat: Any, as_of: datetime,
@@ -224,7 +244,9 @@ def _macro(history: Sequence[Mapping[str, Any]], params: Mapping[str, Any] | Non
 
 def _coverage(files: _Files, params: Mapping[str, Any], beat: Mapping[str, Any], start: datetime,
               as_of: datetime) -> list[str]:
-    """`gates._coverage_problems` over cached polls: every gate-6 source ok with no gap over [start, as_of]."""
+    """`gates._coverage_problems` over cached polls: every gate-6 source ok with no gap over [start, as_of].
+    Also `halt_rows_skipped` when a halt poll in [start, as_of] skipped a bad row: that row may have
+    been the stock's halt, so the halt feed did not cover it."""
     sources = sorted({str(s) for s in params.get("gate6_sources") or () if isinstance(s, str)})
     if not sources:
         return ["no_gate6_sources"]
@@ -233,10 +255,13 @@ def _coverage(files: _Files, params: Mapping[str, Any], beat: Mapping[str, Any],
     if isinstance(max_gap, bool) or not isinstance(max_gap, (int, float)):
         return out + ["no_param:source_max_gap_s"]
     chains: dict[tuple[str, str], list[list[tuple[Any, ...]]]] = {}
+    skipped = False
     for view in files.days(R.HEALTH, start - timedelta(days=1), as_of, "polls", _poll_item,
                            lambda i: (i[5], i[6]), order=lambda i: i[0]):
         for k, items in view.groups.items():
             chains.setdefault(k, []).append(items)
+            if k[0] == HALT_SOURCE:
+                skipped = skipped or any(i[7] and i[0] >= start and i[4] <= as_of for i in items)
     gap_open = beat.get("gap_open") if isinstance(beat.get("gap_open"), Mapping) else {}
     feeds_wanted = params.get("gate6_feeds") if isinstance(params.get("gate6_feeds"), Mapping) else {}
     for name in sources:
@@ -251,6 +276,8 @@ def _coverage(files: _Files, params: Mapping[str, Any], beat: Mapping[str, Any],
         for parts in feeds.values():
             for gap in cov.chain_gaps(_chain(parts, as_of), start, as_of, float(max_gap)):
                 out.append(f"gap:{name}:{gap['why']}")
+    if skipped:
+        out.append("halt_rows_skipped")
     return list(dict.fromkeys(out))
 
 
@@ -286,7 +313,7 @@ def entry_blocks_in(root: Path, cache: FileCache, params: Mapping[str, Any] | No
     blocks += macro
     blocks.sort(key=lambda b: (BLOCK_KINDS.index(b["kind"]), str(b["first_seen_at"]), str(b["fact_id"])))
     if blocks:
-        why = ["block_on_file"] + (["scout_stale"] if beat is None else [])
+        why = ["block_on_file"] + (["scout_stale"] if beat is None else []) + [f"halt_unresolved_since:{d}" for d in older]
         res = R.result("true", [str(b["fact_id"]) for b in blocks], beat is None, why)
     else:
         reasons = list(b_reasons) + list(p_reasons)
@@ -298,7 +325,6 @@ def entry_blocks_in(root: Path, cache: FileCache, params: Mapping[str, Any] | No
                 reasons.append(f"source_not_ok:{HALT_SOURCE}")
             elif gap_open.get(HALT_SOURCE) is True:
                 reasons.append(f"gap_open:{HALT_SOURCE}")
-            reasons += [f"halt_unresolved_since:{d}" for d in older]
             reasons += macro_why
             reasons += sorted(files.notes)  # rule 4: a damaged file turns false into unknown
         reasons = list(dict.fromkeys(reasons))

@@ -105,7 +105,7 @@ email is never echoed; `repr` hides it).
 - Validation highlights: `scout_webull_enabled` must be false in v1; `class_keywords` keys must be
   exactly the SS 6.4 classes (`bankruptcy`, added 2026-11-04, may be left out and keeps its default
   list, so an install table written before then still loads); `radar_handoff_subdir` relative,
-  without ".."; `hold_catalyst_classes` only from known classes; times "HH:MM";
+  without a drive or ".."; `hold_catalyst_classes` only from known classes; times "HH:MM";
   `min_spacing_s` for `nasdaq_halts` >= 60 and for wires >= 30; `levels_dir`, `inbox_dir` inside
   Scout's folder.
 
@@ -299,8 +299,8 @@ company, accepted_at, filed_on, items: tuple[str, ...], link)`; raises `SchemaEr
 blocking classes bankruptcy, offering, reverse_split and listing_notice: it re-files an earlier 8-K,
 so it is never `earnings_result` or `contract_or_other` and never makes gate 6 true on stale news;
 5.03 with 3.03 is `reverse_split`. Owner, 2026-11-04: 1.03 is `bankruptcy` and wins over every
-other item; 424B2 and 424B8 have no class (`NOT_OFFERING_424B`); 1.01 or 2.01 is
-`contract_or_other`; 7.01 or 8.01 without any of those is `other`),
+other item; 424B2 has no class (`NOT_OFFERING_424B`); 424B8 stays `offering`; the
+`contract_or_other` rows are unchanged),
 `refuse_dtd(data)` (expat's own doctype and entity handlers, so a DTD is refused in any encoding;
 used by `safe_xml_root` and the halts parser),
 `parse_ticker_rows(body)` (every row of the ticker file, duplicates kept; Radar's
@@ -857,15 +857,18 @@ SCOUT_SPEC 7.8; the squad-split proposal in Radar's `docs/SQUAD_SPLIT_PROPOSAL.m
 - `entry_blocks_in(...)`: the blocks for S at as_of: class facts (`offering`, `reverse_split`,
   `listing_notice`, `bankruptcy`; wire and filing kinds only) first seen on or after
   `lookback_start(as_of, 3)` (20:00 ET of the trading day before the first of the 3 trading days);
-  `halt_open` from `halts.open_halts` (began on as_of's ET date, not resumed by as_of); `macro_window`
+  `halt_open` from `halts.open_halts` for every halt in the facts read with no resumption by as_of,
+  also one that began on an earlier ET date (reason `halt_unresolved_since:<date>`); `macro_window`
   for `cpi`, `fomc`, `nfp` events of the latest visible nowflation and BLS history records and the
   params' FOMC table with `event_at` in [as_of - 15 min, as_of + 5 min].
 - Unlike every other answer, rules 2 and 6 of 3.2 do not hide evidence: blocks on file give `true`
   with Scout stale (`stale: true`, reasons `block_on_file`, `scout_stale`). `false` needs a fresh beat,
   params, every gate-6 source `ok` and gap-free over [lookback start, as_of], `nasdaq_halts` `ok`
-  with no gap open, no older unresolved halt in the files read, a fresh macro calendar (as 3.8's
-  `covered`), and no damaged line (rule 4).
-- A 424B2 or 424B8 fact stored as `offering` before the class fix never blocks.
+  with no gap open, no `nasdaq_halts` poll in [lookback start, as_of] that skipped a bad row
+  (`halt_rows_skipped`, read from the health `error` that `scout.halts` starts with "skipped "), a
+  fresh macro calendar (as 3.8's `covered`), and no damaged line (rule 4).
+- A 424B2 fact stored as `offering` before the class fix never blocks; a filing fact whose `items`
+  hold 1.03 is a `bankruptcy` block whatever class it was stored with (`blocks._block_class`).
 - The halt and fact search reads the facts files of the lookback window only (not the 30 days
   `halt_open` reads); an older halt still open is outside it and simply not seen.
 - `cache.FileCache`: one per Reader. A view of a file (facts: only the records a block can come
@@ -1455,10 +1458,10 @@ recommended answer. Scout's part is its section 5, items 1-5; SCOUT_SPEC 1, 2, 6
    the file Radar really writes (2.1). The planned `state\finds\` export was never built.
 2. **Halts**: any Market text is stored, a missing one is None, and one bad row is skipped and
    counted instead of refusing the feed (2.3). The feed was down all day on 2 and 3 Nov.
-3. **Classes**: `bankruptcy` (8-K 1.03 and wire keywords, tried first); 424B2 and 424B8 have no
-   class; 8-K 7.01 or 8.01 alone is `other`; `contract_or_other` left the default
-   `hold_catalyst_classes` (2.2, 6.4). Facts already stored keep the class they were stored with
-   (append-only); only `entry_blocks` re-checks the 424B2/424B8 form, so old bank notes do not block.
+3. **Classes**: `bankruptcy` (8-K 1.03 and wire keywords, tried first); 424B2 has no class;
+   `contract_or_other` left the default `hold_catalyst_classes` (2.2, 6.4). Facts already stored
+   keep the class they were stored with (append-only); only `entry_blocks` re-checks them: a 424B2
+   never blocks, an 8-K with 1.03 blocks as `bankruptcy`.
 4. **Coverage**: a failed poll followed in time by an overlapping good poll is not a gap (3.7). This
    applies to every gate-6 source, not EDGAR only: the rule is the same for all of them.
 5. **`entry_blocks`** (3.9), with its cache.
@@ -1467,9 +1470,23 @@ Choices made in the build (the proposal left them open):
 - `bankruptcy` may be missing from an install's `[class_keywords]` table (its default list
   stands), so an install config written before 0.2.0 still loads; every other class must still be
   listed.
-- A 424B2/424B8 is `None`, not a new `debt_note` class: nothing reads such a class, and `None`
+- A 424B2 is `None`, not a new `debt_note` class: nothing reads such a class, and `None`
   keeps it out of `news_headline` classes too.
 - The cache serves `entry_blocks` only; gates 5 and 6 still read afresh, so a cache fault can never
   change a hold answer.
 - `halt_open` in `blocks` uses the halt code as `class`, `macro_window` the release kind.
+
+Review fixes (same 0.2.0, before release; owner, 2026-11-04 approval of the proposal, applied the safe way):
+- An unresolved halt from an earlier ET date now blocks (it gave `unknown`, so a halt at 17:30 ET
+  with no resumption seen did not stop a 04:05 ET signal the next day). Proposal 3.4: "bad news on
+  file always blocks". A lost resumption row can block a stock for at most the 3-trading-day window;
+  `halt_unresolved_since:<date>` in the reasons shows it. Gate questions (`halt_open`) are unchanged.
+- 424B8 stays an `offering`, and 8-K 7.01 or 8.01 alone stays `contract_or_other`: the proposal
+  asked only that banks' 424B2 notes stop being offerings and that `contract_or_other` stop counting
+  for holds (done through `hold_catalyst_classes`). The first build went further without the owner's
+  request; reverted.
+- A filing fact stored before the fix with item 1.03 blocks as `bankruptcy` (the Mercer case).
+- A halt poll that skipped a bad row turns `false` into `unknown` (`halt_rows_skipped`) for the
+  lookback window: the skipped row may have been the stock's halt.
+- `radar_handoff_subdir` also refuses a drive ("C:state") or a root.
 
