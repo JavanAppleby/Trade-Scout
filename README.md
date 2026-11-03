@@ -2,7 +2,7 @@
 
 Scout is the market-context bot of the owner's trading system. It reads public sources (SEC EDGAR,
 press-release wires, Nasdaq trading halts, the nowflation.com macro calendar, the BLS and FOMC
-schedules, the Cboe VIX close), records each fact with the time Scout first saw it, and answers
+schedules, the Cboe VIX close, the BLS jobs and CPI results), records each fact with the time Scout first saw it, and answers
 questions for the other bots. Every answer is `true`, `false` or `unknown`, with the evidence.
 It also writes a morning brief for the owner before the US open.
 

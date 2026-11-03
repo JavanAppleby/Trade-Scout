@@ -49,7 +49,7 @@ from scout.nowflation import FUTURE_SLACK
 
 log = logging.getLogger("scout.jobs_macro")
 
-SEEDED = ("bls", "cboe_vix", "nowflation")
+SEEDED = ("bls", "bls_data", "cboe_vix", "nowflation")
 ANSWERED = frozenset({"ok", "stale"})  # the host answered: the read counts for the spacing
 _STATUSES = frozenset({"ok", "stale", "unavailable"})
 

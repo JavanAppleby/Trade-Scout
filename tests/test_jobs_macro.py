@@ -8,8 +8,8 @@ from datetime import timedelta
 
 from conftest import make_config
 from helpers_fakes import FakeFetcher
-from helpers_macro import (BLS_URL, CAL_URL, HALTS_URL, VIX_URL, FakeCtx, halts_body, macro_body,
-                           nowflation_results)
+from helpers_macro import (BLS_DATA_BASE, BLS_URL, CAL_URL, HALTS_URL, VIX_URL, FakeCtx, bls_data_results,
+                           halts_body, macro_body, nowflation_results)
 
 from scout.jobs_macro import build_jobs
 from scout.paths import ScoutPaths
@@ -20,7 +20,7 @@ LOG = logging.getLogger("scout.test.jobs_macro")
 
 def _results() -> dict:
     return {HALTS_URL: halts_body(), BLS_URL: macro_body("bls_SYNTHETIC.ics"),
-            VIX_URL: macro_body("VIX_History_head_SYNTHETIC.csv"), **nowflation_results()}
+            VIX_URL: macro_body("VIX_History_head_SYNTHETIC.csv"), **nowflation_results(), **bls_data_results()}
 
 
 def _ctx(cfg, clock) -> FakeCtx:
@@ -35,11 +35,12 @@ def _history(ctx) -> list[dict]:
 def test_job_names(cfg, clock) -> None:
     names = [j.name for j in build_jobs(_ctx(cfg, clock))]
     assert names == ["nasdaq_halts", "fomc_start", "fomc", "bls", "nowflation_start", "nowflation@08:20",
-                     "nowflation_release_day", "cboe_vix_start", "cboe_vix"]
+                     "nowflation_release_day", "cboe_vix_start", "cboe_vix", "bls_data_start", "bls_data@08:40",
+                     "bls_data_release_day"]
 
 
 def test_disabled_sources_get_no_job(scout_dir, clock) -> None:
-    off = {name: {"enabled": False} for name in ("nasdaq_halts", "nowflation", "bls", "cboe_vix")}
+    off = {name: {"enabled": False} for name in ("nasdaq_halts", "nowflation", "bls", "cboe_vix", "bls_data")}
     cfg = make_config(scout_dir, sources=off)
     assert [j.name for j in build_jobs(_ctx(cfg, clock))] == ["fomc_start", "fomc"]
 
@@ -56,7 +57,8 @@ def test_first_tick_reads_every_source_once(cfg, clock, et) -> None:
     assert urls.count(HALTS_URL) == 1 and urls.count(BLS_URL) == 1
     assert urls.count(VIX_URL) == 1  # before 16:30 the start read runs; the daily one is not due
     sources = [h["source"] for h in _history(ctx)]
-    assert sources.count("nowflation") == 1 and set(sources) == {"fomc", "bls", "nowflation", "cboe_vix"}
+    assert sources.count("nowflation") == 1 and set(sources) == {"fomc", "bls", "nowflation", "cboe_vix", "bls_data"}
+    assert sum(u.startswith(BLS_DATA_BASE) for u in urls) == 3  # one read: three series (start stepped aside)
     daily = json.loads((ctx.paths.macro / "2026-11-02.json").read_text("utf-8"))
     assert daily["inflation_regime"] == "steady"
     assert {f.kind for f in ctx.fact_sink.facts} == {"halt", "macro_event"}

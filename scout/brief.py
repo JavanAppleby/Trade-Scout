@@ -18,7 +18,8 @@ from typing import Any
 from scout.brief_discord import sec_discord
 from scout.brief_sections import (
     MAX_CATALYSTS, BriefInputs, catalysts, fold_offering_filings, md_escape, open_halts, sec_calendar, sec_catalysts,
-    sec_due_windows, sec_halts, sec_header, sec_health, sec_jason, sec_llm, sec_macro, sec_regime, sec_verify,
+    sec_due_windows, sec_halts, sec_header, sec_health, sec_jason, sec_llm, sec_macro, sec_regime, sec_results,
+    sec_verify,
 )
 from scout.calendar import previous_trading_day
 from scout.clock import et_date, et_datetime
@@ -26,8 +27,8 @@ from scout.inputs import radar_finds
 from scout.llm_ledger import Ledger
 from scout.store import atomic_write_text
 
-SECTIONS = (sec_header, sec_calendar, sec_macro, sec_regime, sec_catalysts, sec_halts, sec_due_windows, sec_jason,
-            sec_discord, sec_health, sec_llm, sec_verify)
+SECTIONS = (sec_header, sec_calendar, sec_macro, sec_regime, sec_results, sec_catalysts, sec_halts, sec_due_windows,
+            sec_jason, sec_discord, sec_health, sec_llm, sec_verify)
 
 __all__ = ["SECTIONS", "brief_path", "build_brief", "cli_brief", "collect", "j4_items", "write_brief"]
 

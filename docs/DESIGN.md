@@ -434,6 +434,11 @@ required key or a wrong type refuses the source.
 **`scout/cboe_vix.py`**: `parse_vix_csv(body) -> list[VixRow]` (header must be
 `DATE,OPEN,HIGH,LOW,CLOSE`); `class VixReader`, `read(now) -> MacroRecord`.
 
+**`scout/bls_data.py`** (SS 7.7): `parse_series(body, series_id) -> list[MonthValue] | None` (None
+when BLS refused); `results_from(series, cfg, expect)`; `expected(history, kind, month, before)`;
+`jobs_trend(changes, cfg)`; `class BlsDataReader`, `read(now) -> MacroRecord` (three requests, one per
+series); `summary_lines(results)` for the brief.
+
 **`scout/macro.py`**: `merge_events(now_events, bls_events, fomc_events, cfg) -> list[MacroEvent]`
 (CPI and NFP cross-checked with BLS within `macro_agree_minutes`; FOMC against the table by date; PCE
 `sources_agree = None`; earlier time wins on disagreement); `inflation_regime(rt, cfg) -> str`;
@@ -443,7 +448,8 @@ required key or a wrong type refuses the source.
 
 **`scout/jobs_macro.py`**: `build_jobs(ctx)`: `nasdaq_halts` (60 s, 04:00-20:00 ET, plus the
 after-20:00 read), `nowflation` (at start, 08:20 ET, 08:50 ET on release days), `bls` (weekly),
-`cboe_vix` (daily after 16:30 ET), `macro_merge` (after each of those). At build time it calls
+`cboe_vix` (daily after 16:30 ET), `bls_data` (at start, 08:40 ET, 09:15 ET on release days),
+`macro_merge` (after each of those). At build time it calls
 `macro_seed.seed_board` (below).
 
 **`scout/macro_seed.py`**: `last_read(writer, source)` (the last read that counts for the spacing:
@@ -893,12 +899,13 @@ fact_ids, symbols`, plus `reason`, and `reservation` (on a `reserved` record) or
 record that replaces it).
 
 ### 5.8 Macro (`state\macro\<date>.json`, `state\macro\history.jsonl`)
-History record (one per source read): `format, source ("nowflation"|"bls"|"fomc"|"cboe_vix"),
+History record (one per source read): `format, source ("nowflation"|"bls"|"fomc"|"cboe_vix"|"bls_data"),
 first_seen_at, fetched_at, status ("ok"|"stale"|"unavailable"), reasons, source_generated_at, sha256,
 events (list of {kind, event_at, prior, street, nowflation_forecast, cleveland, kalshi, extra}),
 realtime ({realtime_yoy_pct, change_1d, change_5d, change_20d, cpi_gauge_yoy_pct,
 official_cpi_yoy_pct, official_cpi_month, live_share_pct, avg_input_age_days} | null),
-inflation_regime, forecast_lean, vix ({date, close} | null), attribution`.
+inflation_regime, forecast_lean, vix ({date, close} | null), attribution, results` (bls_data only, else
+null: payrolls, unemployment, cpi, jobs_trend, jobs_trend_avg_k; SS 7.7). The daily file adds `results`.
 Daily file: `format, at, inflation_regime, regime_status, vix, events (merged, with sources and
 sources_agree), forecast_lean (from the fresh nowflation record; the brief shows it as
 "informational, untested", SS 7.3), sources ({name: {status, reasons, fetched_at}})`.
@@ -974,6 +981,7 @@ Keys: `enabled` (bool), `kind` (str: wire, filing, reference, halt, macro, vix),
 | nowflation | true | macro | https://nowflation.com, paths ["/data/release_calendar.json", "/data/realtime.json", "/forecasts/index.json", "/nowflation.ics"] | schedule-driven | nowflation.com | 0 | false |
 | bls | true | macro | https://www.bls.gov/schedule/news_release/bls.ics (UNVERIFIED path; confirm at build step 2) | 604800 | www.bls.gov | 0 | false |
 | cboe_vix | true | vix | https://cdn-api.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv | 86400 | cdn-api.cboe.com | 0 | false |
+| bls_data | true | macro | https://api.bls.gov/publicAPI/v1/timeseries/data/ (+ series id) | schedule-driven | api.bls.gov | 0 | false |
 
 `terms_ok` is false for `prnewswire` until the owner reads its terms, and for `stocktitan` (its items
 carry only a title, link, guid and time, so nothing is lost).
@@ -1126,6 +1134,7 @@ levels file), `write_params`, then the loop of section 2.1. Jobs (owner unit):
 | bls | start, then every `[sources.bls] min_spacing_s` | macro |
 | fomc | start, then daily (the table in config) | macro |
 | cboe_vix | trading days after 16:30 ET | macro |
+| bls_data | start unless read today; 08:40 ET daily; 09:15 ET on CPI, NFP or PCE days (at most 12 requests a day) | macro |
 | jason_snapshot | start; 00:05 ET; on a change in `levels\` | levels |
 | discord_inbox | every `inbox_poll_s` (60 s); status at start (2.7) | inbox |
 | answers_pilot | 19:30 and 19:45 ET (16:30, 16:45 on early closes) | answers |

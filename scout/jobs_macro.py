@@ -7,6 +7,7 @@
 | bls | when `[sources.bls] min_spacing_s` (weekly) has passed since the last read (checked hourly) |
 | nowflation | at start unless already read today; daily at each `nowflation_read_times_et` (08:20 ET); at `nowflation_release_day_time_et` (08:50 ET) on a CPI, NFP or PCE day |
 | cboe_vix | at start unless already read since the last scheduled read; trading days at `vix_read_after_et` (16:30 ET) |
+| bls_data | at start unless already read today; daily at each `bls_data_read_times_et` (08:40 ET); again at `bls_data_release_day_time_et` (09:15 ET) on a CPI, NFP or PCE day (nowflation's calendar) |
 
 "The last read" comes from the macro history (`MacroWriter.latest`, reloaded at start), so a restart
 does not fetch BLS, Cboe or nowflation again (SS 4.1: BLS weekly, Cboe daily, nowflation capped).
@@ -29,6 +30,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
+from scout.bls_data import SOURCE as BLS_DATA, BlsDataReader
 from scout.bls_ics import BlsReader
 from scout.calendar import in_active_hours, is_trading_day, previous_trading_day
 from scout.cboe_vix import VixReader
@@ -39,6 +41,7 @@ from scout.macro import MacroWriter
 from scout.macro_seed import last_read, seed_board
 from scout.nowflation import NowflationReader, is_release_day
 from scout.scheduler import DailyJob, EveryJob, Job, OnceAtStartJob
+from scout.store import read_jsonl
 
 __all__ = ["build_jobs", "halts_tick", "last_fetched", "last_read", "vix_slot"]
 
@@ -172,5 +175,33 @@ def build_jobs(ctx: Any) -> list[Job]:
 
         jobs.append(OnceAtStartJob("cboe_vix_start", _unless_due([vix_daily], vix_start)))
         jobs.append(vix_daily)
+
+    if _enabled(cfg, BLS_DATA):
+        history_path = ctx.paths.macro / "history.jsonl"
+        bd = readers[BLS_DATA] = BlsDataReader(cfg, ctx.fetcher(), ctx.raw(), ctx.health(), ctx.board, clock,
+                                               history=lambda: read_jsonl(history_path))
+
+        def bls_data(now: datetime) -> None:
+            save(bd.read(now))
+
+        def bls_data_release(now: datetime) -> None:
+            # a second read on release days, in case BLS posted after the morning read (3 more requests)
+            nf_reader = readers.get("nowflation")
+            if nf_reader is not None and is_release_day(nf_reader.last_events, et_date(now)):
+                bls_data(now)
+
+        bd_last = last_read(writer, BLS_DATA)
+        bd_daily = [_seed(DailyJob(f"bls_data@{t:%H:%M}", bls_data, t, trading_days_only=False), bd_last)
+                    for t in cfg.bls_data_read_times_et]
+
+        def bls_data_start(now: datetime) -> None:
+            last = last_read(writer, BLS_DATA)
+            if last is None or et_date(last) != et_date(now):
+                bls_data(now)
+
+        jobs.append(OnceAtStartJob("bls_data_start", _unless_due(bd_daily, bls_data_start)))
+        jobs.extend(bd_daily)
+        jobs.append(_seed(DailyJob("bls_data_release_day", bls_data_release, cfg.bls_data_release_day_time_et,
+                                   trading_days_only=False), bd_last))
     seed_board(ctx.board, cfg, writer, clock.now(), readers)
     return jobs

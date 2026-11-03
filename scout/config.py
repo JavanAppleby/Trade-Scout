@@ -115,6 +115,11 @@ DEFAULT_SOURCES: dict[str, dict[str, Any]] = {
         min_spacing_s=604800.0, idle_spacing_s=604800.0, allowed_hosts=["www.bls.gov"],
         terms_note="Public schedule; weekly. Path UNVERIFIED until build step 2.", max_items=0, gate6=False,
         terms_ok=True),
+    "bls_data": dict(  # owner, 2026-11-04: the jobs report and CPI as published
+        enabled=True, kind="macro", url="https://api.bls.gov/publicAPI/v1/timeseries/data/", paths=[],
+        min_spacing_s=0.0, idle_spacing_s=0.0, allowed_hosts=["api.bls.gov"],
+        terms_note="BLS Public Data API v1: public data, no key; at most 25 requests a day (3 a read).",
+        max_items=0, gate6=False, terms_ok=True),
     "cboe_vix": dict(
         enabled=True, kind="vix", url="https://cdn-api.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv",
         paths=[], min_spacing_s=86400.0, idle_spacing_s=86400.0, allowed_hosts=["cdn-api.cboe.com"],
@@ -166,7 +171,7 @@ PERIODIC_FORMS = frozenset({"10-Q", "10-K", "20-F", "40-F"})
 
 DEFAULT_HOST_MIN_SPACING: dict[str, float] = {"www.sec.gov": 0.5, "data.sec.gov": 0.5, "www.nasdaqtrader.com": 60.0,
                                               "www.stocktitan.net": 30.0}
-DEFAULT_HOST_MAX_PER_DAY: dict[str, int] = {"nowflation.com": 10}
+DEFAULT_HOST_MAX_PER_DAY: dict[str, int] = {"nowflation.com": 10, "api.bls.gov": 12}
 DEFAULT_LLM_JOBS: dict[str, dict[str, Any]] = {
     "J1": dict(enabled=True, model="claude-haiku-5-5", effort="low", max_tokens=4000),
     "J3": dict(enabled=True, model="claude-sonnet-5-5", effort="medium", max_tokens=4000),
@@ -262,6 +267,11 @@ class ScoutConfig:
     inflation_cooling_pp: float = 0.25
     inflation_regime_window_days: int = 20
     vix_read_after_et: time = time(16, 30)
+    bls_data_read_times_et: tuple[time, ...] = (time(8, 40),)
+    bls_data_release_day_time_et: time = time(9, 15)
+    jobs_trend_months: int = 3
+    jobs_strong_k: float = 150.0
+    jobs_weak_k: float = 50.0
 
     # 6.6 readers and Jason
     scout_stale_s: int = 120
@@ -451,6 +461,7 @@ _COERCE: dict[str, Callable[[str, Any], Any]] = {
     "active_hours_et": as_time_list,
     "answer_times_et": as_time_list,
     "nowflation_read_times_et": as_time_list,
+    "bls_data_read_times_et": as_time_list,
     "discord_capture_hours_et": as_time_list,
     "fomc_dates": as_date_list,
 }

@@ -27,7 +27,7 @@ FILE_NAME = "http_hosts.json"
 FORMAT = 1
 # Hard daily caps in code, whatever the config says (SS 4.1 #7, SS 12 "enforced per host in code").
 # A cap covers the host and every host under it (www.nowflation.com shares nowflation.com's count).
-HARD_MAX_REQUESTS_PER_DAY: dict[str, int] = {"nowflation.com": 10}
+HARD_MAX_REQUESTS_PER_DAY: dict[str, int] = {"nowflation.com": 10, "api.bls.gov": 20}  # BLS v1: 25 a day
 
 
 def cap_key(host: str) -> str:

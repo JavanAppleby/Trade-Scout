@@ -23,7 +23,8 @@ from scout.scheduler import run_due
 
 DAY = date(2026, 11, 2)
 HERE = Path(__file__).resolve().parent.parent / "scout"
-HEADINGS = ("# Scout brief", "## Macro events", "## Inflation regime and VIX", "## Overnight catalysts",
+HEADINGS = ("# Scout brief", "## Macro events", "## Inflation regime and VIX", "## Jobs and inflation results",
+            "## Overnight catalysts",
             "## Open halts", "## Earnings due windows", "## Jason's levels", "## Paper Gains Discord", "## Source health",
             "## Claude API",
             "## Verification sample")
@@ -92,7 +93,8 @@ def test_empty_state_skeleton(cfg: ScoutConfig, paths: ScoutPaths, clock: Manual
     assert "09:00 ET / 00:00 AEST" in text
     assert "**No current levels file.**" in text and "LLM off" in text and "No heartbeat yet" in text
     assert "radar_dir is empty" in text and "No sample yet" in text and "Claude's paragraph" not in text
-    assert len(SECTIONS) == 12
+    assert "No BLS results yet." in text
+    assert len(SECTIONS) == 13
 
 
 def test_full_brief(scout_dir: Path, clock: ManualClock, tmp_path: Path) -> None:

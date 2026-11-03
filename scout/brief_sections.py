@@ -15,6 +15,7 @@ from typing import Any
 
 from scout_reader import records as R
 
+from scout.bls_data import summary_lines
 from scout.calendar import calendar_covers, prior_close_before
 from scout.clock import et_date, fmt_et_bne, parse_iso
 from scout.config import ScoutConfig
@@ -31,7 +32,7 @@ __all__ = [
     "MAX_CATALYSTS", "NOWFLATION_CREDIT", "BriefInputs", "catalysts", "collect_facts", "fold_offering_filings",
     "iso_week", "md_escape",
     "open_halts", "sec_calendar", "sec_catalysts", "sec_due_windows", "sec_halts", "sec_header", "sec_health",
-    "sec_jason", "sec_llm", "sec_macro", "sec_regime", "sec_verify",
+    "sec_jason", "sec_llm", "sec_macro", "sec_regime", "sec_results", "sec_verify",
 ]
 
 
@@ -247,6 +248,14 @@ def sec_regime(inp: BriefInputs) -> list[str]:
              f"- VIX close: {md_escape(vix.get('close'), 12)} on {md_escape(vix.get('date'), 12)}" if vix
              else "- VIX close: unknown", ""]
     return lines
+
+
+def sec_results(inp: BriefInputs) -> list[str]:
+    """The latest BLS results (jobs, unemployment, CPI) as Scout had them at the brief's as-of."""
+    daily = _macro_daily(inp) or {}
+    return ["## Jobs and inflation results", "", *summary_lines(daily.get("results")), "",
+            "Results are recorded only; they never change an answer. Expected values are Nowflation's, as "
+            "Scout had them before the release.", ""]
 
 
 def sec_catalysts(inp: BriefInputs) -> list[str]:

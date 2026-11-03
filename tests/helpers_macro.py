@@ -25,6 +25,8 @@ ICS_URL = f"{NOW_BASE}/nowflation.ics"
 BLS_URL = "https://www.bls.gov/schedule/news_release/bls.ics"
 VIX_URL = "https://cdn-api.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv"
 HALTS_URL = "https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts"
+BLS_DATA_BASE = "https://api.bls.gov/publicAPI/v1/timeseries/data/"
+BLS_DATA_SERIES = ("CES0000000001", "LNS14000000", "CUUR0000SA0")
 
 
 def halts_body(name: str = "tradehalts_SYNTHETIC.xml") -> bytes:
@@ -33,6 +35,11 @@ def halts_body(name: str = "tradehalts_SYNTHETIC.xml") -> bytes:
 
 def macro_body(name: str) -> bytes:
     return (MACRO / name).read_bytes()
+
+
+def bls_data_results() -> dict[str, bytes]:
+    """The three BLS results replies (synthetic), by URL."""
+    return {BLS_DATA_BASE + s: macro_body(f"bls_data_{s}_SYNTHETIC.json") for s in BLS_DATA_SERIES}
 
 
 def nowflation_results(cal: str = "release_calendar_SYNTHETIC.json", rt: str = "realtime_SYNTHETIC.json",

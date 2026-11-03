@@ -41,7 +41,7 @@ log = logging.getLogger("scout.macro")
 
 ATTRIBUTION = "Nowflation https://nowflation.com"
 LEAN_NOTE = "informational, untested"
-MACRO_SOURCES = ("nowflation", "bls", "fomc", "cboe_vix")
+MACRO_SOURCES = ("nowflation", "bls", "fomc", "cboe_vix", "bls_data")
 REGIMES = ("hot", "cooling", "steady", "unknown")
 VALUE_KEYS = ("prior", "street", "nowflation_forecast", "cleveland", "kalshi")
 CROSS_CHECKED = {"cpi": "bls", "nfp": "bls", "fomc": "fomc"}  # kind -> second source
@@ -281,7 +281,7 @@ def stale_after(record: MacroRecord, cfg: ScoutConfig) -> str | None:
     `generated_at`) + `nowflation_max_age_h` and the next ET day's
     `nowflation_fresh_after_et` (SCOUT_SPEC 7.3). bls: fetched + 2 x its spacing. cboe_vix: one hour
     after the next scheduled read (`vix_read_after_et` on the next trading day). fomc: the last
-    table date's decision time."""
+    table date's decision time. bls_data: fetched + 2 days."""
     if record.status != "ok":
         return None
     fetched = parse_iso(record.fetched_at)
@@ -297,6 +297,8 @@ def stale_after(record: MacroRecord, cfg: ScoutConfig) -> str | None:
     if record.source == "bls":
         spacing = cfg.sources["bls"].min_spacing_s if "bls" in cfg.sources else 604800.0
         return iso(fetched + timedelta(seconds=2 * max(spacing, 86400.0)))
+    if record.source == "bls_data":  # results are read daily; two days without a read is stale
+        return iso(fetched + timedelta(days=2))
     if record.source == "cboe_vix":
         nxt = _next_scheduled(fetched, cfg.vix_read_after_et, True)
         return iso(nxt + timedelta(hours=1)) if nxt is not None else None
@@ -410,6 +412,8 @@ def daily_body(latest: Mapping[str, Mapping[str, Any]], merged: Sequence[MacroEv
         "regime_status": (latest.get("nowflation") or {}).get("status", "unavailable") if nf is None else "ok",
         "vix": (vix_rec or {}).get("vix"),
         "events": [e.to_merged_dict() for e in merged],
+        # the latest BLS results (jobs, unemployment, CPI), whatever their age: record and report only
+        "results": (latest.get("bls_data") or {}).get("results"),
         # nowflation's forecast lean, shown in the brief as "informational, untested" (SS 7.3)
         "forecast_lean": [dict(x) for x in (nf or {}).get("forecast_lean") or [] if isinstance(x, Mapping)],
         "sources": {name: {"status": rec.get("status"), "reasons": rec.get("reasons", []),

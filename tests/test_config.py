@@ -28,7 +28,7 @@ def test_defaults_match_design(scout_dir: Path) -> None:
     assert c.llm_enabled is False and c.scout_webull_enabled is False
     # GlobeNewswire was removed on 2026-11-03: it refuses automated readers (403 from Akamai)
     assert set(c.sources) == {"edgar_atom", "edgar_submissions", "edgar_tickers", "prnewswire", "stocktitan",
-                              "nasdaq_halts", "nowflation", "bls", "cboe_vix"}
+                              "nasdaq_halts", "nowflation", "bls", "cboe_vix", "bls_data"}
     assert c.source("prnewswire").terms_ok is False
     st = c.source("stocktitan")  # owner, 2026-11-04
     assert (st.kind, st.url, st.allowed_hosts) == ("wire", "https://www.stocktitan.net/rss", ("www.stocktitan.net",))

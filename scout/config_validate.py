@@ -39,6 +39,7 @@ _RANGES: tuple[tuple[str, float, float], ...] = (
     ("periodic_max_age_days", 30, 3650), ("nt_recent_days", 1, 365), ("scan_max_price", 0.01, 100000),
     ("nowflation_max_age_h", 1, 24 * 30), ("nowflation_max_stale_weight_pct", 0, 100), ("macro_agree_minutes", 0, 1440),
     ("inflation_hot_pp", 0, 100), ("inflation_cooling_pp", 0, 100), ("inflation_regime_window_days", 1, 365),
+    ("jobs_trend_months", 1, 12), ("jobs_strong_k", -10000, 10000), ("jobs_weak_k", -10000, 10000),
     ("scout_stale_s", 30, 3600), ("jason_near_level_pct", 0, 1), ("levels_score_min_scored", 1, 100000),
     ("levels_tolerance_atr_mult", 0, 100), ("levels_tolerance_floor_pct", 0, 1), ("levels_null_draws", 1, 100000),
     ("levels_null_window_bars", 1, 100000), ("llm_daily_cost_cap_usd", 0, 1000), ("llm_monthly_cost_cap_usd", 0, 10000),
@@ -100,6 +101,8 @@ def validate(c: Any) -> None:
            "active_hours_et: must be two times [start, end] with start before end")
     _check(len(c.answer_times_et) >= 1, "answer_times_et: must list at least one time")
     _check(len(c.nowflation_read_times_et) >= 1, "nowflation_read_times_et: must list at least one time")
+    _check(len(c.bls_data_read_times_et) >= 1, "bls_data_read_times_et: must list at least one time")
+    _check(c.jobs_weak_k < c.jobs_strong_k, "jobs_weak_k must be below jobs_strong_k")
     bad = [k for k in c.hold_catalyst_classes if k not in KNOWN_CLASSES]
     _check(not bad, f"hold_catalyst_classes: unknown class(es) {bad}; known: {sorted(KNOWN_CLASSES)}")
     _check(c.earnings_due_start_days < c.earnings_due_end_days_quarter <= c.earnings_due_end_days_annual,

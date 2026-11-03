@@ -1,0 +1,9 @@
+{
+ "_SYNTHETIC": "BLS's reply when the daily limit is used up (invented text)",
+ "status": "REQUEST_NOT_PROCESSED",
+ "responseTime": 3,
+ "message": [
+  "Request could not be serviced: daily threshold reached (synthetic)."
+ ],
+ "Results": {}
+}

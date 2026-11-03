@@ -125,6 +125,7 @@ changes. Each phase is an owner decision; phases are build order, not a limit on
 | 8 | BLS release schedule `.ics` | CPI and Employment Situation times (cross-check of #7) | V (no DTSTAMP) | weekly | Public; lenient parser |
 | 9 | FOMC decision dates | static table in config | federalreserve.gov, by hand | — | 2027 dates tentative |
 | 10 | Cboe `VIX_History.csv` | Daily VIX close | V (header DATE,OPEN,HIGH,LOW,CLOSE) | once after 16:30 ET | Terms U; record only |
+| 10a | BLS Public Data API v1 `api.bls.gov/publicAPI/v1/timeseries/data/<series>` (owner's request, 2026-11-04) | The jobs report (payrolls, unemployment rate) and CPI as published (§7.7) | V (read live 2026-11-04) | at start; 08:40 ET daily; 09:15 ET on release days; 3 requests a read | Public data, no key; BLS allows 25 requests a day without one; record only |
 | 11 | Claude API, server `web_search` and `web_fetch` (job J3, §8) | Hold-candidate and gap-filler research | tool exists; accuracy U | capped per day | Output untrusted; `allowed_domains` from config |
 | 12 | `E:\Scout\inbox\jason\` and `inbox\discord\` | Jason's level files (§5); Paper Gains Discord captures (§18) | — | when a scheduled Claude task writes one | Gathered by the owner's scheduled Claude tasks, never by Scout (**decided** 2026-11-01, §18) |
 
@@ -419,6 +420,21 @@ change (§9.1 item 5), checked against Radar's own `screener_budget_per_min + gu
 headroom` rule. When it exists, Scout labels `risk_off` (IWM <= -1.5% or VIXY >= +5%), `risk_on` (IWM
 >= +1% and VIXY <= -3%), else `neutral`, and `unknown` when inputs are older than 15 minutes;
 thresholds in config. VIXY is used only for its daily change (its level decays).
+
+### 7.7 Jobs and inflation results (record only; owner's request of 2026-11-04)
+- **What:** total nonfarm payrolls (CES0000000001: the month's change and the month before, in
+  thousands, with BLS's "preliminary" flag), the unemployment rate (LNS14000000) and headline CPI a
+  year (CUUR0000SA0, to 0.1), from the BLS Public Data API v1 (no key). `scout/bls_data.py`.
+- **Expected:** street (jobs, CPI) and nowflation's forecast (CPI) for that data month, from the last
+  nowflation history line first seen before the read (no look-ahead), with the beat or miss.
+- **Jobs trend:** the average monthly change over `jobs_trend_months` (3): `strong` at or above
+  `jobs_strong_k` (150), `weak` at or below `jobs_weak_k` (50), else `steady`; `unknown` when a month is
+  missing. Thresholds provisional.
+- **Kept:** in `macro\history.jsonl` (source `bls_data`, additive key `results`) and the daily file's
+  `results`; shown in the brief ("Jobs and inflation results") and the dashboard. Status `stale` when a
+  series failed or its newest month trails the current month by more than two.
+- **Use:** record and report only. It changes no answer and no gate. Whether it helps is tested later
+  against the trade journals (enough closed trades in each jobs-trend label), before any use.
 
 ## 8. Layer 2: the Claude API (permitted; on only when the owner says, §16 Q2)
 ### 8.1 Rules for every call (proposed; each tested with a mocked client)

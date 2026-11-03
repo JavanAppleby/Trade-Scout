@@ -345,6 +345,7 @@ class MacroRecord(Record):
     forecast_lean: tuple[dict[str, Any], ...]
     vix: dict[str, Any] | None
     attribution: str | None
+    results: dict[str, Any] | None = None  # bls_data only (scout.bls_data); additive key
 
 
 @dataclass(frozen=True)

@@ -28,7 +28,7 @@ import pytest
 from conftest import TEST_EMAIL, et_at
 from helpers_fake_anthropic import message
 from helpers_fakes import FakeResponse, FakeTransport
-from helpers_macro import BLS_URL, HALTS_URL, VIX_URL, halts_body, macro_body, nowflation_results
+from helpers_macro import BLS_URL, HALTS_URL, VIX_URL, bls_data_results, halts_body, macro_body, nowflation_results
 from helpers_wire import fixture, full_transport
 
 from scout import cli
@@ -155,6 +155,8 @@ def _http(cfg: Any) -> FakeTransport:
         tr.responses[url] = ok(body)
     tr.responses[BLS_URL] = ok(macro_body("bls_SYNTHETIC.ics"))
     tr.responses[VIX_URL] = ok(macro_body("VIX_History_head_SYNTHETIC.csv"))
+    for url, body in bls_data_results().items():
+        tr.responses[url] = ok(body)
     tr.responses[HALTS_URL] = ok(halts_body())
     tr.responses[DATED_HALTS_URL] = ok(halts_body("tradehalts_empty_SYNTHETIC.xml"))
     return tr

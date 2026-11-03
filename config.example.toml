@@ -56,6 +56,11 @@ inflation_hot_pp = 0.25                   # provisional: set at build from histo
 inflation_cooling_pp = 0.25               # provisional: set at build from history
 inflation_regime_window_days = 20         # the regime compares against this many days
 vix_read_after_et = "16:30"               # the Cboe VIX close is read after this time on trading days
+bls_data_read_times_et = ["08:40"]        # BLS results (jobs, unemployment, CPI) are read at start and daily at these times
+bls_data_release_day_time_et = "09:15"    # a second read on a CPI, NFP or PCE day
+jobs_trend_months = 3                     # the jobs trend averages the monthly change over this many months
+jobs_strong_k = 150.0                     # provisional: an average at or above this (thousands) is "strong"
+jobs_weak_k = 50.0                        # provisional: an average at or below this (thousands) is "weak"
 
 # --------------------------------------------------------------------------- readers and Jason
 scout_stale_s = 120               # a heartbeat older than this makes every answer unknown
@@ -137,6 +142,7 @@ discord_scanner_brief_max_tickers = 12  # tickers shown per scanner pattern line
 # Most requests a day to one host.
 [host_max_requests_per_day]
 "nowflation.com" = 10
+"api.bls.gov" = 12      # BLS results: 3 requests a read; BLS allows 25 a day without a key
 
 # Words that give a wire headline its class. First match wins, in the fixed order earnings_date,
 # offering, reverse_split, listing_notice, fda, trial, contract, earnings_result; "other" is
@@ -266,6 +272,19 @@ min_spacing_s = 604800.0
 idle_spacing_s = 604800.0
 allowed_hosts = ["www.bls.gov"]
 terms_note = "Public schedule; weekly. Path UNVERIFIED until build step 2."
+max_items = 0
+gate6 = false
+terms_ok = true
+
+[sources.bls_data]
+enabled = true
+kind = "macro"
+url = "https://api.bls.gov/publicAPI/v1/timeseries/data/"
+paths = []
+min_spacing_s = 0.0
+idle_spacing_s = 0.0
+allowed_hosts = ["api.bls.gov"]
+terms_note = "BLS Public Data API v1: public data, no key; at most 25 requests a day (3 a read)."
 max_items = 0
 gate6 = false
 terms_ok = true

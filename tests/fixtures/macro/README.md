@@ -45,3 +45,16 @@ step 2; nowflation's stay synthetic (its terms forbid redistributing its raw fil
 
 The first build's synthetic `realtime.json` and `forecasts/index.json` shapes were wrong (the live
 install refused both on 2026-10-31); they were replaced by the synthetic live-layout files above.
+
+## BLS results fixtures (unit bls_data, 2026-11-04)
+
+Synthetic: invented values in the BLS Public Data API v1 layout (`status`, `Results.series[0]`
+`{seriesID, data[{year, period, periodName, latest, value, footnotes}]}`), checked against a live
+reply on 2026-11-04 but holding none of its values. Months 2023-10 to 2026-09, newest first.
+
+| File | What it is |
+|---|---|
+| bls_data_CES0000000001_SYNTHETIC.json | payrolls (thousands): +100k a month, then Jul 2026 +40k, Aug +60k, Sep +20k (Aug and Sep marked preliminary): a 3-month average of 40k, "weak" |
+| bls_data_LNS14000000_SYNTHETIC.json | unemployment 4.0 %, Aug 2026 4.2 %, Sep 4.3 %; Oct 2025 is BLS's "-" (not collected) |
+| bls_data_CUUR0000SA0_SYNTHETIC.json | CPI-U index: Sep 2026 320.0 vs Sep 2025 310.0 (3.2 % a year), Aug 2026 318.0 vs Aug 2025 308.5 (3.1 %); a 2024 annual-average row (M13) among the months |
+| bls_data_refused_SYNTHETIC.json | the reply when BLS will not process a request (status `REQUEST_NOT_PROCESSED`) |
