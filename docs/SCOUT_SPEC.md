@@ -7,7 +7,8 @@ owner decided how Jason's material and the Paper Gains Discord reach Scout (§18
 approved Radar's squad split (Radar's `docs/SQUAD_SPLIT_PROPOSAL.md`): Scout may now stop Radar's buy
 signals (block only), and §1, §2 rules 4-5, §6.2-6.4, §7.1, §7.5, §7.8 (new), §9.1, §10.3, §13 and §17
 are amended, each marked "owner, 2026-11-04"; §6.2 was amended again the same day (0.2.1: restarts,
-the 04:00 ET spacing switch and failed polls). Repo:
+the 04:00 ET spacing switch and failed polls; 0.2.2: the overlap rule), and §4.1 #1 and #4 (0.2.2:
+EDGAR yields to the wires; PR Newswire at 30 s around the hour). Repo:
 JavanAppleby/Trade-Scout (`E:\Scout_dev`). Scout never trades.
 **Decided** marks the owner's decisions recorded in `docs/HANDOFF.md` §3, `PILOT_SPEC.md` §16 or the
 owner's message of 2026-10-31. **Proposed** marks this spec's suggestions. §16 lists what the owner
@@ -124,10 +125,10 @@ changes. Each phase is an owner decision; phases are build order, not a limit on
 ### 4.1 Phase 1 (v1). Free except the optional Claude API
 | # | Source | What Scout takes | Status | Cadence (proposed) | Terms note |
 |---|---|---|---|---|---|
-| 1 | SEC EDGAR "getcurrent" Atom (8-K, 6-K, S-1, S-3, F-1, F-3, 424B*, EFFECT, NT 10-Q, NT 10-K) | Market-wide filings, form, 8-K item codes (in each summary) | V (40 entries a page; page with `count=100`) | every 60 s 04:00-20:00 ET, every 10 min otherwise | Fair access: at most 10 req/s; declared User-Agent with a contact email |
+| 1 | SEC EDGAR "getcurrent" Atom (8-K, 6-K, S-1, S-3, F-1, F-3, 424B*, EFFECT, NT 10-Q, NT 10-K) | Market-wide filings, form, 8-K item codes (in each summary) | V (40 entries a page; page with `count=100`) | every 60 s 04:00-20:00 ET, every 10 min otherwise; between two form requests the due wire polls run (owner, 2026-11-04; 0.2.2), so a slow SEC never delays the wires by more than one request | Fair access: at most 10 req/s; declared User-Agent with a contact email |
 | 2 | SEC EDGAR submissions JSON per CIK | Last periodic report: form, `reportDate`, `fiscalYearEnd`; 8-K 2.02 dates | V (Radar uses it) | on demand, cached per CIK per day | as above |
 | 3 | SEC `company_tickers_exchange.json` | CIK to ticker and exchange | V (Radar uses it) | daily | as above |
-| 4 | PR Newswire RSS (all releases) | Title, link, guid, `pubDate`, exchange tags "(NASDAQ: XXX)" | V (RSS 2.0, 20 items) | every 60 s 04:00-20:00 ET | Terms of the RSS UNVERIFIED: store title, link and times only until the owner reads them (build step 2) |
+| 4 | PR Newswire RSS (all releases) | Title, link, guid, `pubDate`, exchange tags "(NASDAQ: XXX)" | V (RSS 2.0, 20 items) | every 60 s; every 30 s from :58 to :05 ET around each hour inside 04:00-20:00 ET (`hour_turn_*`; owner, 2026-11-04; 0.2.2: more than 20 releases can appear within a minute at the top of an hour; 30 s is the hard minimum for www.prnewswire.com; about 112 more requests a day) | Terms of the RSS UNVERIFIED: store title, link and times only until the owner reads them (build step 2) |
 | 4b | Stock Titan RSS (`www.stocktitan.net/rss`, added 2026-11-04 by the owner) | Title ending "\| XXX Stock News", link, guid, `pubDate` | V (RSS 2.0, 100 items) | every 60 s 04:00-20:00 ET, 600 s otherwise | Terms name its RSS feeds as an allowed way to collect data (personal use); 30 requests in 5 minutes. Reposts GlobeNewswire, Business Wire and the other wires |
 | 5 | ~~GlobeNewswire RSS (public companies)~~ | - | Removed 2026-11-03 (owner) | - | Refused Scout's declared User-Agent (403, Akamai) on 2026-11-01 and 2026-11-03; reading it would need permission, and Scout uses only sources that allow automated reading without asking |
 | 6 | Nasdaq Trader halt RSS (`feed=tradehalts`; `&haltdate=MMDDYYYY` once after 20:00 ET) | Halts and LULD pauses, reason codes, resumption times | V | at least 60 s apart (hard minimum in code), 04:00-20:00 ET | Free; "do not query more than once a minute"; must not edit or misrepresent the feed, so rows are stored as received. An open halt blocks Radar's buy signals (§7.8; owner, 2026-11-04) |
@@ -265,7 +266,7 @@ than the feed's maximum. A **gap** is any interval with a poll without overlap, 
 does not overlap or the good-to-good interval exceeds the limit, or no good poll follows it yet
 (owner, 2026-11-04: one timed-out EDGAR poll is not a gap when the next poll overlaps).
 
-The rules in full (owner, 2026-11-04; Scout and `scout_reader` 0.2.1), the same in Scout's
+The rules in full (owner, 2026-11-04; Scout and `scout_reader` 0.2.1, with the overlap rule of 0.2.2), the same in Scout's
 `gap_before` and in the reader, which recomputes them from the stored health records:
 - **Which feeds**: the feeds of each gate-6 source listed in params `gate6_feeds`. EDGAR's
   periodic forms (10-Q, 10-K, 20-F, 40-F) are polled for the gate-5 check only; the SS 6.4 table
@@ -282,12 +283,28 @@ The rules in full (owner, 2026-11-04; Scout and `scout_reader` 0.2.1), the same 
   first good poll are gaps.
   Example: good 03:50 ET (600 s), failures at 04:00, 04:01 and 04:02 (60 s each): the next good
   poll may come up to 2 x 600 + 3 x 60 = 1380 s after 03:50.
+- **The overlap rule** (owner, 2026-11-04; 0.2.2): when a good poll overlaps the previous good
+  poll of its feed **by a seen id** (it repeats at least one item Scout had already seen in that
+  feed, or it is a 304), its page reached back past that poll, so nothing was missed: the interval
+  between them is covered however long it was, failed polls included (any number), up to
+  `source_overlap_max_gap_s` (1800 s). Beyond that cap the interval stays a gap (the rules above
+  still apply, so it is never stricter than 0.2.1). An overlap that rests only on a short page
+  (fewer items than `max_items`, no seen id) keeps the rules above. The health record says
+  `seen_items` (distinct ids on the page already seen); a record written before 0.2.2 has no
+  `seen_items`, and a good page with `items` > 0 and `new_items` < `items` counts as a seen id.
+  The reader gets the cap from params `source_overlap_max_gap_s`; params without it (Scout before
+  0.2.2) mean the rules above alone (fail closed). The cap is 1800 s because it is the longest
+  backoff after a 403 or 429 (`source_backoff_max_min`), and it bounds how far Scout trusts one
+  repeated id: an item a feed inserts out of order below a seen one, or a cached page, could hide
+  more the longer the pause. The other rules (no overlap, no poll at the start or the end, a
+  missing feed) are unchanged.
 - **Restarts**: Scout keeps the seen guids and the last good poll of each feed across a restart.
   At start it reads them back from its own files: the guids of the facts stored by good polls
   (a fact's `first_seen_at` is its poll's `end`) and the last good health record of each feed,
   with the failed polls after it, over the last `fact_dedupe_days` ET days. The first poll after a
   restart is then judged like any other: it must overlap, and the interval from the last good
-  poll before the stop must be within the limit, so a long outage is still a gap. By day that
+  poll before the stop must be within the limit (or, 0.2.2, within `source_overlap_max_gap_s`
+  when it repeats a seen id), so a long outage is still a gap. By day that
   limit is about 180 s from the last good poll, so a restart that takes more than about a minute,
   or a slow first EDGAR cycle after it, is still a gap. A missing or unreadable file means no
   seed: the first poll is judged with no seen ids (a full page is then a gap, as before 0.2.1; a
@@ -299,10 +316,11 @@ The rules in full (owner, 2026-11-04; Scout and `scout_reader` 0.2.1), the same 
 - Health records are append-only: the restart gaps recorded before 0.2.1 stay in the files and
   turn `false` into `unknown` until they leave the 3-trading-day window.
 
-PR Newswire's feed holds only 20 items and the
-2026-10-31 sample was a Saturday; around 08:00 and 16:00 ET on weekdays 20 items can pass within one
-poll, which this rule records as a gap. Build step 2 measures the weekday rate before any `false` is
-trusted, and shortens the spacing (never below 30 s) if needed. Stock Titan's feed holds 100 items
+PR Newswire's feed holds only 20 items. The live health records of 1-4 Nov 2026 showed more than
+20 releases within a minute at the top of some hours (e.g. 13:01, 14:00, 15:01 UTC): 7 true
+no-overlap gaps. Since 0.2.2 (owner, 2026-11-04) it is polled every 30 s (the hard minimum for its
+host) from :58 to :05 ET around each hour inside active hours; a burst larger than 20 in 30 s is
+still recorded as a gap, never hidden. Stock Titan's feed holds 100 items
 (about 100 in 20 minutes at a busy open), so a 60 s poll overlaps.
 
 ### 6.3 Normalisers (no LLM)
@@ -762,7 +780,8 @@ turns that off).
   the 15, so Radar and Pilot drop to 13; Scout keeps its own request log, pauses 5 minutes after any
   429 (its own or one in Guardian's log), and needs a third-login check like Q1.2.
 - **Other hosts** (enforced per host in code): EDGAR at most 2 requests a second; each RSS feed and the
-  halt feed at least 60 s apart (wires may go to 30 s per §6.2); nowflation at most 10 a day; BLS
+  halt feed at least 60 s apart (wires may go to 30 s, the hard minimum in code; PR Newswire does from
+  :58 to :05 ET, §4.1 #4); nowflation at most 10 a day; BLS
   weekly; Cboe daily.
 
 ## 13. Configuration (Scout's `config.toml`; documented in `config.example.toml`; proposed defaults)
@@ -771,7 +790,9 @@ turns that off).
   Empty means that input is skipped and the brief says so.
 - **Identity:** `contact_email` ("": no HTTP at all), `scout_user_agent`.
 - **Sources:** `[sources.<name>]` with `enabled`, `url`, `min_spacing_s`, `allowed_hosts`,
-  `terms_note`; `source_max_gap_s` (180), `source_backoff_max_min` (30), `fetch_max_bytes`
+  `terms_note`; `source_max_gap_s` (180), `source_overlap_max_gap_s` (1800; owner, 2026-11-04),
+  `hour_turn_sources` (["prnewswire"]), `hour_turn_start_min` (58), `hour_turn_end_min` (5),
+  `hour_turn_spacing_s` (30; owner, 2026-11-04), `source_backoff_max_min` (30), `fetch_max_bytes`
   (2000000), `ticker_exchange_prefixes`, `class_keywords`.
 - **Answers:** `hold_catalyst_classes` (§7.1), `earnings_lookback_days` (45),
   `earnings_due_start_days` (10), `earnings_due_end_days_quarter` (50), `earnings_due_end_days_annual`

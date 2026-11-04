@@ -254,14 +254,15 @@ def _coverage(files: _Files, params: Mapping[str, Any], beat: Mapping[str, Any],
     max_gap = params.get("source_max_gap_s")
     if isinstance(max_gap, bool) or not isinstance(max_gap, (int, float)):
         return out + ["no_param:source_max_gap_s"]
+    overlap_cap = cov.overlap_cap(params.get("source_overlap_max_gap_s"))  # missing: the 0.2.1 rule
     chains: dict[tuple[str, str], list[list[tuple[Any, ...]]]] = {}
     skipped = False
     for view in files.days(R.HEALTH, start - timedelta(days=1), as_of, "polls", _poll_item,
-                           lambda i: (i[5], i[6]), order=lambda i: i[0]):
+                           lambda i: (i[6], i[7]), order=lambda i: i[0]):
         for k, items in view.groups.items():
             chains.setdefault(k, []).append(items)
             if k[0] == HALT_SOURCE:
-                skipped = skipped or any(i[7] and i[0] >= start and i[4] <= as_of for i in items)
+                skipped = skipped or any(i[8] and i[0] >= start and i[5] <= as_of for i in items)
     gap_open = beat.get("gap_open") if isinstance(beat.get("gap_open"), Mapping) else {}
     feeds_wanted = params.get("gate6_feeds") if isinstance(params.get("gate6_feeds"), Mapping) else {}
     for name in sources:
@@ -276,7 +277,7 @@ def _coverage(files: _Files, params: Mapping[str, Any], beat: Mapping[str, Any],
         for feed, parts in feeds.items():
             if isinstance(want, list) and want and feed not in {str(f) for f in want}:
                 continue  # a feed gate 6 does not read, e.g. EDGAR's 10-K (owner, 2026-11-04)
-            for gap in cov.chain_gaps(_chain(parts, as_of), start, as_of, float(max_gap)):
+            for gap in cov.chain_gaps(_chain(parts, as_of), start, as_of, float(max_gap), overlap_cap):
                 out.append(f"gap:{name}:{gap['why']}")
     if skipped:
         out.append("halt_rows_skipped")
@@ -293,7 +294,7 @@ def _chain(parts: list[list[tuple[Any, ...]]], as_of: datetime) -> list[tuple[An
             merged.extend(items)
     stop = bisect.bisect_right(merged, as_of, key=lambda i: i[0])
     tail = bisect.bisect_left(merged, as_of - _POLL_TAIL, 0, stop, key=lambda i: i[0])
-    return merged[:tail] + [i for i in merged[tail:stop] if i[4] <= as_of]
+    return merged[:tail] + [i for i in merged[tail:stop] if i[5] <= as_of]
 
 
 def entry_blocks_in(root: Path, cache: FileCache, params: Mapping[str, Any] | None, p_reasons: Sequence[str],

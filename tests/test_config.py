@@ -67,7 +67,7 @@ def test_example_documents_every_key() -> None:
 def test_with_contact_email(scout_dir: Path) -> None:
     c = config_from_dict({"contact_email": SECRET}, scout_dir)
     assert c.http_allowed()
-    assert c.user_agent() == f"Scout/0.2.1 ({SECRET})"
+    assert c.user_agent() == f"Scout/0.2.2 ({SECRET})"
     assert SECRET not in repr(c) and SECRET not in str(c)
     assert SECRET not in str(c.public_dict())
 
@@ -183,9 +183,10 @@ def test_reader_params(scout_dir: Path) -> None:
     assert p["fomc_decision_time_et"] == "14:00" and p["fomc_dates"][0] == "2026-01-28"
     assert set(p) == {"hold_catalyst_classes", "earnings_lookback_days", "earnings_due_start_days",
                       "earnings_due_end_days_quarter", "earnings_due_end_days_annual", "hold_block_macro_events",
-                      "scout_stale_s", "source_max_gap_s", "jason_near_level_pct", "jason_market_symbols", "gate6_sources", "gate6_feeds", "fomc_dates",
+                      "scout_stale_s", "source_max_gap_s", "source_overlap_max_gap_s", "jason_near_level_pct",
+                      "jason_market_symbols", "gate6_sources", "gate6_feeds", "fomc_dates",
                       "fomc_decision_time_et", "discord_gate5_enabled"}
-    assert p["discord_gate5_enabled"] is True
+    assert p["discord_gate5_enabled"] is True and p["source_overlap_max_gap_s"] == 1800
     assert config_from_dict({"discord_enabled": False}, scout_dir).reader_params()["discord_gate5_enabled"] is False
     assert config_from_dict({"discord_gate5_enabled": False}, scout_dir).reader_params()["discord_gate5_enabled"] is False
 

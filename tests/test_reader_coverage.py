@@ -321,14 +321,14 @@ def test_params_list_the_feeds_of_each_gate6_source(tmp_path: Path):
     assert feeds["edgar_atom"] == ["8-K", "424B"] and feeds["prnewswire"] == ["rss"]
 
 
-def _walk_all(chain, start, end, max_gap_s):
+def _walk_all(chain, start, end, max_gap_s, cap=None):
     """The gap rule walked over every poll up to `end` (no shortcut), for the equivalence test:
     the limit uses the larger spacing of the two good polls, plus each failed poll's own spacing
     (at most 3 failed polls) when the later poll overlaps; a longer run of failures is a gap up to
-    the next good poll."""
+    the next good poll. A seen-id poll within `cap` of the good poll before covers it (0.2.2)."""
     raw, anchor, anchor_sp, failed, fsp, limit = [], None, 0.0, [], [], max_gap_s
     polls = [p for p in chain if p[0] <= end]
-    for at, good, overlap, spacing in polls:
+    for at, good, overlap, spacing, seen in polls:
         limit = max(max_gap_s, 2.0 * spacing)
         if not good:
             if anchor is not None:
@@ -341,6 +341,8 @@ def _walk_all(chain, start, end, max_gap_s):
         allowed = max(max_gap_s, 2.0 * s) + (sum(fsp) if 0 < len(failed) <= 3 else 0.0)
         if anchor is not None and not overlap:
             raw += [(anchor, at, "no_overlap"), *failed]
+        elif anchor is not None and seen and cap and (at - anchor).total_seconds() <= cap:
+            pass
         elif anchor is not None and (at - anchor).total_seconds() > allowed:
             raw += [(anchor, at, "interval"), *failed]
         elif anchor is not None and len(failed) > 3:
@@ -363,11 +365,13 @@ def test_the_walk_from_the_last_good_poll_before_the_window_gives_the_same_gaps(
     for _ in range(300):
         at, chain = T0 - timedelta(hours=2), []
         for _i in range(rng.randint(0, 60)):
-            at += timedelta(seconds=rng.choice((30, 60, 60, 120, 200, 400)))
-            chain.append((at, rng.random() > 0.2, rng.random() > 0.1, rng.choice((60.0, 600.0))))
+            at += timedelta(seconds=rng.choice((30, 60, 60, 120, 200, 400, 1500, 2000)))
+            good, overlap = rng.random() > 0.2, rng.random() > 0.1
+            chain.append((at, good, overlap, rng.choice((60.0, 600.0)), good and overlap and rng.random() > 0.5))
         start = T0 - timedelta(minutes=rng.randint(-60, 120))
         end = start + timedelta(minutes=rng.randint(0, 90))
-        got = coverage.chain_gaps(chain, start, end, 180.0)
-        want = _walk_all(chain, start, end, 180.0)
+        cap = rng.choice((None, 300.0, 1800.0))
+        got = coverage.chain_gaps(chain, start, end, 180.0, cap)
+        want = _walk_all(chain, start, end, 180.0, cap)
         key = lambda g: (g["from"], g["to"], g["why"])  # noqa: E731
         assert sorted(got, key=key) == sorted(want, key=key)

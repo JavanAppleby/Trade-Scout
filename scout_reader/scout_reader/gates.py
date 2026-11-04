@@ -147,10 +147,13 @@ def _coverage_gaps() -> Callable[..., Any] | None:
 
 
 def _coverage_problems(health: Sequence[Mapping[str, Any]], beat: Mapping[str, Any], sources: Sequence[str],
-                       start: datetime, end: datetime, max_gap_s: int | None, feeds: object = None) -> list[str]:
+                       start: datetime, end: datetime, max_gap_s: int | None, feeds: object = None,
+                       overlap_max_gap_s: object = None) -> list[str]:
     """Why `false` cannot be trusted over [start, end]: a gap or a poll without overlap on any
     gate-6 source (SS 6.2), an open gap in the beat, or no coverage rule to ask. `feeds` is params
-    `gate6_feeds` ({source: [feed, ...]}): a listed feed with no health record is a gap."""
+    `gate6_feeds` ({source: [feed, ...]}): a listed feed with no health record is a gap.
+    `overlap_max_gap_s` is params `source_overlap_max_gap_s`; missing or unreadable, the coverage
+    rule runs without the overlap rule (0.2.1, fail closed)."""
     if not sources:
         return ["no_gate6_sources"]
     if max_gap_s is None:
@@ -166,10 +169,12 @@ def _coverage_problems(health: Sequence[Mapping[str, Any]], beat: Mapping[str, A
         if gap_open.get(name) is True:
             out.append(f"gap_open:{name}")
         want = expected.get(name)
+        extra: dict[str, object] = {}
+        if isinstance(overlap_max_gap_s, (int, float)) and not isinstance(overlap_max_gap_s, bool):
+            extra["overlap_max_gap_s"] = overlap_max_gap_s
         if isinstance(want, list) and all(isinstance(f, str) for f in want):
-            found = gaps_fn(list(health), name, start, end, max_gap_s=max_gap_s, feeds=want)
-        else:
-            found = gaps_fn(list(health), name, start, end, max_gap_s=max_gap_s)
+            extra["feeds"] = want
+        found = gaps_fn(list(health), name, start, end, max_gap_s=max_gap_s, **extra)
         if not isinstance(found, list):
             out.append(f"coverage_error:{name}")
             continue
@@ -203,7 +208,7 @@ def _search(facts: Iterable[Mapping[str, Any]], health: Sequence[Mapping[str, An
         out["classes"] = sorted({str(f.get("class")) for f in matched})
         return out
     gaps = _coverage_problems(health, beat, sources, start, end, _int_param(params, "source_max_gap_s"),
-                              params.get("gate6_feeds"))
+                              params.get("gate6_feeds"), params.get("source_overlap_max_gap_s"))
     out = result("unknown" if gaps else "false", (), False, gaps or ("no_fact_full_coverage",))
     out["window"] = window
     out["classes"] = []

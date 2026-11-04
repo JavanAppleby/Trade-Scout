@@ -52,6 +52,7 @@ class Record:
     RENAME: ClassVar[dict[str, str]] = {}  # python field -> JSON key
     TUPLES: ClassVar[frozenset[str]] = frozenset()  # fields stored as lists, held as tuples
     HAS_FORMAT: ClassVar[bool] = True
+    ADDED: ClassVar[frozenset[str]] = frozenset()  # keys added later: absent in older records, read as the default
 
     def to_record(self) -> dict[str, Any]:
         out: dict[str, Any] = {"format": FORMAT} if self.HAS_FORMAT else {}
@@ -70,6 +71,8 @@ class Record:
         kwargs: dict[str, Any] = {}
         for f in fields(cls):  # type: ignore[arg-type]
             key = cls.RENAME.get(f.name, f.name)
+            if key not in d and f.name in cls.ADDED:
+                continue
             if key not in d:
                 raise ValueError(f"{cls.__name__}: missing key {key!r}")
             value = d[key]
@@ -127,6 +130,8 @@ class Fact(Record):
 class HealthRecord(Record):
     """`state/health/<date>.jsonl` (DESIGN 5.2): one per poll."""
 
+    ADDED: ClassVar[frozenset[str]] = frozenset({"seen_items"})
+
     source: str
     feed: str
     kind: str
@@ -142,6 +147,9 @@ class HealthRecord(Record):
     spacing_s: float
     gap_before: bool
     error: str | None = None
+    # 0.2.2 (owner, 2026-11-04): distinct ids on a good page already seen in this feed (a 304: 0, its
+    # overlap is by result); null for a failed poll and in records written before 0.2.2
+    seen_items: int | None = None
 
     def __post_init__(self) -> None:
         if self.result not in HEALTH_RESULTS:

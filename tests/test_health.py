@@ -83,7 +83,7 @@ def test_schema_result_override(scout_dir):
 
 
 def test_interval_gap_uses_d7_and_idle_spacing(scout_dir):
-    cfg = wire_config(scout_dir)
+    cfg = wire_config(scout_dir, source_overlap_max_gap_s=0)  # the 0.2.1 rule alone
     src = cfg.source("edgar_atom")  # 60 s by day, 600 s overnight
     assert spacing_in_force(src, DAY, cfg) == 60 and spacing_in_force(src, NIGHT, cfg) == 600
     assert gap_limit_s(cfg, 60) == 180 and gap_limit_s(cfg, 600) == 1200
@@ -96,6 +96,11 @@ def test_interval_gap_uses_d7_and_idle_spacing(scout_dir):
     day = CoverageTracker(cfg)
     poll(day, src, DAY, guids(1), feed="8-K")
     assert poll(day, src, DAY + timedelta(seconds=181), guids(1), feed="8-K").gap_before is True
+    on = CoverageTracker(wire_config(scout_dir))  # 0.2.2: the repeated id covers it, up to 1800 s
+    poll(on, src, DAY, guids(1), feed="8-K")
+    rec = poll(on, src, DAY + timedelta(seconds=181), guids(1), feed="8-K")
+    assert rec.gap_before is False and rec.seen_items == 1
+    assert poll(on, src, DAY + timedelta(seconds=181 + 1801), guids(1), feed="8-K").gap_before is True
 
 
 def test_gap_open_by_age_and_per_feed(scout_dir):

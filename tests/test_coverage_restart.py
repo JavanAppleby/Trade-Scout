@@ -1,7 +1,9 @@
-"""Coverage rules of 0.2.1 (owner, 2026-11-04; SCOUT_SPEC 6.2, DESIGN D7): a restart is judged like
-any other poll (`scout.coverage_seed`), the idle-to-active switch uses the larger spacing, and up
-to 3 failed polls between overlapping good polls are forgiven. The writer's `gap_before` and the
-reader's recomputed gaps agree on the same sequences."""
+"""Coverage rules of 0.2.1 and 0.2.2 (owner, 2026-11-04; SCOUT_SPEC 6.2, DESIGN D7, 19): a restart is
+judged like any other poll (`scout.coverage_seed`), the idle-to-active switch uses the larger
+spacing, up to 3 failed polls between overlapping good polls are forgiven, and (0.2.2) a poll that
+repeats a seen id covers the interval before it up to `source_overlap_max_gap_s`. The tests of the
+0.2.1 rule alone turn the overlap rule off (`source_overlap_max_gap_s = 0`). The writer's
+`gap_before` and the reader's recomputed gaps agree on the same sequences."""
 
 from __future__ import annotations
 
@@ -41,6 +43,13 @@ class _Feed:
         self.newest = ids
         return ids
 
+    def short(self, new: int = 3) -> list[str]:
+        """A short page of new ids only: overlap by page size, no seen id (0.2.2 keeps the 0.2.1 rule)."""
+        fresh = [f"g{self.n + i}" for i in range(new)]
+        self.n += len(fresh)
+        self.newest = (fresh + self.newest)[:PAGE]
+        return fresh
+
 
 def _poll(t: CoverageTracker, src, at: datetime, ids: list[str] | None, feed: str = "8-K", result: str = "ok"):
     f = fetch_result(src.name, src.url, b"x", result=result, status=200 if result == "ok" else None, at=at)
@@ -58,7 +67,7 @@ def _good(t, src, at, ids, feed="8-K"):
 
 
 def test_writer_idle_to_active_switch_uses_the_larger_spacing(scout_dir):
-    cfg = wire_config(scout_dir)
+    cfg = wire_config(scout_dir, source_overlap_max_gap_s=0)  # the 0.2.1 rule alone
     src = cfg.source("edgar_atom")
     t, pages = CoverageTracker(cfg), _Feed()
     _good(t, src, SWITCH - timedelta(seconds=1170), pages.page(False))
@@ -70,7 +79,7 @@ def test_writer_idle_to_active_switch_uses_the_larger_spacing(scout_dir):
 
 
 def test_writer_forgives_up_to_three_failed_polls(scout_dir):
-    cfg = wire_config(scout_dir)
+    cfg = wire_config(scout_dir, source_overlap_max_gap_s=0)  # the 0.2.1 rule alone
     src = cfg.source("edgar_atom")
     t, pages = CoverageTracker(cfg), _Feed()
     a = DAY + timedelta(seconds=13)  # the live 8-K shape (2026-11-01 13:14:13), at active spacing
@@ -182,9 +191,9 @@ def test_a_long_outage_is_still_an_interval_gap(scout_dir):
     for i in range(2):
         rec, new = _poll(t, src, DAY + timedelta(seconds=60 * i), pages.page(i > 0))
         _write_poll(paths, rec, new)
-    back = DAY + timedelta(seconds=60 + 181)
+    back = DAY + timedelta(seconds=60 + 1801)  # past source_overlap_max_gap_s (1800 s)
     rec, _new = _poll(_seeded(cfg, paths, back), src, back, pages.page(True))
-    assert rec.overlap is True and rec.gap_before is True  # anchor = the last good poll before the stop
+    assert rec.overlap is True and rec.seen_items and rec.gap_before is True  # from the last good poll before the stop
 
 
 def test_failed_polls_before_the_stop_count_after_the_restart(scout_dir):
@@ -315,12 +324,12 @@ def test_a_restart_through_the_edgar_poller_keeps_coverage(scout_dir):
 # --------------------------------------------------------------------------- writer and reader agree
 
 
-def _reader_verdicts(records: list[dict], max_gap_s: float) -> list[bool]:
+def _reader_verdicts(records: list[dict], max_gap_s: float, cap: float | None = None) -> list[bool]:
     """For each good poll after the first, whether the reader finds a gap since the good poll before."""
     polls = [coverage.poll_of(datetime.fromisoformat(r["start"].replace("Z", "+00:00")), r) for r in records]
-    found = coverage.chain_gaps(polls, polls[0][0], polls[-1][0], max_gap_s)
+    found = coverage.chain_gaps(polls, polls[0][0], polls[-1][0], max_gap_s, cap)
     out, prev = [], None
-    for at, good, overlap, _sp in polls:
+    for at, good, overlap, _sp, _seen in polls:
         if not good:
             continue
         b = iso(at)
@@ -339,16 +348,21 @@ def _random_run(cfg, paths, rng: random.Random, restarts: bool) -> list[dict]:
     at = SWITCH - timedelta(minutes=40) + timedelta(seconds=rng.randint(0, 600))
     out: list[dict] = []
     first = True  # no good poll yet: failures may come first
-    steps = [(rng.random(), rng.random(), rng.choice((20, 45, 60, 61, 90, 125, 185, 300, 590, 610, 1199, 1300)),
+    steps = [(rng.random(), rng.random(), rng.choice((20, 45, 60, 61, 90, 125, 185, 300, 590, 610, 1199, 1300,
+                                                      1799, 1801, 2500, 3100)),
               rng.random()) for _ in range(rng.randint(5, 40))]
     for fail_roll, overlap_roll, step, restart_roll in steps:
         if restarts and restart_roll < 0.15 and out:
             t = _seeded(cfg, paths, at)
-        if fail_roll < 0.25:
+        if fail_roll < 0.3:
             rec = _poll(t, src, at, None, result=rng.choice(("network", "timeout", "http_error")))
             HealthWriter(paths).record(rec)
         else:
-            rec, new = _poll(t, src, at, pages.page(not first and overlap_roll > 0.1, new=rng.randint(0, 3)))
+            if not first and 0.1 < overlap_roll < 0.3:
+                ids = pages.short(new=rng.randint(1, 3))  # overlap by a short page only
+            else:
+                ids = pages.page(not first and overlap_roll > 0.1, new=rng.randint(0, 3))
+            rec, new = _poll(t, src, at, ids)
             _write_poll(paths, rec, new)
             first = False
         out.append(rec.to_record())
@@ -356,23 +370,39 @@ def _random_run(cfg, paths, rng: random.Random, restarts: bool) -> list[dict]:
     return out
 
 
+def _span(a: dict, b: dict) -> float:
+    return (datetime.fromisoformat(b["start"][:-1]) - datetime.fromisoformat(a["start"][:-1])).total_seconds()
+
+
 def test_writer_gap_before_agrees_with_the_reader(scout_dir, tmp_path):
+    """Random runs (failures, seen-id pages, short pages, pages without overlap, intervals around
+    every limit, restarts) with the overlap rule off, at 600 s and at the default 1800 s."""
     rng = random.Random(20261104)
-    tally = {"gap": 0, "clear": 0, "forgiven": 0}
-    for n in range(50):
+    tally = {"gap": 0, "clear": 0, "forgiven": 0, "seen_forgiven": 0, "past_cap_gap": 0}
+    for n in range(90):
         seed = rng.randint(0, 10**9)
+        cap = (0, 600, 1800)[n % 3]
         plain_dir, restart_dir = tmp_path / f"p{n}", tmp_path / f"r{n}"
         plain_dir.mkdir()
         restart_dir.mkdir()
-        plain = _random_run(wire_config(plain_dir), ScoutPaths.from_config(wire_config(plain_dir)),
-                            random.Random(seed), restarts=False)
-        cfg = wire_config(restart_dir)
+        plain_cfg = wire_config(plain_dir, source_overlap_max_gap_s=cap)
+        plain = _random_run(plain_cfg, ScoutPaths.from_config(plain_cfg), random.Random(seed), restarts=False)
+        cfg = wire_config(restart_dir, source_overlap_max_gap_s=cap)
         restarted = _random_run(cfg, ScoutPaths.from_config(cfg), random.Random(seed), restarts=True)
         assert restarted == plain  # a restart changes no record
-        writer = [r["gap_before"] for r in plain if r["result"] == "ok"]
-        assert writer == _reader_verdicts(plain, float(cfg.source_max_gap_s)), seed
+        good = [r for r in plain if r["result"] == "ok"]
+        writer = [r["gap_before"] for r in good]
+        assert writer == _reader_verdicts(plain, float(cfg.source_max_gap_s), cap), seed
+        old = _reader_verdicts(plain, float(cfg.source_max_gap_s), None)  # 0.2.1, as with no param at all
+        for i, (rec, w, o) in enumerate(zip(good, writer, old)):
+            assert o or not w, seed  # the overlap rule never adds a gap
+            if not cap or not rec["seen_items"]:
+                assert w == o, seed  # off, or a short page only: exactly the 0.2.1 rule
+            tally["seen_forgiven"] += o and not w
+            if cap and i and rec["seen_items"] and _span(good[i - 1], rec) > max(cap, 3000):
+                tally["past_cap_gap"] += w  # beyond the cap and every 0.2.1 allowance: still a gap
         tally["gap"] += sum(writer)
         tally["clear"] += len(writer) - sum(writer)
         tally["forgiven"] += sum(1 for a, b in zip(plain, plain[1:])
                                  if a["result"] != "ok" and b["result"] == "ok" and not b["gap_before"])
-    assert min(tally.values()) > 10, tally  # the runs cover gaps, clear polls and forgiven failures
+    assert min(tally.values()) > 3, tally  # the runs cover every branch

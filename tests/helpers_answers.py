@@ -107,7 +107,7 @@ def good_world(scout_dir: Path, cfg: ScoutConfig, as_of: datetime, *, since: dat
 
 
 def simple_gaps(health: list[dict[str, Any]], source: str, start: datetime, end: datetime, *,
-                max_gap_s: float, feeds: Any = None) -> list[dict[str, Any]]:
+                max_gap_s: float, feeds: Any = None, overlap_max_gap_s: Any = None) -> list[dict[str, Any]]:
     """A small stand-in for scout_reader.coverage.gaps (unit `wire`), enough for these tests: a poll
     at or before `start`, one within max_gap of `end`, polls no further apart than max_gap, every
     poll in the window ok and overlapping."""

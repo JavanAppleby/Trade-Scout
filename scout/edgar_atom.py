@@ -9,6 +9,12 @@ The poll is skipped while the CIK-to-ticker map is not loaded: filing facts with
 let gate 6 answer `false` for a company whose filing Scout saw. The source then stays `stale` and
 its coverage gap stays open, so gate 6 answers `unknown`.
 
+Between two form requests the poller calls `between()` (owner, 2026-11-04; 0.2.2): `scout.jobs_wire`
+passes one that runs the wire jobs that are due, in this same thread, so a slow SEC (10 s replies,
+20 s timeouts: one cycle of 12 forms took ~140 s) no longer delays the wire polls past
+`source_max_gap_s`. A wire then waits at most one EDGAR request. An exception in `between()` is
+logged and never stops the EDGAR cycle.
+
 Whether `type=424B` returns every 424B* form is UNVERIFIED (D6): the poller keeps every entry the
 page returns, whatever its form, and the fixture marks the shape as synthetic until a live capture.
 """
@@ -17,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import urllib.parse
+from collections.abc import Callable
 from datetime import datetime
 
 from scout.clock import Clock, iso
@@ -40,7 +47,7 @@ def form_url(template: str, form: str) -> str:
 class EdgarAtomPoller:
     def __init__(self, cfg: ScoutConfig, fetcher: Fetcher, raw: RawSink, facts: FactSink, health: HealthSink,
                  board: StatusBoard, ticker_map: TickerMap, clock: Clock, *, tracker: CoverageTracker | None = None,
-                 log: logging.Logger | None = None) -> None:
+                 log: logging.Logger | None = None, between: Callable[[], object] | None = None) -> None:
         self.cfg = cfg
         self.src = cfg.source(SOURCE)
         self.fetcher, self.raw, self.facts, self.health, self.board = fetcher, raw, facts, health, board
@@ -48,6 +55,7 @@ class EdgarAtomPoller:
         self.clock = clock
         self.tracker = tracker or CoverageTracker(cfg)
         self.log = log or logging.getLogger("scout.edgar_atom")
+        self.between = between
         self.last_ok: str | None = None
         self.last_error: str | None = None
 
@@ -71,7 +79,9 @@ class EdgarAtomPoller:
             return 0
         results: list[str] = []
         added = 0
-        for form in self.cfg.edgar_atom_forms:
+        for i, form in enumerate(self.cfg.edgar_atom_forms):
+            if i and self.between is not None:
+                self._yield()
             try:
                 got, result = self._poll_form(form, now)
             except Exception as exc:  # noqa: BLE001 - one form's failure never stops the later forms
@@ -84,6 +94,13 @@ class EdgarAtomPoller:
             self.last_ok = iso(self.clock.now())
         self._publish(status_for(results), now)
         return added
+
+    def _yield(self) -> None:
+        """Let the due wire polls run between two form requests (never raises)."""
+        try:
+            self.between()  # type: ignore[misc]
+        except Exception as exc:  # noqa: BLE001 - the EDGAR cycle goes on
+            self.log.warning("edgar_atom: a job run between forms failed (%s)", type(exc).__name__)
 
     def _poll_form(self, form: str, now: datetime) -> tuple[int, str]:
         fetch = self.fetcher.fetch(SOURCE, form_url(self.src.url, form))

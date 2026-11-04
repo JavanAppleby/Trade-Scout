@@ -74,7 +74,7 @@ res = reader.entry_blocks("ACME", as_of, lookback_days=3, macro_before_min=5, ma
 - The module function `scout_reader.entry_blocks(reader_or_folder, symbol, as_of, ...)` accepts the
   Reader too; pass the Reader so the cache is kept between calls.
 
-## Coverage (0.2.1; owner, 2026-11-04)
+## Coverage (0.2.2; owner, 2026-11-04)
 
 `false` needs every gate-6 source polled without a gap over the answer's window (SCOUT_SPEC 6.2).
 The reader recomputes the gaps from Scout's health records; it does not trust Scout's own flags.
@@ -88,12 +88,19 @@ The reader recomputes the gaps from Scout's health records; it does not trust Sc
 - Failed polls: when 1 to 3 polls failed in a row and the next good poll overlaps, the limit grows
   by each failed poll's own `spacing_s` and the failures are not gaps. Four or more in a row are
   one gap from the good poll before them to the good poll after them.
+- The overlap rule (0.2.2): when the good poll after a pause repeats at least one item Scout had
+  already seen in that feed (or the feed answered 304, not modified), the page reached back past
+  the poll before, so nothing was missed. The whole pause is then covered, however many polls
+  failed in it, up to params `source_overlap_max_gap_s` (1800 s by default). Beyond that, or when
+  the overlap rests only on a short page (fewer items than the feed holds, none seen before), the
+  rules above apply. Params without `source_overlap_max_gap_s` (Scout before 0.2.2) mean the rules
+  above alone. A record says "seen" by `seen_items` > 0; a record written before 0.2.2 has no
+  `seen_items`, and there a good page with `new_items` below `items` counts as seen.
 - Only polls that ended by the answer's time count ("as of t" sees no later poll).
 - Restarts: since Scout 0.2.1 the first poll after a restart is judged like any other poll (Scout
   reads its seen items and last good poll back from its own files). It is still a gap unless it
-  starts within the limit of the last good poll before the stop: by day about 180 s (plus 60 s per
-  failed poll before the stop), at night 1200 s. So a restart that takes more than about a minute
-  by day, or a slow first EDGAR cycle after it, is still a gap; a long outage always is. Records
+  starts within the limit of the last good poll before the stop, or (0.2.2) repeats a seen item
+  within `source_overlap_max_gap_s` of it. An outage longer than that is always a gap. Records
   written before 0.2.1 keep their restart gaps, which leave the window after 3 trading days.
 
 ## What the answers mean

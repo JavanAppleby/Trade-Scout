@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterable
 from datetime import date, datetime, time, timedelta
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from scout.calendar import in_active_hours, is_early_close, is_trading_day
 from scout.clock import et_date, et_datetime
@@ -28,16 +28,20 @@ class Job(Protocol):
 
 
 class EveryJob:
-    """Every `interval_s`; `idle_interval_s` (when given with `cfg`) outside `active_hours_et`.
-    Due at once on the first tick."""
+    """Every `interval_s`; `idle_interval_s` (when given with `cfg`) outside `active_hours_et`;
+    `interval_fn(now)`, when given, decides instead (the wires: `scout.health.spacing_in_force`, so a
+    job runs at the spacing its health records store). Due at once on the first tick."""
 
     def __init__(self, name: str, fn: JobFn, interval_s: float, idle_interval_s: float | None = None,
-                 cfg: ScoutConfig | None = None) -> None:
+                 cfg: ScoutConfig | None = None, interval_fn: Callable[[datetime], float] | None = None) -> None:
         self.name, self.fn = name, fn
         self.interval_s, self.idle_interval_s, self.cfg = float(interval_s), idle_interval_s, cfg
+        self.interval_fn = interval_fn
         self.last_run: datetime | None = None
 
     def interval_at(self, now: datetime) -> float:
+        if self.interval_fn is not None:
+            return float(self.interval_fn(now))
         if self.idle_interval_s and self.cfg is not None and not in_active_hours(now, self.cfg):
             return float(self.idle_interval_s)
         return self.interval_s
@@ -46,7 +50,13 @@ class EveryJob:
         if self.last_run is None:
             return True
         elapsed = (now - self.last_run).total_seconds()
-        return elapsed < 0 or elapsed >= self.interval_at(now) - 1e-6
+        interval = self.interval_at(now)
+        if elapsed < 0:
+            # A job run inside another job (the wires between EDGAR's forms, 0.2.2) has a last run
+            # after the main loop's `now` for this tick: not due again. A wall clock that stepped
+            # back by more than one interval makes it due, so no job is ever stuck.
+            return -elapsed > interval
+        return elapsed >= interval - 1e-6
 
     def run(self, now: datetime) -> None:
         self.last_run = now
@@ -95,11 +105,15 @@ class OnceAtStartJob:
         self.fn(now)
 
 
-def run_due(jobs: Iterable[Job], now: datetime, log: logging.Logger) -> list[str]:
+def run_due(jobs: Iterable[Job], now: datetime, log: logging.Logger, clock: Any = None) -> list[str]:
     """Run every due job; returns the names run (failed ones included). A failure is logged with the
-    job name, the exception type and a redacted message."""
+    job name, the exception type and a redacted message. Given `clock`, each job is asked and run at
+    the clock's time when its turn comes (0.2.2: after a long EDGAR cycle, which ran the wires in
+    between, the wires are judged at the real time, not at the tick's start)."""
     ran: list[str] = []
     for job in jobs:
+        if clock is not None:
+            now = clock.now()
         try:
             if not job.due(now):
                 continue

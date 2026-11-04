@@ -212,7 +212,7 @@ def run(ctx: AppContext, *, max_ticks: int | None = None, jobs: Sequence[Job] | 
             now = ctx.clock.now()
             if until is not None and now >= until:
                 break
-            run_due(job_list, now, ctx.log)
+            run_due(job_list, now, ctx.log, ctx.clock)
             now = ctx.clock.now()
             if heartbeat.due(now):
                 heartbeat.beat(now)

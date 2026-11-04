@@ -32,7 +32,8 @@ def _check(ok: bool, message: str) -> None:
 
 
 _RANGES: tuple[tuple[str, float, float], ...] = (
-    ("source_max_gap_s", 30, 86400), ("source_backoff_max_min", 1, 1440), ("fetch_max_bytes", 1000, 100_000_000),
+    ("source_max_gap_s", 30, 86400), ("source_overlap_max_gap_s", 0, 86400), ("hour_turn_start_min", 0, 59),
+    ("hour_turn_end_min", 0, 59), ("hour_turn_spacing_s", 30, 3600), ("source_backoff_max_min", 1, 1440), ("fetch_max_bytes", 1000, 100_000_000),
     ("fetch_timeout_s", 1, 300), ("http_default_host_spacing_s", 0.1, 3600), ("refused_after_403s", 1, 100),
     ("seen_guid_cap", 100, 1_000_000), ("fact_dedupe_days", 2, 60), ("earnings_lookback_days", 1, 365), ("earnings_due_start_days", 0, 365),
     ("earnings_due_end_days_quarter", 1, 365), ("earnings_due_end_days_annual", 1, 365),
@@ -70,6 +71,22 @@ def _validate_discord(c: Any) -> None:
         _check(not extra, f"{key}: {extra} are not in discord_channels")
     _check(len(c.discord_capture_hours_et) == 2 and c.discord_capture_hours_et[0] < c.discord_capture_hours_et[1],
            "discord_capture_hours_et: must be two times [start, end] with start before end")
+
+
+def _validate_hour_turn(c: Any) -> None:
+    """The faster polling around the hour (owner, 2026-11-04): wires only, never below a host's
+    hard minimum spacing in `scout.http`."""
+    from scout.http import HARD_MIN_SPACING_S  # noqa: PLC0415 - scout.http imports this package's config
+
+    _check(c.hour_turn_start_min != c.hour_turn_end_min,
+           "hour_turn_start_min: must differ from hour_turn_end_min (an empty or whole-hour window)")
+    for name in c.hour_turn_sources:
+        src = c.sources.get(name)
+        _check(src is not None and src.kind == "wire", f"hour_turn_sources: {name!r} is not a wire source")
+        for host in src.allowed_hosts:
+            hard = HARD_MIN_SPACING_S.get(host.lower(), 0.0)
+            _check(c.hour_turn_spacing_s >= hard,
+                   f"hour_turn_spacing_s: must be >= {hard:g} (the hard minimum spacing for {host})")
 
 
 def validate(c: Any) -> None:
@@ -134,6 +151,7 @@ def validate(c: Any) -> None:
             _check(s.min_spacing_s >= 30, f"{where}.min_spacing_s: must be >= 30")
             _check(s.idle_spacing_s == 0 or s.idle_spacing_s >= 30,
                    f"{where}.idle_spacing_s: must be 0 (the same) or >= 30")
+    _validate_hour_turn(c)
     _validate_discord(c)
     for j, job in c.llm_jobs.items():
         _check(bool(job.model.strip()), f"llm.jobs.{j}.model: must be set")

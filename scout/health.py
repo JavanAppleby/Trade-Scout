@@ -7,12 +7,21 @@ the last good poll, and builds each poll's record:
 - `overlap` (SS 6.2): the poll contains a guid already seen, or returns fewer items than the feed's
   maximum (`max_items`; 0 = unknown, so only a seen guid counts). A 304 counts as overlap. A failed
   poll has `overlap = null`.
+- `seen_items` (0.2.2): how many distinct ids of a good page Scout had already seen in this feed
+  (a 304 counts as overlap by a seen id); null for a failed poll.
 - `gap_before` (D7): the interval since the last good poll of this feed is a gap: the poll failed,
-  it has no overlap, more than `MAX_FORGIVEN` (3) polls failed since the last good poll, or the
-  interval is longer than `scout_reader.coverage.allowance_s`: max(`source_max_gap_s`, 2 x S) with S
-  the larger spacing of this poll and the last good poll, plus each failed poll's own spacing (1 to
-  3 of them). With no earlier good poll at all, an overlapping poll has no gap before it unless
-  polls failed before it (the reader counts those failures as gaps).
+  it has no overlap, or `scout_reader.coverage.interval_gap` finds one. That is the reader's own
+  rule: a poll that repeats a seen id covers the interval, failed polls included, up to
+  `source_overlap_max_gap_s` (owner, 2026-11-04); otherwise (a short page only, or beyond that cap)
+  more than `MAX_FORGIVEN` (3) failed polls, or an interval longer than
+  `scout_reader.coverage.allowance_s`: max(`source_max_gap_s`, 2 x S) with S the larger spacing of
+  this poll and the last good poll, plus each failed poll's own spacing (1 to 3 of them), is a gap.
+  With no earlier good poll at all, an overlapping poll has no gap before it unless polls failed
+  before it (the reader counts those failures as gaps).
+- `spacing_in_force`: a source's spacing at a time: `min_spacing_s` inside `active_hours_et`,
+  `idle_spacing_s` outside, and for `hour_turn_sources` at most `hour_turn_spacing_s` from minute
+  `hour_turn_start_min` to `hour_turn_end_min` ET around each hour inside active hours (owner,
+  2026-11-04). The scheduler polls at this spacing and each health record stores it.
 - a seed (`scout.coverage_seed`, owner 2026-11-04): at start, each feed's seen ids, last good poll
   and failed polls since come from Scout's own stored facts and health records, so the first poll
   after a restart is judged like any other. No seed (or a broken one): the feed starts empty, as
@@ -32,18 +41,18 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from scout.calendar import in_active_hours
-from scout.clock import et_date, parse_iso
+from scout.clock import et_date, parse_iso, to_et
 from scout.config import PERIODIC_FORMS, ScoutConfig, SourceConfig
 from scout.models import FetchResult, HealthRecord, SourceState
 from scout.paths import ScoutPaths
 from scout.store import append_jsonl
-from scout_reader.coverage import MAX_FORGIVEN, allowance_s
+from scout_reader.coverage import interval_gap
 
 if TYPE_CHECKING:  # pragma: no cover
     from scout.coverage_seed import FeedSeed
 
-__all__ = ["GOOD_RESULTS", "CoverageTracker", "HealthWriter", "board_state", "gap_limit_s", "spacing_in_force",
-           "status_for"]
+__all__ = ["GOOD_RESULTS", "CoverageTracker", "HealthWriter", "board_state", "gap_limit_s", "in_hour_turn",
+           "spacing_in_force", "status_for"]
 
 GOOD_RESULTS = frozenset({"ok", "not_modified"})
 _UNAVAILABLE = frozenset({"schema", "no_http", "too_large", "host_cap"})
@@ -62,10 +71,25 @@ class HealthWriter:
         append_jsonl(self.paths, self.paths.day_file(self.paths.health, et_date(start)), rec.to_record())
 
 
+def in_hour_turn(now: datetime, cfg: ScoutConfig) -> bool:
+    """True from minute `hour_turn_start_min` to `hour_turn_end_min` (not included) ET around each
+    hour, inside `active_hours_et` (owner, 2026-11-04)."""
+    if not in_active_hours(now, cfg):
+        return False
+    minute, start, end = to_et(now).minute, int(cfg.hour_turn_start_min), int(cfg.hour_turn_end_min)
+    if start < end:
+        return start <= minute < end
+    return minute >= start or minute < end  # the window wraps the hour, e.g. :58 to :05
+
+
 def spacing_in_force(src: SourceConfig, now: datetime, cfg: ScoutConfig) -> float:
-    """`min_spacing_s` inside `active_hours_et`, `idle_spacing_s` outside (0 = the same)."""
+    """`min_spacing_s` inside `active_hours_et`, `idle_spacing_s` outside (0 = the same); for a
+    source in `hour_turn_sources`, at most `hour_turn_spacing_s` around the hour (`in_hour_turn`).
+    Validation keeps `hour_turn_spacing_s` at or above the host's hard minimum (scout.http)."""
     if src.idle_spacing_s and not in_active_hours(now, cfg):
         return float(src.idle_spacing_s)
+    if src.name in cfg.hour_turn_sources and in_hour_turn(now, cfg):
+        return min(float(src.min_spacing_s), float(cfg.hour_turn_spacing_s))
     return float(src.min_spacing_s)
 
 
@@ -147,28 +171,30 @@ class CoverageTracker:
         start = parse_iso(fetch.started_at) or now
         good = outcome in GOOD_RESULTS
         overlap: bool | None = None
+        seen_items: int | None = None
         if outcome == "not_modified":
-            overlap = True
+            overlap, seen_items = True, 0
         elif good:
             unique = list(dict.fromkeys(guids))
-            seen_one = any(g in state.seen for g in unique)
+            seen_items = sum(1 for g in unique if g in state.seen)
             size = page_size if page_size is not None else len(unique)
             short = src.max_items > 0 and size < src.max_items
-            overlap = seen_one or short
+            overlap = seen_items > 0 or short
+        seen = outcome == "not_modified" or bool(seen_items)
         if not good or not overlap:
             gap_before = True
         elif state.anchor is None:
             gap_before = bool(state.failed)  # the reader counts failures before any good poll as gaps
-        elif len(state.failed) > MAX_FORGIVEN:
-            gap_before = True  # too many failed polls in a row to forgive
-        else:
-            gap_before = (start - state.anchor).total_seconds() > allowance_s(
-                self.cfg.source_max_gap_s, state.anchor_spacing_s, spacing, state.failed, True)
+        else:  # the reader's rule (scout_reader.coverage.interval_gap), on the same numbers
+            gap_before = interval_gap((start - state.anchor).total_seconds(), self.cfg.source_max_gap_s,
+                                      state.anchor_spacing_s, spacing, state.failed, seen,
+                                      self.cfg.source_overlap_max_gap_s) is not None
         rec = HealthRecord(
             source=src.name, feed=feed, kind=src.kind, enabled=src.enabled, gate6=src.gate6,
             start=fetch.started_at, end=fetch.ended_at, result=outcome, http_status=fetch.status,
             items=len(guids) if good else 0, new_items=new_items if good else 0, overlap=overlap,
-            spacing_s=spacing, gap_before=gap_before, error=error if error is not None else fetch.error)
+            spacing_s=spacing, gap_before=gap_before, error=error if error is not None else fetch.error,
+            seen_items=seen_items)
         if good:
             for g in guids:
                 state.seen[g] = None

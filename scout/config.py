@@ -222,6 +222,12 @@ class ScoutConfig:
 
     # 6.2 sources and HTTP
     source_max_gap_s: int = 180
+    source_overlap_max_gap_s: int = 1800  # 0.2.2 overlap rule cap, 0 = off (owner, 2026-11-04; SS 6.2)
+    # 0.2.2: these wires every hour_turn_spacing_s from :start to :end ET around each hour (owner, 2026-11-04)
+    hour_turn_sources: tuple[str, ...] = ("prnewswire",)
+    hour_turn_start_min: int = 58
+    hour_turn_end_min: int = 5
+    hour_turn_spacing_s: float = 30.0
     source_backoff_max_min: int = 30
     fetch_max_bytes: int = 2_000_000
     fetch_timeout_s: float = 20.0
@@ -398,6 +404,7 @@ class ScoutConfig:
             "hold_block_macro_events": self.hold_block_macro_events,
             "scout_stale_s": self.scout_stale_s,
             "source_max_gap_s": self.source_max_gap_s,
+            "source_overlap_max_gap_s": self.source_overlap_max_gap_s,
             "jason_near_level_pct": self.jason_near_level_pct,
             "jason_market_symbols": list(self.jason_market_symbols),
             "gate6_sources": sorted(s.name for s in self.enabled_sources() if s.gate6),
