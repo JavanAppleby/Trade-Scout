@@ -58,6 +58,9 @@ class EdgarAtomPoller:
         self.between = between
         self.last_ok: str | None = None
         self.last_error: str | None = None
+        # Forms whose last 200 page was not fully read: the fetcher may keep its ETag, so the next
+        # request for them goes without validators (0.2.2 review).
+        self.refetch_full: set[str] = set()
 
     def _publish(self, status: str, now: datetime) -> None:
         self.board.update(SOURCE, board_state(self.src.enabled, status, self.last_ok, self.last_error,
@@ -103,7 +106,7 @@ class EdgarAtomPoller:
             self.log.warning("edgar_atom: a job run between forms failed (%s)", type(exc).__name__)
 
     def _poll_form(self, form: str, now: datetime) -> tuple[int, str]:
-        fetch = self.fetcher.fetch(SOURCE, form_url(self.src.url, form))
+        fetch = self.fetcher.fetch(SOURCE, form_url(self.src.url, form), conditional=form not in self.refetch_full)
         if fetch.result == "not_modified":
             self.health.record(self.tracker.observe(self.src, form, fetch, now=now))
             return 0, fetch.result
@@ -111,6 +114,7 @@ class EdgarAtomPoller:
             self.last_error = f"{form}: {fetch.error or fetch.result}"
             self.health.record(self.tracker.observe(self.src, form, fetch, now=now))
             return 0, fetch.result
+        self.refetch_full.add(form)  # until this page is fully read and recorded
         try:
             page = parse_getcurrent_atom(fetch.body or b"")
         except SchemaError as exc:
@@ -127,6 +131,7 @@ class EdgarAtomPoller:
                 new.discard(entry.guid)
         self.health.record(self.tracker.observe(self.src, form, fetch, now=now, guids=[e.guid for e in page.entries],
                                                 new_items=n_new, page_size=page.total))
+        self.refetch_full.discard(form)
         return added, "ok"
 
     def _listings(self, cik: int) -> list[tuple[str | None, str | None]]:

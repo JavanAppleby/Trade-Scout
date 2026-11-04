@@ -8,8 +8,9 @@ that first poll be judged by the same overlap and interval rules as any other po
 `load_seeds` reads back only what Scout itself stored before `now`, over the last `days` ET days:
 
 - the anchor: the last good health record of each feed (its `start` and `spacing_s`; an unreadable
-  spacing counts as 0, as the reader reads it), and the `spacing_s` of each failed poll recorded
-  after it;
+  spacing counts as 0, as the reader reads it), the `spacing_s` of each failed poll recorded after
+  it, and whether one of those received a page it did not read (`scout_reader.coverage.page_lost`,
+  0.2.2 review: a 304 after such a poll has no overlap, for the writer as for the reader);
 - the seen ids: the `guid` of every fact stored by a good poll of that feed. Every new item of a
   good EDGAR or wire page becomes at least one fact (one without a ticker when none is found), and
   a fact's `first_seen_at` is its poll's `end`, so a fact belongs to a good poll exactly when its
@@ -37,6 +38,7 @@ from typing import Any
 
 from scout.clock import et_date
 from scout.paths import ScoutPaths
+from scout_reader.coverage import page_lost
 from scout_reader.records import known, parse_time, read_jsonl
 
 __all__ = ["FeedSeed", "load_seeds"]
@@ -55,6 +57,7 @@ class FeedSeed:
     anchor: datetime | None  # None: only failed polls on file
     spacing_s: float
     failed_spacings: tuple[float, ...] = ()
+    lost_page: bool = False  # one of those failed polls received a page and did not read it
 
     @property
     def failed(self) -> int:
@@ -86,7 +89,7 @@ def load_seeds(paths: ScoutPaths, now: datetime, *, sources: Iterable[str], cap:
 
 def _load(paths: ScoutPaths, now: datetime, sources: frozenset[str], cap: int,
           days: int) -> dict[tuple[str, str], FeedSeed]:
-    polls: dict[tuple[str, str], list[tuple[datetime, bool, float]]] = {}
+    polls: dict[tuple[str, str], list[tuple[datetime, bool, float, bool]]] = {}
     good_ends: set[tuple[str, str, datetime]] = set()
     for rec in _records(paths.health, paths, now, days):
         source, feed = rec.get("source"), rec.get("feed")
@@ -97,18 +100,20 @@ def _load(paths: ScoutPaths, now: datetime, sources: frozenset[str], cap: int,
             continue  # no look-ahead: only polls Scout made before now
         good = rec.get("result") in _GOOD
         spacing = _number(rec.get("spacing_s"))
-        polls.setdefault((str(source), feed), []).append((at, good, 0.0 if spacing is None else spacing))
+        polls.setdefault((str(source), feed), []).append((at, good, 0.0 if spacing is None else spacing,
+                                                          page_lost(rec.get("result"), rec.get("http_status"))))
         if good and end is not None and end <= now:
             good_ends.add((str(source), feed, end))
-    anchors: dict[tuple[str, str], tuple[datetime | None, float, tuple[float, ...]]] = {}
+    anchors: dict[tuple[str, str], tuple[datetime | None, float, tuple[float, ...], bool]] = {}
     for key, items in polls.items():
         items.sort(key=lambda p: p[0])
         last = max((i for i, p in enumerate(items) if p[1]), default=None)
         if last is None:  # only failed polls: they still count before the first good poll
-            anchors[key] = (None, 0.0, tuple(p[2] for p in items))
+            anchors[key] = (None, 0.0, tuple(p[2] for p in items), any(p[3] for p in items))
             continue
-        at, _good, spacing = items[last]
-        anchors[key] = (at, spacing, tuple(p[2] for p in items[last + 1:]))
+        at, _good, spacing, _lost = items[last]
+        after = items[last + 1:]
+        anchors[key] = (at, spacing, tuple(p[2] for p in after), any(p[3] for p in after))
     seen: dict[tuple[str, str], list[tuple[datetime, str]]] = {k: [] for k in anchors}
     for rec in _records(paths.facts, paths, now, days):
         source, feed, guid = rec.get("source"), rec.get("feed"), rec.get("guid")
@@ -122,7 +127,8 @@ def _load(paths: ScoutPaths, now: datetime, sources: frozenset[str], cap: int,
             continue
         seen[key].append((at, guid))
     out: dict[tuple[str, str], FeedSeed] = {}
-    for key, (at, spacing, failed) in anchors.items():
+    for key, (at, spacing, failed, lost) in anchors.items():
         ordered = dict.fromkeys(g for _t, g in sorted(seen[key], key=lambda p: p[0]))
-        out[key] = FeedSeed(guids=tuple(list(ordered)[-cap:]), anchor=at, spacing_s=spacing, failed_spacings=failed)
+        out[key] = FeedSeed(guids=tuple(list(ordered)[-cap:]), anchor=at, spacing_s=spacing, failed_spacings=failed,
+                            lost_page=lost)
     return out

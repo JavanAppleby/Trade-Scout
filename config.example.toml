@@ -22,7 +22,9 @@ source_max_gap_s = 180            # a pause between polls longer than this is a 
 source_overlap_max_gap_s = 1800   # seconds a repeated seen item covers (0 = off)
 # Faster polling around the top of each hour, when more releases than one page holds can appear
 # within a minute (owner, 2026-11-04). From minute hour_turn_start_min to hour_turn_end_min ET (the
-# end minute not included; the window may wrap the hour), inside active_hours_et only.
+# end minute not included; the window may wrap the hour), inside active_hours_et only, every calendar
+# day. Never faster than the spacing the fetcher keeps for the host: a host_min_spacing_s above
+# hour_turn_spacing_s for www.prnewswire.com sets the spacing in the window instead.
 hour_turn_sources = ["prnewswire"]  # wire sources only
 hour_turn_start_min = 58          # :58 ET
 hour_turn_end_min = 5             # up to :05 ET, so the last fast poll starts by :04:59

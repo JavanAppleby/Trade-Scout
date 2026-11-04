@@ -5,10 +5,14 @@
 `CoverageTracker` keeps, per source and feed, the guids already seen (at most `seen_guid_cap`) and
 the last good poll, and builds each poll's record:
 - `overlap` (SS 6.2): the poll contains a guid already seen, or returns fewer items than the feed's
-  maximum (`max_items`; 0 = unknown, so only a seen guid counts). A 304 counts as overlap. A failed
-  poll has `overlap = null`.
+  maximum (`max_items`; 0 = unknown, so only a seen guid counts). A 304 counts as overlap, unless
+  a page was lost since the last good poll (see `seen_items`). A failed poll has `overlap = null`.
 - `seen_items` (0.2.2): how many distinct ids of a good page Scout had already seen in this feed
-  (a 304 counts as overlap by a seen id); null for a failed poll.
+  and that sit below every new id on the page (a feed lists newest first, so only a seen id below
+  the new ones shows the page reached back past them; a seen id re-listed above a new one proves
+  nothing). A 304 counts as overlap by a seen id, unless a page was received and not read since
+  the last good poll (`scout_reader.coverage.page_lost`): then the 304 may rest on that lost page's
+  ETag, so it has no overlap. Null for a failed poll.
 - `gap_before` (D7): the interval since the last good poll of this feed is a gap: the poll failed,
   it has no overlap, or `scout_reader.coverage.interval_gap` finds one. That is the reader's own
   rule: a poll that repeats a seen id covers the interval, failed polls included, up to
@@ -43,10 +47,11 @@ from typing import TYPE_CHECKING
 from scout.calendar import in_active_hours
 from scout.clock import et_date, parse_iso, to_et
 from scout.config import PERIODIC_FORMS, ScoutConfig, SourceConfig
+from scout.http import host_spacing_s
 from scout.models import FetchResult, HealthRecord, SourceState
 from scout.paths import ScoutPaths
 from scout.store import append_jsonl
-from scout_reader.coverage import interval_gap
+from scout_reader.coverage import interval_gap, page_lost
 
 if TYPE_CHECKING:  # pragma: no cover
     from scout.coverage_seed import FeedSeed
@@ -85,11 +90,15 @@ def in_hour_turn(now: datetime, cfg: ScoutConfig) -> bool:
 def spacing_in_force(src: SourceConfig, now: datetime, cfg: ScoutConfig) -> float:
     """`min_spacing_s` inside `active_hours_et`, `idle_spacing_s` outside (0 = the same); for a
     source in `hour_turn_sources`, at most `hour_turn_spacing_s` around the hour (`in_hour_turn`).
-    Validation keeps `hour_turn_spacing_s` at or above the host's hard minimum (scout.http)."""
+    Validation keeps `hour_turn_spacing_s` at or above the host's hard minimum (scout.http); a
+    larger configured `host_min_spacing_s` for the source's host also bounds it here, so the job
+    never polls faster than the fetcher sends (it would sleep inside the one loop) and each health
+    record stores the spacing really kept (0.2.2 review)."""
     if src.idle_spacing_s and not in_active_hours(now, cfg):
         return float(src.idle_spacing_s)
     if src.name in cfg.hour_turn_sources and in_hour_turn(now, cfg):
-        return min(float(src.min_spacing_s), float(cfg.hour_turn_spacing_s))
+        kept = max((host_spacing_s(cfg, h) for h in src.allowed_hosts), default=0.0)
+        return min(float(src.min_spacing_s), max(float(cfg.hour_turn_spacing_s), kept))
     return float(src.min_spacing_s)
 
 
@@ -123,6 +132,7 @@ class _Feed:
         self.anchor: datetime | None = None  # start of the last good poll
         self.anchor_spacing_s: float = 0.0  # its spacing
         self.failed: list[float] = []  # the spacing of each failed poll since the anchor
+        self.lost = False  # a page received and not read since the anchor (a 304 then proves nothing)
         self.spacing_s: float = 0.0  # the spacing of the latest poll
         self.last: HealthRecord | None = None
 
@@ -143,6 +153,7 @@ class CoverageTracker:
                 state.seen[g] = None
             state.anchor, state.anchor_spacing_s = seed.anchor, seed.spacing_s
             state.spacing_s, state.failed = seed.spacing_s, list(seed.failed_spacings)
+            state.lost = seed.lost_page
         return state
 
     def _feed(self, source: str, feed: str) -> _Feed:
@@ -173,14 +184,15 @@ class CoverageTracker:
         overlap: bool | None = None
         seen_items: int | None = None
         if outcome == "not_modified":
-            overlap, seen_items = True, 0
+            overlap, seen_items = not state.lost, 0  # after a lost page: that page's ETag, not Scout's
         elif good:
             unique = list(dict.fromkeys(guids))
-            seen_items = sum(1 for g in unique if g in state.seen)
+            last_new = max((i for i, g in enumerate(unique) if g not in state.seen), default=-1)
+            seen_items = sum(1 for g in unique[last_new + 1:] if g in state.seen)  # below every new id
             size = page_size if page_size is not None else len(unique)
             short = src.max_items > 0 and size < src.max_items
-            overlap = seen_items > 0 or short
-        seen = outcome == "not_modified" or bool(seen_items)
+            overlap = any(g in state.seen for g in unique) or short  # SS 6.2 as in 0.2.1
+        seen = bool(overlap) and (outcome == "not_modified" or bool(seen_items))
         if not good or not overlap:
             gap_before = True
         elif state.anchor is None:
@@ -201,9 +213,10 @@ class CoverageTracker:
                 state.seen.move_to_end(g)
             while len(state.seen) > self.cfg.seen_guid_cap:
                 state.seen.popitem(last=False)
-            state.anchor, state.anchor_spacing_s, state.failed = start, spacing, []
+            state.anchor, state.anchor_spacing_s, state.failed, state.lost = start, spacing, [], False
         else:
             state.failed.append(spacing)
+            state.lost = state.lost or page_lost(outcome, fetch.status)
         state.spacing_s = spacing
         state.last = rec
         return rec

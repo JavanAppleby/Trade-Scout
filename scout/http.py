@@ -168,6 +168,13 @@ def _header(headers: Mapping[str, str], name: str) -> str | None:
 # --------------------------------------------------------------------------- the fetcher
 
 
+def host_spacing_s(cfg: Any, host: str) -> float:
+    """The spacing the fetcher keeps between two requests to `host`: the configured spacing
+    (`host_min_spacing_s`, else `http_default_host_spacing_s`), never below the hard minimum."""
+    configured = cfg.host_min_spacing_s.get(host, cfg.http_default_host_spacing_s)
+    return max(float(configured), HARD_MIN_SPACING_S.get(host, 0.0))
+
+
 class HttpFetcher:
     """implements interfaces.Fetcher. One instance per Scout run (state is per host; kept in a
     state file across restarts when `state` is given)."""
@@ -207,8 +214,7 @@ class HttpFetcher:
     # ------------------------------------------------------------------ policy
 
     def spacing_for(self, host: str) -> float:
-        configured = self.cfg.host_min_spacing_s.get(host, self.cfg.http_default_host_spacing_s)
-        return max(float(configured), HARD_MIN_SPACING_S.get(host, 0.0))
+        return host_spacing_s(self.cfg, host)
 
     def backoff_for(self, host: str) -> float:
         return self._backoff_s.get(host, 0.0)

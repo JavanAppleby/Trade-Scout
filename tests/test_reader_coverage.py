@@ -325,18 +325,22 @@ def _walk_all(chain, start, end, max_gap_s, cap=None):
     """The gap rule walked over every poll up to `end` (no shortcut), for the equivalence test:
     the limit uses the larger spacing of the two good polls, plus each failed poll's own spacing
     (at most 3 failed polls) when the later poll overlaps; a longer run of failures is a gap up to
-    the next good poll. A seen-id poll within `cap` of the good poll before covers it (0.2.2)."""
-    raw, anchor, anchor_sp, failed, fsp, limit = [], None, 0.0, [], [], max_gap_s
+    the next good poll. A seen-id poll within `cap` of the good poll before covers it (0.2.2). A 304
+    after a lost page (a page received and not read) has no overlap (0.2.2 review)."""
+    raw, anchor, anchor_sp, failed, fsp, limit, lost = [], None, 0.0, [], [], max_gap_s, False
     polls = [p for p in chain if p[0] <= end]
-    for at, good, overlap, spacing, seen in polls:
+    for at, good, overlap, spacing, seen, not_modified, page_lost in polls:
         limit = max(max_gap_s, 2.0 * spacing)
         if not good:
+            lost = lost or page_lost
             if anchor is not None:
                 failed.append((anchor, at, "failed_poll"))
                 fsp.append(spacing)
             else:
                 raw.append((at, at, "failed_poll"))
             continue
+        if lost and not_modified:
+            overlap = seen = False
         s = max(anchor_sp, spacing)
         allowed = max(max_gap_s, 2.0 * s) + (sum(fsp) if 0 < len(failed) <= 3 else 0.0)
         if anchor is not None and not overlap:
@@ -347,7 +351,7 @@ def _walk_all(chain, start, end, max_gap_s, cap=None):
             raw += [(anchor, at, "interval"), *failed]
         elif anchor is not None and len(failed) > 3:
             raw += [*failed, (anchor, at, "failed_poll")]
-        failed, fsp, anchor, anchor_sp = [], [], at, spacing
+        failed, fsp, anchor, anchor_sp, lost = [], [], at, spacing, False
     raw += failed
     first_good = next((p[0] for p in polls if p[1]), None)
     if first_good is None or first_good > start:
@@ -367,7 +371,10 @@ def test_the_walk_from_the_last_good_poll_before_the_window_gives_the_same_gaps(
         for _i in range(rng.randint(0, 60)):
             at += timedelta(seconds=rng.choice((30, 60, 60, 120, 200, 400, 1500, 2000)))
             good, overlap = rng.random() > 0.2, rng.random() > 0.1
-            chain.append((at, good, overlap, rng.choice((60.0, 600.0)), good and overlap and rng.random() > 0.5))
+            not_modified = good and overlap and rng.random() < 0.2
+            chain.append((at, good, overlap, rng.choice((60.0, 600.0)),
+                          not_modified or (good and overlap and rng.random() > 0.5), not_modified,
+                          not good and rng.random() < 0.3))
         start = T0 - timedelta(minutes=rng.randint(-60, 120))
         end = start + timedelta(minutes=rng.randint(0, 90))
         cap = rng.choice((None, 300.0, 1800.0))

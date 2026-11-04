@@ -113,6 +113,10 @@ def _ticker(rec: Mapping[str, Any]) -> str:
     return ticker.strip().upper() if isinstance(ticker, str) else ""
 
 
+#: Indexes of the fields `_poll_item` puts after the `coverage.Poll`.
+_END, _SRC, _FEED, _SKIPPED_ROWS = cov.POLL_LEN, cov.POLL_LEN + 1, cov.POLL_LEN + 2, cov.POLL_LEN + 3
+
+
 def _poll_item(rec: dict[str, Any]) -> tuple[Any, ...] | None:
     """A `coverage.Poll` followed by (end, source, feed, skipped bad rows), for a health record with
     readable times."""
@@ -258,11 +262,11 @@ def _coverage(files: _Files, params: Mapping[str, Any], beat: Mapping[str, Any],
     chains: dict[tuple[str, str], list[list[tuple[Any, ...]]]] = {}
     skipped = False
     for view in files.days(R.HEALTH, start - timedelta(days=1), as_of, "polls", _poll_item,
-                           lambda i: (i[6], i[7]), order=lambda i: i[0]):
+                           lambda i: (i[_SRC], i[_FEED]), order=lambda i: i[0]):
         for k, items in view.groups.items():
             chains.setdefault(k, []).append(items)
             if k[0] == HALT_SOURCE:
-                skipped = skipped or any(i[8] and i[0] >= start and i[5] <= as_of for i in items)
+                skipped = skipped or any(i[_SKIPPED_ROWS] and i[0] >= start and i[_END] <= as_of for i in items)
     gap_open = beat.get("gap_open") if isinstance(beat.get("gap_open"), Mapping) else {}
     feeds_wanted = params.get("gate6_feeds") if isinstance(params.get("gate6_feeds"), Mapping) else {}
     for name in sources:
@@ -294,7 +298,7 @@ def _chain(parts: list[list[tuple[Any, ...]]], as_of: datetime) -> list[tuple[An
             merged.extend(items)
     stop = bisect.bisect_right(merged, as_of, key=lambda i: i[0])
     tail = bisect.bisect_left(merged, as_of - _POLL_TAIL, 0, stop, key=lambda i: i[0])
-    return merged[:tail] + [i for i in merged[tail:stop] if i[5] <= as_of]
+    return merged[:tail] + [i for i in merged[tail:stop] if i[_END] <= as_of]
 
 
 def entry_blocks_in(root: Path, cache: FileCache, params: Mapping[str, Any] | None, p_reasons: Sequence[str],

@@ -39,7 +39,8 @@ ALL_FORMS = ["8-K", "6-K", "S-1", "S-3", "F-1", "F-3", "424B", "EFFECT", "NT 10-
 def rec(at: datetime, *, result: str = "ok", items: int = 20, new: int = 0, seen: int | None | str = "absent",
         spacing: float = 60.0) -> dict:
     out = {"format": 1, "source": "prnewswire", "feed": "rss", "kind": "wire", "enabled": True, "gate6": True,
-           "start": iso(at), "end": iso(at + timedelta(seconds=1)), "result": result, "http_status": 200,
+           "start": iso(at), "end": iso(at + timedelta(seconds=1)), "result": result,
+           "http_status": {"ok": 200, "not_modified": 304, "schema": 200}.get(result),
            "items": items if result == "ok" else 0, "new_items": new if result == "ok" else 0,
            "overlap": (True if result in ("ok", "not_modified") else None), "spacing_s": spacing,
            "gap_before": False, "error": None}

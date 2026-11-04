@@ -298,6 +298,18 @@ The rules in full (owner, 2026-11-04; Scout and `scout_reader` 0.2.1, with the o
   repeated id: an item a feed inserts out of order below a seen one, or a cached page, could hide
   more the longer the pause. The other rules (no overlap, no poll at the start or the end, a
   missing feed) are unchanged.
+- **Review safeguards** (owner, 2026-11-04; 0.2.2 review; the owner's rule kept):
+  - A **lost page** is a failed poll that received a page and did not read it (`result` "schema",
+    or `http_status` 200 with a failed result). The fetcher may keep that page's ETag, so a 304
+    after it means only "unchanged since the page Scout lost": such a 304 has **no overlap** (a
+    `no_overlap` gap back to the good poll before), in the reader and the writer. After a lost
+    page (or a failure while storing a page) Scout sends the next request for that feed without
+    validators, so a 304 cannot follow it.
+  - `seen_items` counts only seen ids **below every new id** on the page (feeds list newest first):
+    an old item re-listed above new ones proves nothing about the items below. `overlap` itself
+    keeps its 0.2.1 meaning.
+  - The reader takes `source_overlap_max_gap_s` only as a finite number in (0, 86400]; anything
+    else means the rules above alone.
 - **Restarts**: Scout keeps the seen guids and the last good poll of each feed across a restart.
   At start it reads them back from its own files: the guids of the facts stored by good polls
   (a fact's `first_seen_at` is its poll's `end`) and the last good health record of each feed,
@@ -319,8 +331,12 @@ The rules in full (owner, 2026-11-04; Scout and `scout_reader` 0.2.1, with the o
 PR Newswire's feed holds only 20 items. The live health records of 1-4 Nov 2026 showed more than
 20 releases within a minute at the top of some hours (e.g. 13:01, 14:00, 15:01 UTC): 7 true
 no-overlap gaps. Since 0.2.2 (owner, 2026-11-04) it is polled every 30 s (the hard minimum for its
-host) from :58 to :05 ET around each hour inside active hours; a burst larger than 20 in 30 s is
-still recorded as a gap, never hidden. Stock Titan's feed holds 100 items
+host) from :58 to :05 ET around each hour inside active hours, every calendar day (weekends and
+holidays too); a burst larger than 20 in 30 s is still recorded as a gap, never hidden. Never
+faster than the spacing the fetcher keeps for the host: a `host_min_spacing_s` above 30 s for
+www.prnewswire.com sets the spacing in that window (never above `min_spacing_s`). Not covered: one
+of the 7 overflows (3 Nov 13:31 UTC, 08:30 ET) came at a half-hour release time, outside the
+window; bursts at :30 still overflow (a :28 to :35 window would need the owner's decision). Stock Titan's feed holds 100 items
 (about 100 in 20 minutes at a busy open), so a 60 s poll overlaps.
 
 ### 6.3 Normalisers (no LLM)

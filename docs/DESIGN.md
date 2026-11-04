@@ -867,6 +867,10 @@ can keep a 3-day chain parsed in its cache. 0.2.2 (owner, 2026-11-04): `gaps(...
 and `chain_gaps(..., overlap_max_gap_s)` take params `source_overlap_max_gap_s` (missing or not a
 positive number: the 0.2.1 rule alone); `Poll` is (start, good, overlap, spacing_s, seen);
 `seen_overlap(rec)` reads `seen_items` > 0, or for records before 0.2.2 `new_items` < `items`;
+0.2.2 review: `Poll` is (start, good, overlap, spacing_s, seen, not_modified, lost) (`POLL_LEN` 7;
+`blocks` keeps its own fields after it), `page_lost(result, http_status)` marks a failed poll that
+received a page it did not read, a 304 after one has no overlap, and `overlap_cap` accepts only a
+finite cap in (0, 86400];
 `interval_gap(...)` is the one rule for the interval between two good polls, used by the reader and
 by `scout.health` (section 20).
 
@@ -939,8 +943,9 @@ time; `extra` as in 2.7.
 `format, source, feed, kind, enabled, gate6, start, end, result ("ok"|"not_modified"|"http_error"|
 "timeout"|"network"|"schema"|"too_large"|"refused"|"backoff"|"no_http"|"host_cap"), http_status,
 items, new_items, overlap (bool|null), spacing_s, gap_before (bool), error (str|null), seen_items
-(int|null; 0.2.2: distinct ids on a good page already seen in the feed, 0 for a 304; null for a
-failed poll; absent in records written before 0.2.2)`.
+(int|null; 0.2.2: distinct ids on a good page already seen in the feed and below every new id on
+the page, 0 for a 304; null for a failed poll; absent in records written before 0.2.2)`. A 304
+after a lost page (section 20) has `overlap` false.
 
 ### 5.3 Beat (`state\beats\<date>.jsonl`) and heartbeat (`state\scout.heartbeat`)
 Beat: `format, at, stopped, sources ({name: status}), gap_open ({name: bool})`. `gap_open` is aged
@@ -1033,7 +1038,7 @@ date "YYYY-MM-DD". Values marked * are this design's additions beyond SS 13.
 | source_overlap_max_gap_s | int | 1800 (0.2.2: how long a repeated seen id covers; 0 = off; in params) |
 | hour_turn_sources | list[str] | ["prnewswire"] (0.2.2: wires polled faster around the hour) |
 | hour_turn_start_min, hour_turn_end_min | int | 58, 5 (ET minutes; end not included; the window wraps the hour) |
-| hour_turn_spacing_s | float | 30.0 (never below the host's hard minimum in `scout/http.py`) |
+| hour_turn_spacing_s | float | 30.0 (never below the host's hard minimum in `scout/http.py`; a larger configured `host_min_spacing_s` for the host bounds it at run time) |
 | source_backoff_max_min | int | 30 |
 | fetch_max_bytes | int | 2000000 |
 | fetch_timeout_s * | float | 20.0 |
@@ -1619,8 +1624,9 @@ releases appear within a minute: 7 true no-overlap gaps. The owner chose both fi
    - `run_due` takes the clock and asks each job at the clock's time when its turn comes; before,
      every job of a tick was asked at the tick's start, so after a 140 s EDGAR cycle a wire that had
      just run inside it looked due again and would have been polled twice. `EveryJob.due` also
-     treats a last run later than `now` by less than one interval as not due (a clock that stepped
-     back further still makes it due).
+     treats a last run later than `now` by at most `CLOCK_STEP_BACK_S` (5 s) as not due; a wall
+     clock that stepped back further makes the job due at once, as before 0.2.2 (review fix: a
+     limit of one interval made a daily job wait out the step).
    - PR Newswire around the hour: `hour_turn_sources` (["prnewswire"]) are polled every
      `hour_turn_spacing_s` (30 s) from minute `hour_turn_start_min` (58) to `hour_turn_end_min` (5,
      not included) ET around each hour, inside `active_hours_et` only (`health.spacing_in_force`, so
@@ -1631,8 +1637,33 @@ releases appear within a minute: 7 true no-overlap gaps. The owner chose both fi
      04:00-20:00 ET (15 full windows of 7 minutes, 04:00-04:05 and 19:58-20:00), 112 minutes at 30 s
      instead of 60 s: about 112 more a day, 1552 instead of 1440 (a test counts it). No new source or
      URL. A burst of more than 20 releases within 30 s is still recorded as a gap, never hidden.
+     The window runs every calendar day (weekends and holidays too), as the owner chose it
+     ("within active hours"). `spacing_in_force` never goes below the spacing the fetcher keeps
+     for the host (`http.host_spacing_s`: a configured `host_min_spacing_s` above 30 s sets it), so
+     the job never polls faster than the fetcher sends and the record stores the real spacing.
+3. **Review fixes** (0.2.2 review; the owner's rule kept, only made safe):
+   - A lost page and a 304. The fetcher stores a 200's ETag before the poller parses the page. If
+     the page then failed (`schema`), or storing it raised, a 304 on the next request would have
+     meant "unchanged since a page Scout never read", and with the cap it would have covered up to
+     1800 s. Now: (i) `WirePoller.refetch_full` and `EdgarAtomPoller.refetch_full` (per form) make
+     the next request after such a page unconditional, as `HaltPoller.refetch_full` already did;
+     (ii) `coverage.page_lost` marks a failed record with result "schema" or HTTP 200, and a 304
+     after one (since the last good poll) has no overlap, in the reader, the writer and the seed
+     (`FeedSeed.lost_page`). The live records of 31 Oct-4 Nov hold no such 304 on a gate-6 feed.
+   - `seen_items` counts only seen ids below every new id on the page, so an old item re-listed
+     at the top (an updated release keeping its guid), or a late repost slotted below new items,
+     is not taken as proof. `overlap` keeps its 0.2.1 meaning. Records before 0.2.2 keep the
+     owner's rule.
+   - The reader refuses a cap that is not finite or is above one day (config allows 0-86400).
+   - Records before 0.2.2 with a guid repeated on one page (`items` counted it twice) could still
+     read as seen with no truly seen id. Not fixable from those records; they leave the window
+     within 3 trading days of the install.
 
 Not changed: an EDGAR form whose page is empty or short (NT 10-Q at quiet times) cannot show a seen
 id, so a slow EDGAR cycle with a timeout on it can still be an `interval` gap under the 0.2.1 rule
 (twice in the 1-4 Nov replay). Other jobs (macro, Claude calls) still run one at a time and do not
-yield to the wires.
+yield to the wires. The halt feed (`nasdaq_halts`) is not run between EDGAR's forms either: on 1-4
+Nov 31 of its intervals were over 180 s (the longest 307 s), so an open halt can reach Scout's facts
+a few minutes late; passing the halts job to `between()` is the same one-thread mechanism and
+needs the owner's decision. PR Newswire bursts at half-hour release times (3 Nov 13:31 UTC) are
+outside the :58-:05 window.

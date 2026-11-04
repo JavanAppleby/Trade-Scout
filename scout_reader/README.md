@@ -96,6 +96,11 @@ The reader recomputes the gaps from Scout's health records; it does not trust Sc
   rules above apply. Params without `source_overlap_max_gap_s` (Scout before 0.2.2) mean the rules
   above alone. A record says "seen" by `seen_items` > 0; a record written before 0.2.2 has no
   `seen_items`, and there a good page with `new_items` below `items` counts as seen.
+- Review safeguards (0.2.2): a 304 that follows a failed poll which received a page and did not
+  read it (result "schema", or HTTP 200 with a failed result) has no overlap, because the 304 may
+  rest on that lost page; Scout itself now asks without validators after such a page. `seen_items`
+  counts only seen items below every new item on the page. The cap is used only when it is a
+  finite number up to 86400 s; anything else means the rules above alone.
 - Only polls that ended by the answer's time count ("as of t" sees no later poll).
 - Restarts: since Scout 0.2.1 the first poll after a restart is judged like any other poll (Scout
   reads its seen items and last good poll back from its own files). It is still a gap unless it

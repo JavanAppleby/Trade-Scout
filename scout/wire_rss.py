@@ -114,6 +114,9 @@ class WirePoller:
         self.refused_on: date | None = None
         self.last_ok: str | None = None
         self.last_error: str | None = None
+        # A 200 page that was not fully read: the fetcher may keep its ETag, so the next request goes
+        # without validators (no 304 can then rest on a page Scout lost; 0.2.2 review).
+        self.refetch_full = False
 
     @property
     def name(self) -> str:
@@ -133,7 +136,7 @@ class WirePoller:
                 self._publish("refused", now)
                 return 0
             self.refused_on, self.forbidden_in_a_row = None, 0
-        fetch = self.fetcher.fetch(self.name, self.src.url)
+        fetch = self.fetcher.fetch(self.name, self.src.url, conditional=not self.refetch_full)
         if fetch.status == 403:
             self.forbidden_in_a_row += 1
         elif fetch.result in ("ok", "not_modified"):
@@ -154,6 +157,7 @@ class WirePoller:
             self.health.record(self.tracker.observe(self.src, FEED, fetch, now=now))
             self._publish("ok", now)
             return 0
+        self.refetch_full = True  # until this page is fully read and recorded
         try:
             items = parse_rss(fetch.body or b"")
         except SchemaError as exc:
@@ -175,6 +179,7 @@ class WirePoller:
         self.last_ok = fetch.ended_at
         self.health.record(self.tracker.observe(self.src, FEED, fetch, now=now, guids=[i.guid for i in items],
                                                 new_items=len(new_list)))
+        self.refetch_full = False
         self._publish("ok", now)
         return added
 

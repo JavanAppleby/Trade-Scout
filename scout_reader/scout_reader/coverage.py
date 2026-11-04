@@ -32,7 +32,16 @@ items than the feed's maximum, no seen id), the rules above apply unchanged. Wit
 (None, or not a positive number) the rules above apply alone (fail closed: the 0.2.1 rule). A
 record says "seen id" by `seen_items` > 0 (Scout 0.2.2 on); a record written before 0.2.2 has no
 `seen_items`, and then a good page with `items` > 0 and `new_items` < `items` counts (the owner's
-rule: an item on the page that was not new had been seen). See `seen_overlap`.
+rule: an item on the page that was not new had been seen). See `seen_overlap`. The cap must be a
+finite number up to `OVERLAP_CAP_MAX_S` (one day, the most config allows); anything else means no
+overlap rule.
+
+A lost page (0.2.2 review, owner rule of 2026-11-04 kept): a failed poll that received a page and
+did not read it (`result` "schema", or `http_status` 200 with a failed result) may have left that
+page's ETag with the fetcher, so a 304 after it says only "unchanged since the page Scout lost".
+Such a 304 proves no overlap: from the good poll before the lost page to the 304 is a `no_overlap`
+gap, whatever the interval. Scout 0.2.2 also sends the next request without validators after a
+lost page, so this should not happen; the rule keeps older records and any slip safe.
 
 When `feeds` is given, only those feeds are checked (owner, 2026-11-04): the other feeds of the
 source (EDGAR's 10-Q and 10-K, polled for the gate-5 check only) hold no fact that gate 6 or
@@ -54,8 +63,9 @@ from typing import Any
 
 from scout_reader.records import known, parse_time
 
-__all__ = ["GOOD_RESULTS", "MAX_FORGIVEN", "NOT_COVERAGE", "WHY", "Poll", "allowance_s", "chain_gaps", "gaps",
-           "interval_gap", "overlap_cap", "poll_of", "seen_overlap", "sources_for_gate6"]
+__all__ = ["GOOD_RESULTS", "MAX_FORGIVEN", "NOT_COVERAGE", "OVERLAP_CAP_MAX_S", "POLL_LEN", "WHY", "Poll",
+           "allowance_s", "chain_gaps", "gaps", "interval_gap", "overlap_cap", "page_lost", "poll_of",
+           "seen_overlap", "sources_for_gate6"]
 
 #: Beat entries that are never gate coverage: the Discord capture cadence (DESIGN 2.7) is shown on the
 #: heartbeat for the owner only.
@@ -64,6 +74,9 @@ NOT_COVERAGE = frozenset({"discord_inbox"})
 GOOD_RESULTS = frozenset({"ok", "not_modified"})
 #: The most failed polls in a row that an overlapping good poll after them forgives (owner, 2026-11-04).
 MAX_FORGIVEN = 3
+#: The largest overlap cap the reader accepts (config allows 0 to 86400 s); a larger, infinite or NaN
+#: value means no overlap rule (fail closed).
+OVERLAP_CAP_MAX_S = 86400.0
 WHY = ("failed_poll", "no_overlap", "interval", "no_poll_at_start", "no_poll_at_end", "missing_feed", "error")
 
 
@@ -82,11 +95,17 @@ def _number(value: Any, default: float) -> float:
 
 
 def overlap_cap(value: Any) -> float | None:
-    """`source_overlap_max_gap_s` as the rule uses it: a positive number, else None (no overlap
-    rule: the 0.2.1 rule alone, fail closed)."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not value > 0:
+    """`source_overlap_max_gap_s` as the rule uses it: a positive, finite number up to
+    `OVERLAP_CAP_MAX_S`, else None (no overlap rule: the 0.2.1 rule alone, fail closed)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return float(value)
+    try:
+        cap = float(value)
+    except (OverflowError, ValueError):
+        return None
+    if not 0.0 < cap <= OVERLAP_CAP_MAX_S:  # NaN and infinity fail this too
+        return None
+    return cap
 
 
 def gaps(health_records: Iterable[Mapping[str, Any]], source: str, start: datetime, end: datetime, *,
@@ -140,10 +159,13 @@ def _gaps(records: Iterable[Mapping[str, Any]], source: str, start: datetime, en
     return unique
 
 
-#: One poll as the gap rule sees it: (start, good, overlap, spacing_s, seen). `seen` is true when
-#: the overlap rests on a seen id (or a 304). `scout_reader.blocks` keeps these per feed in its cache
-#: (with more fields after them), so a long window is not parsed again on every call.
-Poll = tuple[datetime, bool, bool, float, bool]
+#: One poll as the gap rule sees it: (start, good, overlap, spacing_s, seen, not_modified, lost).
+#: `seen` is true when the overlap rests on a seen id (or a 304); `not_modified` marks a 304; `lost`
+#: marks a failed poll whose page arrived but was not read (`page_lost`). `scout_reader.blocks` keeps
+#: these per feed in its cache (with more fields after them, from index `POLL_LEN`), so a long window
+#: is not parsed again on every call.
+Poll = tuple[datetime, bool, bool, float, bool, bool, bool]
+POLL_LEN = 7
 
 
 def _count(value: Any) -> int | None:
@@ -168,10 +190,19 @@ def seen_overlap(rec: Mapping[str, Any]) -> bool:
     return items is not None and new is not None and items > 0 and 0 <= new < items
 
 
+def page_lost(result: Any, http_status: Any) -> bool:
+    """A failed poll that received a page and did not read it: "schema", or HTTP 200 with a failed
+    result. The fetcher may have kept that page's ETag, so a 304 after it proves nothing."""
+    if result in GOOD_RESULTS:
+        return False
+    return result == "schema" or (not isinstance(http_status, bool) and http_status == 200)
+
+
 def poll_of(at: datetime, rec: Mapping[str, Any]) -> Poll:
     result = rec.get("result")
     return (at, result in GOOD_RESULTS, result == "not_modified" or rec.get("overlap") is True,
-            _number(rec.get("spacing_s"), 0.0), seen_overlap(rec))
+            _number(rec.get("spacing_s"), 0.0), seen_overlap(rec), result == "not_modified",
+            page_lost(result, rec.get("http_status")))
 
 
 def _feed_gaps(polls: list[tuple[datetime, Mapping[str, Any]]], start: datetime, end: datetime,
@@ -224,17 +255,21 @@ def chain_gaps(chain: Sequence[tuple[Any, ...]], start: datetime, end: datetime,
     anchor_spacing = 0.0
     failed: list[tuple[datetime, datetime, str]] = []  # failures since `anchor`, not yet forgiven
     failed_spacings: list[float] = []  # their own spacing_s
+    lost = False  # a page received and not read since `anchor` (a 304 after it proves nothing)
     limit = max_gap_s
     for p in polls:
         at, good, overlap, spacing, seen = p[0], p[1], p[2], p[3], p[4]
         limit = max(max_gap_s, 2.0 * spacing)
         if not good:
+            lost = lost or bool(p[6])
             if anchor is not None:
                 failed.append((anchor, at, "failed_poll"))
                 failed_spacings.append(spacing)
             else:
                 raw.append((at, at, "failed_poll"))
             continue
+        if lost and p[5]:
+            overlap = seen = False  # a 304 after a lost page: the lost page's ETag, not Scout's
         if anchor is None:
             pass  # the first good poll: what came before it is `no_poll_at_start`
         elif not overlap:
@@ -250,7 +285,7 @@ def chain_gaps(chain: Sequence[tuple[Any, ...]], start: datetime, end: datetime,
                 raw.extend(failed)  # too many failures in a row: they stay gaps,
                 raw.append((anchor, at, "failed_poll"))  # up to the good poll after them
             # else: covered (in time, or by a seen id): nothing was missed
-        failed, failed_spacings = [], []
+        failed, failed_spacings, lost = [], [], False
         anchor, anchor_spacing = at, spacing
     raw.extend(failed)  # no good poll after them (yet)
     first_good = next((p[0] for p in polls if p[1]), None)

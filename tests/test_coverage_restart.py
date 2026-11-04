@@ -52,9 +52,12 @@ class _Feed:
 
 
 def _poll(t: CoverageTracker, src, at: datetime, ids: list[str] | None, feed: str = "8-K", result: str = "ok"):
-    f = fetch_result(src.name, src.url, b"x", result=result, status=200 if result == "ok" else None, at=at)
+    """`result` "schema": a 200 page that was not read (a lost page); "not_modified": a 304."""
+    fetched = "ok" if result == "schema" else result
+    status = {"ok": 200, "not_modified": 304}.get(fetched)
+    f = fetch_result(src.name, src.url, b"x", result=fetched, status=status, at=at)
     if result != "ok":
-        return t.observe(src, feed, f, now=at)
+        return t.observe(src, feed, f, now=at, result=result)
     new = t.new_guids(src.name, feed, ids or [])
     return t.observe(src, feed, f, now=at, guids=ids or [], new_items=len(new)), new
 
@@ -329,7 +332,7 @@ def _reader_verdicts(records: list[dict], max_gap_s: float, cap: float | None = 
     polls = [coverage.poll_of(datetime.fromisoformat(r["start"].replace("Z", "+00:00")), r) for r in records]
     found = coverage.chain_gaps(polls, polls[0][0], polls[-1][0], max_gap_s, cap)
     out, prev = [], None
-    for at, good, overlap, _sp, _seen in polls:
+    for at, good, overlap, _sp, _seen, _nm, _lost in polls:
         if not good:
             continue
         b = iso(at)
@@ -355,7 +358,10 @@ def _random_run(cfg, paths, rng: random.Random, restarts: bool) -> list[dict]:
         if restarts and restart_roll < 0.15 and out:
             t = _seeded(cfg, paths, at)
         if fail_roll < 0.3:
-            rec = _poll(t, src, at, None, result=rng.choice(("network", "timeout", "http_error")))
+            rec = _poll(t, src, at, None, result=rng.choice(("network", "timeout", "http_error", "schema")))
+            HealthWriter(paths).record(rec)
+        elif not first and fail_roll < 0.4:
+            rec = _poll(t, src, at, None, result="not_modified")  # after a lost page: no overlap
             HealthWriter(paths).record(rec)
         else:
             if not first and 0.1 < overlap_roll < 0.3:
@@ -378,7 +384,7 @@ def test_writer_gap_before_agrees_with_the_reader(scout_dir, tmp_path):
     """Random runs (failures, seen-id pages, short pages, pages without overlap, intervals around
     every limit, restarts) with the overlap rule off, at 600 s and at the default 1800 s."""
     rng = random.Random(20261104)
-    tally = {"gap": 0, "clear": 0, "forgiven": 0, "seen_forgiven": 0, "past_cap_gap": 0}
+    tally = {"gap": 0, "clear": 0, "forgiven": 0, "seen_forgiven": 0, "past_cap_gap": 0, "lost_304_gap": 0}
     for n in range(90):
         seed = rng.randint(0, 10**9)
         cap = (0, 600, 1800)[n % 3]
@@ -390,19 +396,24 @@ def test_writer_gap_before_agrees_with_the_reader(scout_dir, tmp_path):
         cfg = wire_config(restart_dir, source_overlap_max_gap_s=cap)
         restarted = _random_run(cfg, ScoutPaths.from_config(cfg), random.Random(seed), restarts=True)
         assert restarted == plain  # a restart changes no record
-        good = [r for r in plain if r["result"] == "ok"]
+        good = [r for r in plain if r["result"] in ("ok", "not_modified")]
         writer = [r["gap_before"] for r in good]
         assert writer == _reader_verdicts(plain, float(cfg.source_max_gap_s), cap), seed
         old = _reader_verdicts(plain, float(cfg.source_max_gap_s), None)  # 0.2.1, as with no param at all
         for i, (rec, w, o) in enumerate(zip(good, writer, old)):
             assert o or not w, seed  # the overlap rule never adds a gap
-            if not cap or not rec["seen_items"]:
+            seen = rec["seen_items"] or (rec["result"] == "not_modified" and rec["overlap"])
+            if not cap or not seen:
                 assert w == o, seed  # off, or a short page only: exactly the 0.2.1 rule
+            if rec["result"] == "not_modified" and not rec["overlap"]:
+                assert w and o, seed  # a 304 after a lost page is a gap under either rule
+                tally["lost_304_gap"] += 1
             tally["seen_forgiven"] += o and not w
-            if cap and i and rec["seen_items"] and _span(good[i - 1], rec) > max(cap, 3000):
+            if cap and i and seen and _span(good[i - 1], rec) > max(cap, 3000):
                 tally["past_cap_gap"] += w  # beyond the cap and every 0.2.1 allowance: still a gap
         tally["gap"] += sum(writer)
         tally["clear"] += len(writer) - sum(writer)
         tally["forgiven"] += sum(1 for a, b in zip(plain, plain[1:])
-                                 if a["result"] != "ok" and b["result"] == "ok" and not b["gap_before"])
+                                 if a["result"] not in ("ok", "not_modified") and b["result"] == "ok"
+                                 and not b["gap_before"])
     assert min(tally.values()) > 3, tally  # the runs cover every branch

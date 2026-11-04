@@ -14,6 +14,8 @@ from scout.config import ScoutConfig
 from scout.secrets import redact
 
 JobFn = Callable[[datetime], object]
+#: A last run more than this after `now` means the wall clock stepped back: the job is due.
+CLOCK_STEP_BACK_S = 5.0
 
 __all__ = ["DailyJob", "EveryJob", "Job", "OnceAtStartJob", "run_due"]
 
@@ -52,10 +54,11 @@ class EveryJob:
         elapsed = (now - self.last_run).total_seconds()
         interval = self.interval_at(now)
         if elapsed < 0:
-            # A job run inside another job (the wires between EDGAR's forms, 0.2.2) has a last run
-            # after the main loop's `now` for this tick: not due again. A wall clock that stepped
-            # back by more than one interval makes it due, so no job is ever stuck.
-            return -elapsed > interval
+            # A last run a few seconds after `now` (a job run inside another job, e.g. the wires
+            # between EDGAR's forms, judged by a caller without the clock): not due again. A wall
+            # clock that stepped back further makes it due at once, as before 0.2.2, so a job never
+            # waits out a clock step.
+            return -elapsed > CLOCK_STEP_BACK_S
         return elapsed >= interval - 1e-6
 
     def run(self, now: datetime) -> None:
