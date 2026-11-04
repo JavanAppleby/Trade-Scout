@@ -60,13 +60,62 @@ def test_a_failed_poll_is_a_gap_when_the_next_good_poll_does_not_overlap():
     assert got[0]["from"] == "2026-11-02T21:14:00Z" and got[0]["to"] == "2026-11-02T21:15:00Z"
 
 
-def test_a_failed_poll_is_a_gap_when_the_good_to_good_interval_is_too_long():
+def test_more_than_three_failed_polls_in_a_row_stay_a_gap():
+    """Owner, 2026-11-04: at most 3 failed polls in a row are forgiven (SS 6.2)."""
     records = chain(T0 - timedelta(minutes=5), 70)
-    for i in (20, 21, 22):  # good polls at 21:14 and 21:18: 240 s apart, over the 180 s limit
+    for i in (20, 21, 22):  # good polls at 21:14 and 21:18: 240 s, within 180 + 3 x 60
         _fail(records, i)
+    assert gaps(records, "prnewswire", T0, T0 + timedelta(minutes=60), max_gap_s=180) == []
+    _fail(records, 23)  # four in a row: good polls at 21:14 and 21:19
     got = gaps(records, "prnewswire", T0, T0 + timedelta(minutes=60), max_gap_s=180)
     assert sorted({g["why"] for g in got}) == ["failed_poll", "interval"]
-    assert {"from": "2026-11-02T21:14:00Z", "to": "2026-11-02T21:18:00Z", "why": "interval"} in got
+    assert {"from": "2026-11-02T21:14:00Z", "to": "2026-11-02T21:19:00Z", "why": "interval"} in got
+    assert len([g for g in got if g["why"] == "failed_poll"]) == 4
+
+
+def test_a_failed_poll_is_a_gap_when_the_good_to_good_interval_is_too_long():
+    """One spacing per failed poll is allowed on top of the limit, no more."""
+    at = T0 + timedelta(minutes=10)
+    records = chain(T0 - timedelta(minutes=5), 16) + [rec(at + timedelta(seconds=60), result="timeout")] +         chain(at + timedelta(seconds=241), 30)  # good 21:10:00 and 21:14:01: 241 s > 180 + 60
+    got = gaps(records, "prnewswire", T0, T0 + timedelta(minutes=40), max_gap_s=180)
+    assert sorted(g["why"] for g in got) == ["failed_poll", "interval"]
+    records[-30] = rec(at + timedelta(seconds=240))  # 240 s: within 180 + 60
+    assert gaps(records, "prnewswire", T0, T0 + timedelta(minutes=40), max_gap_s=180) == []
+
+
+def test_live_edgar_8k_timeout_between_two_good_polls_is_forgiven():
+    """Live, edgar_atom 8-K 2026-11-01: good 13:14:13, TimeoutError 13:16:18, good 13:17:18 with
+    overlap: 185 s between good polls, over 180 but within 180 + 60 (owner, 2026-11-04)."""
+    day = datetime(2026, 11, 1, 13, 0, tzinfo=timezone.utc)
+    kw = {"source": "edgar_atom", "feed": "8-K"}
+    good = [day + timedelta(minutes=m) for m in range(0, 15)] + [datetime(2026, 11, 1, 13, 14, 13, tzinfo=timezone.utc)]
+    records = [rec(t, **kw) for t in good]
+    records.append(rec(datetime(2026, 11, 1, 13, 16, 18, tzinfo=timezone.utc), result="network", **kw))
+    after = datetime(2026, 11, 1, 13, 17, 18, tzinfo=timezone.utc)
+    records += [rec(after + timedelta(minutes=m), **kw) for m in range(0, 10)]
+    assert gaps(records, "edgar_atom", day + timedelta(minutes=5), after + timedelta(minutes=9), max_gap_s=180) == []
+    records[-10]["overlap"] = False  # without overlap it stays a gap
+    got = gaps(records, "edgar_atom", day + timedelta(minutes=5), after + timedelta(minutes=9), max_gap_s=180)
+    assert sorted(g["why"] for g in got) == ["failed_poll", "no_overlap"]
+
+
+def test_idle_to_active_switch_uses_the_larger_spacing():
+    """Live, every trading day: EDGAR polls every 600 s before 04:00 ET and every 60 s after, e.g.
+    good 08:50:30 (600 s) then good 09:00:00 (60 s): 570 s is within 2 x 600 (owner, 2026-11-04)."""
+    kw = {"source": "edgar_atom", "feed": "8-K"}
+    switch = datetime(2026, 11, 2, 9, 0, tzinfo=timezone.utc)  # 04:00 ET
+    night = [rec(switch - timedelta(seconds=30 + 600 * i), spacing=600.0, **kw) for i in range(6, 0, -1)]
+    day = [rec(switch + timedelta(seconds=60 * i), spacing=60.0, **kw) for i in range(30)]
+    window = (switch - timedelta(minutes=50), switch + timedelta(minutes=29))
+    assert gaps(night + day, "edgar_atom", *window, max_gap_s=180) == []
+    late = night[:-2] + [rec(switch - timedelta(seconds=1200), spacing=600.0, **kw)]
+    assert gaps(late + day, "edgar_atom", *window, max_gap_s=180) == []  # 1200 s: within 2 x 600
+    longer = night[:-2] + [rec(switch - timedelta(seconds=1201), spacing=600.0, **kw)]
+    got = gaps(longer + day, "edgar_atom", *window, max_gap_s=180)
+    assert [g["why"] for g in got] == ["interval"]  # 1201 s: over 2 x 600
+    active = [rec(switch - timedelta(seconds=181), spacing=60.0, **kw)] + day  # both at 60 s: unchanged
+    assert [g["why"] for g in gaps(active, "edgar_atom", switch, switch + timedelta(minutes=29),
+                                   max_gap_s=180)] == ["interval"]
 
 
 def test_a_failed_poll_with_no_good_poll_after_it_is_a_gap():
@@ -215,19 +264,25 @@ def test_params_list_the_feeds_of_each_gate6_source(tmp_path: Path):
 
 
 def _walk_all(chain, start, end, max_gap_s):
-    """The gap rule walked over every poll up to `end` (no shortcut), for the equivalence test."""
-    raw, anchor, failed, limit = [], None, [], max_gap_s
+    """The gap rule walked over every poll up to `end` (no shortcut), for the equivalence test:
+    the limit uses the larger spacing of the two good polls, plus one spacing per failed poll
+    between them (at most 3) when the later poll overlaps."""
+    raw, anchor, anchor_sp, failed, limit = [], None, 0.0, [], max_gap_s
     polls = [p for p in chain if p[0] <= end]
     for at, good, overlap, spacing in polls:
         limit = max(max_gap_s, 2.0 * spacing)
         if not good:
             (failed if anchor is not None else raw).append((anchor or at, at, "failed_poll"))
             continue
+        s = max(anchor_sp, spacing)
+        allowed = max(max_gap_s, 2.0 * s) + (len(failed) * s if 0 < len(failed) <= 3 else 0.0)
         if anchor is not None and not overlap:
             raw += [(anchor, at, "no_overlap"), *failed]
-        elif anchor is not None and (at - anchor).total_seconds() > limit:
+        elif anchor is not None and (at - anchor).total_seconds() > allowed:
             raw += [(anchor, at, "interval"), *failed]
-        failed, anchor = [], at
+        elif anchor is not None and len(failed) > 3:
+            raw += failed
+        failed, anchor, anchor_sp = [], at, spacing
     raw += failed
     first_good = next((p[0] for p in polls if p[1]), None)
     if first_good is None or first_good > start:

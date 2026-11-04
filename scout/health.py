@@ -8,8 +8,14 @@ the last good poll, and builds each poll's record:
   maximum (`max_items`; 0 = unknown, so only a seen guid counts). A 304 counts as overlap. A failed
   poll has `overlap = null`.
 - `gap_before` (D7): the interval since the last good poll of this feed is a gap: the poll failed,
-  it has no overlap, there was no earlier good poll in this run (unless the poll overlaps), or the
-  interval is longer than max(`source_max_gap_s`, 2 x the spacing in force).
+  it has no overlap, more than `MAX_FORGIVEN` (3) polls failed since the last good poll, or the
+  interval is longer than `scout_reader.coverage.allowance_s`: max(`source_max_gap_s`, 2 x S) with S
+  the larger spacing of this poll and the last good poll, plus S per failed poll between them (1 to
+  3). With no earlier good poll at all, an overlapping poll has no gap before it.
+- a seed (`scout.coverage_seed`, owner 2026-11-04): at start, each feed's seen ids, last good poll
+  and failed polls since come from Scout's own stored facts and health records, so the first poll
+  after a restart is judged like any other. No seed (or a broken one): the feed starts empty, as
+  before 0.2.1.
 - `gap_open(source)`: the latest poll of some feed left a gap, or (given `now`) the last good poll
   is older than that limit. The heartbeat publishes it.
 Readers do not trust these flags alone: `scout_reader.coverage.gaps` recomputes gaps from the stored
@@ -19,8 +25,9 @@ records.
 from __future__ import annotations
 
 from collections import OrderedDict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from scout.calendar import in_active_hours
 from scout.clock import et_date, parse_iso
@@ -28,6 +35,10 @@ from scout.config import ScoutConfig, SourceConfig
 from scout.models import FetchResult, HealthRecord, SourceState
 from scout.paths import ScoutPaths
 from scout.store import append_jsonl
+from scout_reader.coverage import MAX_FORGIVEN, allowance_s
+
+if TYPE_CHECKING:  # pragma: no cover
+    from scout.coverage_seed import FeedSeed
 
 __all__ = ["GOOD_RESULTS", "CoverageTracker", "HealthWriter", "board_state", "gap_limit_s", "spacing_in_force",
            "status_for"]
@@ -84,17 +95,35 @@ class _Feed:
     def __init__(self) -> None:
         self.seen: OrderedDict[str, None] = OrderedDict()
         self.anchor: datetime | None = None  # start of the last good poll
-        self.spacing_s: float = 0.0
+        self.anchor_spacing_s: float = 0.0  # its spacing
+        self.failed: int = 0  # failed polls since the anchor
+        self.spacing_s: float = 0.0  # the spacing of the latest poll
         self.last: HealthRecord | None = None
 
 
 class CoverageTracker:
-    def __init__(self, cfg: ScoutConfig) -> None:
+    def __init__(self, cfg: ScoutConfig, seeds: Mapping[tuple[str, str], FeedSeed] | None = None) -> None:
         self.cfg = cfg
         self._feeds: dict[tuple[str, str], _Feed] = {}
+        self._seeds = dict(seeds or {})
+
+    def _seeded(self, key: tuple[str, str]) -> _Feed:
+        """A feed's state at its first use: its seed, if any (`last` stays None: the board shows a
+        gap until this run has polled the feed)."""
+        state = _Feed()
+        seed = self._seeds.pop(key, None)
+        if seed is not None:
+            for g in seed.guids[-self.cfg.seen_guid_cap:]:
+                state.seen[g] = None
+            state.anchor, state.anchor_spacing_s = seed.anchor, seed.spacing_s
+            state.spacing_s, state.failed = seed.spacing_s, seed.failed
+        return state
 
     def _feed(self, source: str, feed: str) -> _Feed:
-        return self._feeds.setdefault((source, feed), _Feed())
+        key = (source, feed)
+        if key not in self._feeds:
+            self._feeds[key] = self._seeded(key)
+        return self._feeds[key]
 
     def feeds(self, source: str) -> list[str]:
         return [f for (s, f) in self._feeds if s == source]
@@ -128,8 +157,11 @@ class CoverageTracker:
             gap_before = True
         elif state.anchor is None:
             gap_before = False  # the feed holds fewer items than it can: nothing passed unseen
+        elif state.failed > MAX_FORGIVEN:
+            gap_before = True  # too many failed polls in a row to forgive
         else:
-            gap_before = (start - state.anchor).total_seconds() > gap_limit_s(self.cfg, spacing)
+            gap_before = (start - state.anchor).total_seconds() > allowance_s(
+                self.cfg.source_max_gap_s, state.anchor_spacing_s, spacing, state.failed, True)
         rec = HealthRecord(
             source=src.name, feed=feed, kind=src.kind, enabled=src.enabled, gate6=src.gate6,
             start=fetch.started_at, end=fetch.ended_at, result=outcome, http_status=fetch.status,
@@ -141,7 +173,9 @@ class CoverageTracker:
                 state.seen.move_to_end(g)
             while len(state.seen) > self.cfg.seen_guid_cap:
                 state.seen.popitem(last=False)
-            state.anchor = start
+            state.anchor, state.anchor_spacing_s, state.failed = start, spacing, 0
+        else:
+            state.failed += 1
         state.spacing_s = spacing
         state.last = rec
         return rec

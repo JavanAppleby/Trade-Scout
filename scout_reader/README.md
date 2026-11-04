@@ -74,7 +74,22 @@ res = reader.entry_blocks("ACME", as_of, lookback_days=3, macro_before_min=5, ma
 - The module function `scout_reader.entry_blocks(reader_or_folder, symbol, as_of, ...)` accepts the
   Reader too; pass the Reader so the cache is kept between calls.
 
-## What the answers mean
+## Coverage (0.2.1; owner, 2026-11-04)
+
+`false` needs every gate-6 source polled without a gap over the answer's window (SCOUT_SPEC 6.2).
+The reader recomputes the gaps from Scout's health records; it does not trust Scout's own flags.
+
+- Two good polls of a feed are a gap when they are further apart than max(`source_max_gap_s`,
+  2 x S), with S the larger `spacing_s` of the two. The poll before the 04:00 ET switch was
+  scheduled at the 600 s night spacing, so up to 1200 s is fine there.
+- A good poll without overlap is a gap.
+- Failed polls: when 1 to 3 polls failed in a row and the next good poll overlaps, the limit grows
+  by S per failed poll and the failures are not gaps. Four or more in a row are gaps.
+- Restarts: since Scout 0.2.1 the first poll after a restart overlaps like any other poll (Scout
+  reads its seen items and last good poll back from its own files), so a short restart is no
+  longer a gap; a long outage still is. Records written before 0.2.1 keep their restart gaps,
+  which leave the window after 3 trading days.
+
 
 - **Gate 6, `fresh_catalyst`**: `true` when a wire release or filing naming the stock, with a
   hold-catalyst class (FDA, trial, contract, earnings result), was published and first seen since

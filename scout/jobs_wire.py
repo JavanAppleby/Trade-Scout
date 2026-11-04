@@ -6,13 +6,15 @@
 - every source of kind "wire" (`prnewswire`, `stocktitan`): every `min_spacing_s` (60 s), `idle_spacing_s`
   outside 04:00-20:00 ET.
 A disabled source gets no job (the board shows it `disabled`). One CoverageTracker serves every
-source of this module.
+source of this module, seeded from Scout's own stored facts and health records (`scout.coverage_seed`,
+owner 2026-11-04) so a restart does not open a coverage gap by itself.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from scout.coverage_seed import load_seeds
 from scout.edgar_atom import SOURCE as EDGAR_ATOM
 from scout.edgar_atom import EdgarAtomPoller
 from scout.health import CoverageTracker, board_state
@@ -32,9 +34,11 @@ def wire_sources(cfg: Any) -> list[str]:
 
 def build_jobs(ctx: Any) -> list[Job]:
     cfg = ctx.cfg
-    tracker = CoverageTracker(cfg)
-    jobs: list[Job] = []
     wires = wire_sources(cfg)
+    seeds = load_seeds(ctx.paths, ctx.clock.now(), sources=(EDGAR_ATOM, *wires), cap=cfg.seen_guid_cap,
+                       days=cfg.fact_dedupe_days)
+    tracker = CoverageTracker(cfg, seeds)
+    jobs: list[Job] = []
     for name in ("edgar_tickers", EDGAR_ATOM, *wires):
         src = cfg.source(name)
         if not src.enabled:

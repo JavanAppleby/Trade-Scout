@@ -6,7 +6,8 @@ owner decided how Jason's material and the Paper Gains Discord reach Scout (§18
 2026-11-01"); §2 rule 10, §4.1 #12, §5.2, §10.2 and §17 are amended to match. On 2026-11-04 the owner
 approved Radar's squad split (Radar's `docs/SQUAD_SPLIT_PROPOSAL.md`): Scout may now stop Radar's buy
 signals (block only), and §1, §2 rules 4-5, §6.2-6.4, §7.1, §7.5, §7.8 (new), §9.1, §10.3, §13 and §17
-are amended, each marked "owner, 2026-11-04". Repo:
+are amended, each marked "owner, 2026-11-04"; §6.2 was amended again the same day (0.2.1: restarts,
+the 04:00 ET spacing switch and failed polls). Repo:
 JavanAppleby/Trade-Scout (`E:\Scout_dev`). Scout never trades.
 **Decided** marks the owner's decisions recorded in `docs/HANDOFF.md` §3, `PILOT_SPEC.md` §16 or the
 owner's message of 2026-10-31. **Proposed** marks this spec's suggestions. §16 lists what the owner
@@ -262,7 +263,28 @@ A poll **overlaps** the previous one when it contains a guid already seen, or re
 than the feed's maximum. A **gap** is any interval with a poll without overlap, or more than
 `source_max_gap_s` (180) between good polls. A failed poll is a gap only when the next good poll
 does not overlap or the good-to-good interval exceeds the limit, or no good poll follows it yet
-(owner, 2026-11-04: one timed-out EDGAR poll is not a gap when the next poll overlaps). PR Newswire's feed holds only 20 items and the
+(owner, 2026-11-04: one timed-out EDGAR poll is not a gap when the next poll overlaps).
+
+The rules in full (owner, 2026-11-04; Scout and `scout_reader` 0.2.1), the same in Scout's
+`gap_before` and in the reader, which recomputes them from the stored health records:
+- **Limit between two good polls**: max(`source_max_gap_s`, 2 x S), where S is the larger
+  `spacing_s` of the two polls. The poll just before 04:00 ET was scheduled at the 600 s night
+  spacing, so the next one may come up to 1200 s later even though it runs at the 60 s day spacing.
+- **Failed polls between them**: when 1 to 3 polls failed in a row and the next good poll overlaps,
+  the limit grows by S per failed poll (each failure used one slot of the schedule), and the
+  failures are not gaps. Four or more failures in a row stay gaps.
+- **Restarts**: Scout keeps the seen guids and the last good poll of each feed across a restart.
+  At start it reads them back from its own files: the guids of the facts stored by good polls
+  (a fact's `first_seen_at` is its poll's `end`) and the last good health record of each feed,
+  with the failed polls after it, over the last `fact_dedupe_days` ET days. The first poll after a
+  restart is then judged like any other: it must overlap, and the interval from the last good
+  poll before the stop must be within the limit, so a long outage is still a gap. A missing or
+  unreadable file means no seed, and the first poll claims no overlap (a gap, as before 0.2.1).
+  Only what Scout wrote before the restart is read.
+- Health records are append-only: the restart gaps recorded before 0.2.1 stay in the files and
+  turn `false` into `unknown` until they leave the 3-trading-day window.
+
+PR Newswire's feed holds only 20 items and the
 2026-10-31 sample was a Saturday; around 08:00 and 16:00 ET on weekdays 20 items can pass within one
 poll, which this rule records as a gap. Build step 2 measures the weekday rate before any `false` is
 trusted, and shortens the spacing (never below 30 s) if needed. Stock Titan's feed holds 100 items
