@@ -23,7 +23,7 @@ Plain rules for every module:
 | D4 | Scout writes four extra files beyond SS 10.2 (additive, allowed by SS 10): `beats\<date>.jsonl` (one line per heartbeat), `params.jsonl` (the reader-relevant config, appended when it changes), `edgar\due\<date>.jsonl` (EDGAR due-window records) and `jason\snapshots.jsonl` (the merged current Jason setups). | The reader must answer "as of t" for any past t. The single `scout.heartbeat` only says "now"; config values and Jason's parsed files must be visible to a stdlib reader with their own `first_seen_at`. |
 | D5 | `fact_id` = sha256 of `"{source}|{guid}|{ticker}"` (ticker empty when none). | SS 6.3: one release naming several tickers gives one fact per ticker, so source and guid alone collide. |
 | D6 | EDGAR "getcurrent" is polled once per form type (`type=<form>&count=100`), each form a separate feed for overlap. | Market-wide getcurrent with Form 4 traffic can pass 100 items within a poll; per-form feeds keep the overlap rule meaningful. Whether `type=424B` matches all 424B* forms is UNVERIFIED; unit `wire` confirms it from a fixture. |
-| D7 | A poll interval is a gap when it is longer than `max(source_max_gap_s, 2 x S)`, S the larger `spacing_s` of the two good polls (owner, 2026-11-04: the 04:00 ET switch), plus S per failed poll between them (1 to 3, the later poll overlapping). Each source has `min_spacing_s` (04:00-20:00 ET) and `idle_spacing_s` (outside). | SS 6.2 sets 180 s, but SS 4.1 polls EDGAR every 10 min overnight. Without this, gate 6 is `unknown` every Monday. Overlap still has to hold on every poll. |
+| D7 | A poll interval is a gap when it is longer than `max(source_max_gap_s, 2 x S)`, S the larger `spacing_s` of the two good polls (owner, 2026-11-04: the 04:00 ET switch), plus each failed poll's own `spacing_s` between them (1 to 3, the later poll overlapping). Only the feeds in params `gate6_feeds` count (not EDGAR's 10-Q and 10-K). Each source has `min_spacing_s` (04:00-20:00 ET) and `idle_spacing_s` (outside). | SS 6.2 sets 180 s, but SS 4.1 polls EDGAR every 10 min overnight. Without this, gate 6 is `unknown` every Monday. Overlap still has to hold on every poll. |
 | D8 | Scout has no price feed in v1. J1's "tickers under `scan_max_price`" uses the price where one is known (a Radar find); otherwise every wire or filing fact with an exchange-listed ticker is eligible, bounded by `j1_max_calls_per_day`. | SS 8.2 assumes a price Scout does not have. Flagged for the owner in the brief's LLM section. |
 | D9 | LLM calls send no `fallbacks` parameter; a refusal is stored as `unlabelled`. | SS 8.2: "Sonnet and Opus calls handle refusals and fallbacks as unlabelled." |
 | D10 | `jason_tags(S, price, as_of, *, frame_prices=None, near_pct=None)`: the market frame lists Jason's SPY/QQQ setups; it says above/below only for symbols whose price the caller passes. | Scout has no SPY/QQQ price; Radar does. The extra arguments are keyword-only and optional, so SS 10.3's signature holds. |
@@ -365,14 +365,19 @@ and `gap_before` for the record it builds with `scout_reader.coverage.allowance_
 **`scout/coverage_seed.py`** (0.2.1; owner, 2026-11-04): `load_seeds(paths, now, *, sources, cap, days)
 -> {(source, feed): FeedSeed}`, read once by `jobs_wire.build_jobs` at start, so the first poll after a
 restart is judged like any other (SCOUT_SPEC 6.2). A feed's seed is its last good health record
-(start, `spacing_s`), the failed polls recorded after it, and the guids of the facts stored by good
+(start, `spacing_s`, an unreadable spacing read as 0 as the reader does), the `spacing_s` of each
+failed poll recorded after it (a feed with only failed polls gets those with no anchor), and the
+guids of the facts stored by good
 polls of that feed: a fact belongs to a good poll when its (source, feed, `first_seen_at`) equals
 the (source, feed, `end`) of a good health record. Every new item of a good EDGAR or wire page
-becomes at least one fact (one without a ticker when none is found), so these guids are the ones
-the tracker had seen, up to `seen_guid_cap`. Facts written by a poll that then failed have no good
+becomes at least one fact (one without a ticker when none is found), so these guids are a subset
+of the ones the tracker had seen, up to `seen_guid_cap` (an item already stored under the same
+fact id from another feed is not stored again under this feed; fewer ids only means fewer
+overlaps). Health records carry no feed URL, so a wire `url` changed by the owner is not detected
+(SCOUT_SPEC 6.2). Facts written by a poll that then failed have no good
 health record and are not used. Only records up to `now` are read (no look-ahead). Never raises; a
 missing or corrupt file gives fewer guids or no seed, and the tracker then claims no overlap it
-cannot show. No new file and no new config key: the seed reads `fact_dedupe_days` ET days of the
+cannot show (the first poll is judged with no seen ids). No new file and no new config key: the seed reads `fact_dedupe_days` ET days of the
 files Scout already writes.
 
 **`scout/jobs_wire.py`**: `build_jobs(ctx) -> list[Job]`: `edgar_tickers` (daily 03:50 ET and at
@@ -850,9 +855,11 @@ rule D7 using each record's `spacing_s`; `sources_for_gate6(beat) -> list[str]`.
 a failed poll is a gap only when the next good poll does not overlap or the good-to-good interval is
 over the limit, or no good poll follows it yet (one timed-out EDGAR poll followed by an overlapping
 poll is not a gap). 0.2.1: `allowance_s(max_gap_s, spacing_before, spacing_after, failed, overlap)`
-is the limit between two good polls: max(`max_gap_s`, 2 x the larger spacing), plus that spacing
-per failed poll between them when 1 to `MAX_FORGIVEN` (3) failed and the later poll overlaps; four
-or more failures in a row stay gaps. `scout.health` uses the same function, and a test drives the
+is the limit between two good polls: max(`max_gap_s`, 2 x the larger spacing), plus each failed
+poll's own spacing (`failed_spacings`) when 1 to `MAX_FORGIVEN` (3) failed between them and the
+later poll overlaps; four or more failures in a row stay gaps, up to the next good poll. `gaps`
+checks only the feeds passed in `feeds` (params `gate6_feeds`; all feeds when none or an empty
+list) and uses only polls that ended by the window's end. `scout.health` uses the same function, and a test drives the
 writer and the reader over the same random sequences (with and without restarts) and checks that
 they agree. The rule runs on `Poll` tuples (`chain_gaps`), walked from the last good poll
 before the window, which gives the same gaps as a walk over every poll (a test), so `entry_blocks`
@@ -1526,8 +1533,22 @@ Three causes, each fixed in Scout's `gap_before` and in `scout_reader.coverage` 
    It is never tighter than before and loosens only at a switch, to what the schedule allowed.
 3. **One failed poll.** Owner-approved (proposal 5.4): one timed-out poll is not a gap when the next
    overlaps. The first build still compared the good-to-good interval with the plain limit, so a
-   timeout between two 60 s polls (185 s apart) stayed a gap, dozens of times a day. Fix: plus one
-   spacing per failed poll, at most 3 in a row.
+   timeout between two 60 s polls (185 s apart) stayed a gap, dozens of times a day. Fix: plus each
+   failed poll's own spacing, at most 3 in a row (review: using the larger good-poll spacing would
+   have forgiven a 50-minute hole right after 04:00 ET).
+
+Review fixes (same 0.2.1, owner 2026-11-04):
+- Only the feeds in `gate6_feeds` count for coverage, in the reader and in the heartbeat's
+  `gap_open`: EDGAR's 10-Q and 10-K are polled for the gate-5 check only and the SS 6.4 table never
+  classes them, so their slow-cycle gaps hid nothing gate 6 or `entry_blocks` reads.
+- `gaps` uses only polls that ended by the window's end (as `entry_blocks` already did): no
+  look-ahead in "as of t" gate-6 queries.
+- More than 3 failures in a row are one gap up to the next good poll, so a window that starts
+  between the last failure and that poll still sees it; Scout's `gap_before` is true after failed
+  polls even with no good poll before them. Writer and reader agree on both (tests).
+- The seed reads an unreadable spacing as 0 (as the reader does) and keeps failure-only feeds.
+- A restart is still a gap when the first poll comes later than the limit after the last good
+  poll before the stop: about 180 s by day.
 
 Not changed: past health records stay as written (append-only), so the restart gaps recorded before
 0.2.1 turn `false` into `unknown` until they leave the 3-trading-day window. The `no_poll_at_start`
@@ -1535,4 +1556,7 @@ gaps (Scout's first records on 1 Nov 03:17 UTC; Stock Titan from 3 Nov 19:46 UTC
 age out the same way. Other gaps the replay still shows, which these fixes do not touch: a slow or
 timing-out EDGAR cycle (12 forms one after another) delays every later poll in the single-threaded
 loop past 180 s, and PR Newswire's 20-item feed passes more than 20 releases within a minute at the
-top of some hours. They need the owner's decision.
+top of some hours. They need the owner's decision. In the live replay every remaining `interval`
+gap ends on a poll that overlaps; ways out (owner to choose): run the wires on their own schedule
+so EDGAR cannot delay them, a shorter EDGAR timeout, measuring each interval from the time the poll
+was due, or not counting the interval when the later poll is a full page that repeats a seen id.

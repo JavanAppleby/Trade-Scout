@@ -118,6 +118,64 @@ def test_idle_to_active_switch_uses_the_larger_spacing():
                                    max_gap_s=180)] == ["interval"]
 
 
+def test_failed_polls_after_the_switch_add_their_own_spacing():
+    """A failed poll adds its own spacing_s, not the larger spacing of the good polls around it: last
+    good poll 03:50 ET (600 s), three failures at 04:00-04:02 (60 s), good overlapping poll 04:40.
+    The limit is 2 x 600 + 3 x 60 = 1380 s, so 3000 s is a gap (it was 1200 + 3 x 600 = 3000)."""
+    kw = {"source": "edgar_atom", "feed": "8-K"}
+    switch = datetime(2026, 11, 2, 9, 0, tzinfo=timezone.utc)  # 04:00 ET
+    night = [rec(switch - timedelta(seconds=600 * i), spacing=600.0, **kw) for i in range(6, 0, -1)]
+    fails = [rec(switch + timedelta(seconds=60 * i), result="timeout", spacing=60.0, **kw) for i in range(3)]
+    window = (switch - timedelta(minutes=50), switch + timedelta(minutes=45))
+    late = [rec(switch + timedelta(minutes=40 + i), spacing=60.0, **kw) for i in range(6)]
+    got = gaps(night + fails + late, "edgar_atom", *window, max_gap_s=180)
+    assert sorted(g["why"] for g in got) == ["failed_poll"] * 3 + ["interval"]
+    soon = [rec(switch - timedelta(seconds=600) + timedelta(seconds=1380 + 60 * i), spacing=60.0, **kw)
+            for i in range(30)]  # 1380 s after the 03:50 poll: forgiven
+    assert gaps(night + fails + soon, "edgar_atom", *window, max_gap_s=180) == []
+    assert coverage.allowance_s(180, 600, 60, [60.0, 60.0, 60.0], True) == 1380
+    assert coverage.allowance_s(180, 60, 60, [60.0] * 4, True) == 180  # four: nothing forgiven
+
+
+def test_a_long_run_of_failures_is_a_gap_up_to_the_next_good_poll():
+    """More than 3 failures in a row: a window that starts after the last failure but before the
+    next good poll still sees the gap (the writer flags that good poll)."""
+    records = chain(T0 - timedelta(minutes=5), 70, step_s=30)
+    for i in (20, 21, 22, 23):  # good polls at 21:04:30 and 21:07:00: 150 s, in time but 4 failures
+        _fail(records, i)
+    mid = datetime.fromisoformat(records[23]["start"].replace("Z", "+00:00")) + timedelta(seconds=10)
+    got = gaps(records, "prnewswire", mid, T0 + timedelta(minutes=30), max_gap_s=180)
+    assert got == [{"from": iso(mid), "to": "2026-11-02T21:07:00Z", "why": "failed_poll"}]
+
+
+def test_a_poll_not_finished_by_the_window_end_is_not_used():
+    """As of t only polls that ended by t count: a poll that started before t but ended after it
+    neither forgives a failure nor supplies the poll at the end."""
+    records = chain(T0 - timedelta(minutes=5), 10)
+    records.append(rec(T0 + timedelta(minutes=5), result="timeout"))
+    last = rec(T0 + timedelta(minutes=6))
+    last["end"] = iso(T0 + timedelta(minutes=6, seconds=30))
+    records.append(last)
+    end = T0 + timedelta(minutes=6, seconds=10)
+    assert "failed_poll" in [g["why"] for g in gaps(records, "prnewswire", T0, end, max_gap_s=180)]
+    assert gaps(records, "prnewswire", T0, end + timedelta(seconds=20), max_gap_s=180) == []
+    no_end = dict(last, end=None)
+    assert gaps(records[:-1] + [no_end], "prnewswire", T0, end + timedelta(seconds=20), max_gap_s=180) != []
+
+
+def test_only_the_listed_feeds_are_checked():
+    """Owner, 2026-11-04: with `feeds` (params `gate6_feeds`) only those feeds count; EDGAR's 10-K
+    is polled for the gate-5 check only. An empty list checks every feed (fail closed)."""
+    end = T0 + timedelta(minutes=30)
+    records = chain(T0 - timedelta(minutes=5), 40, source="edgar_atom", feed="8-K") + [
+        rec(T0 - timedelta(minutes=5), source="edgar_atom", feed="10-K")]  # 10-K stops: no_poll_at_end
+    assert [g["why"] for g in gaps(records, "edgar_atom", T0, end, max_gap_s=180)] == ["no_poll_at_end"]
+    assert gaps(records, "edgar_atom", T0, end, max_gap_s=180, feeds=["8-K"]) == []
+    assert gaps(records, "edgar_atom", T0, end, max_gap_s=180, feeds=[]) != []
+    assert [g["why"] for g in gaps(records, "edgar_atom", T0, end, max_gap_s=180, feeds=["8-K", "424B"])] == [
+        "missing_feed"]
+
+
 def test_a_failed_poll_with_no_good_poll_after_it_is_a_gap():
     records = chain(T0 - timedelta(minutes=5), 30)
     _fail(records, 29)  # the last poll (21:24) failed; the window ends at 21:25
@@ -265,24 +323,29 @@ def test_params_list_the_feeds_of_each_gate6_source(tmp_path: Path):
 
 def _walk_all(chain, start, end, max_gap_s):
     """The gap rule walked over every poll up to `end` (no shortcut), for the equivalence test:
-    the limit uses the larger spacing of the two good polls, plus one spacing per failed poll
-    between them (at most 3) when the later poll overlaps."""
-    raw, anchor, anchor_sp, failed, limit = [], None, 0.0, [], max_gap_s
+    the limit uses the larger spacing of the two good polls, plus each failed poll's own spacing
+    (at most 3 failed polls) when the later poll overlaps; a longer run of failures is a gap up to
+    the next good poll."""
+    raw, anchor, anchor_sp, failed, fsp, limit = [], None, 0.0, [], [], max_gap_s
     polls = [p for p in chain if p[0] <= end]
     for at, good, overlap, spacing in polls:
         limit = max(max_gap_s, 2.0 * spacing)
         if not good:
-            (failed if anchor is not None else raw).append((anchor or at, at, "failed_poll"))
+            if anchor is not None:
+                failed.append((anchor, at, "failed_poll"))
+                fsp.append(spacing)
+            else:
+                raw.append((at, at, "failed_poll"))
             continue
         s = max(anchor_sp, spacing)
-        allowed = max(max_gap_s, 2.0 * s) + (len(failed) * s if 0 < len(failed) <= 3 else 0.0)
+        allowed = max(max_gap_s, 2.0 * s) + (sum(fsp) if 0 < len(failed) <= 3 else 0.0)
         if anchor is not None and not overlap:
             raw += [(anchor, at, "no_overlap"), *failed]
         elif anchor is not None and (at - anchor).total_seconds() > allowed:
             raw += [(anchor, at, "interval"), *failed]
         elif anchor is not None and len(failed) > 3:
-            raw += failed
-        failed, anchor, anchor_sp = [], at, spacing
+            raw += [*failed, (anchor, at, "failed_poll")]
+        failed, fsp, anchor, anchor_sp = [], [], at, spacing
     raw += failed
     first_good = next((p[0] for p in polls if p[1]), None)
     if first_good is None or first_good > start:

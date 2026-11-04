@@ -273,7 +273,9 @@ def _coverage(files: _Files, params: Mapping[str, Any], beat: Mapping[str, Any],
             out.append(f"gap:{name}:missing_feed")
         if not feeds:
             out.append(f"gap:{name}:no_poll_at_start")
-        for parts in feeds.values():
+        for feed, parts in feeds.items():
+            if isinstance(want, list) and want and feed not in {str(f) for f in want}:
+                continue  # a feed gate 6 does not read, e.g. EDGAR's 10-K (owner, 2026-11-04)
             for gap in cov.chain_gaps(_chain(parts, as_of), start, as_of, float(max_gap)):
                 out.append(f"gap:{name}:{gap['why']}")
     if skipped:

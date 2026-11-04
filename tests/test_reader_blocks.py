@@ -414,3 +414,17 @@ def test_repeated_calls_are_fast_on_10_mb_day_files(scout_dir: Path, cfg: ScoutC
         assert res["value"] == "false"
     assert reader.cache.tail_reads >= tails + 15
     assert sorted(took)[2] < 0.1  # the median
+
+
+def test_feeds_gate6_does_not_read_are_not_checked(scout_dir: Path, cfg: ScoutConfig) -> None:
+    """Owner, 2026-11-04: EDGAR's 10-K feed (polled for the gate-5 check only, not in params
+    `gate6_feeds`) never turns false into unknown; with no feed list every feed is checked."""
+    _world(scout_dir, cfg)
+    write_records(scout_dir, "health", [{
+        "source": "edgar_atom", "feed": "10-K", "kind": "filing", "enabled": True, "gate6": True,
+        "start": iso(START - timedelta(minutes=5)), "end": iso(START - timedelta(minutes=5)), "result": "ok",
+        "http_status": 200, "items": 5, "new_items": 0, "overlap": True, "spacing_s": 60.0, "gap_before": False,
+        "error": None}])
+    assert "gap:edgar_atom:no_poll_at_end" in _ask(scout_dir)["reasons"]  # gate6_feeds {}: all feeds
+    write_params(scout_dir, cfg, AS_OF - timedelta(days=59), gate6_feeds={"edgar_atom": ["edgar_atom"]})
+    assert _ask(scout_dir)["value"] == "false"

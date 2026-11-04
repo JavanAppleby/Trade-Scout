@@ -96,6 +96,44 @@ def ok_at(a: datetime, s: float) -> datetime:
     return a + timedelta(seconds=s)
 
 
+def test_writer_failed_polls_add_their_own_spacing_after_the_switch(scout_dir):
+    """03:50 ET good (600 s), three failures at 04:00-04:02 (60 s), good overlapping poll at 04:40:
+    2 x 600 + 3 x 60 = 1380 s < 3000 s, a gap; the same poll at 04:13 (1380 s) is not."""
+    cfg = wire_config(scout_dir)
+    src = cfg.source("edgar_atom")
+    for back_at, want in ((SWITCH + timedelta(minutes=40), True), (SWITCH + timedelta(seconds=780), False)):
+        t, pages = CoverageTracker(cfg), _Feed()
+        _good(t, src, SWITCH - timedelta(seconds=1200), pages.page(False))
+        _good(t, src, SWITCH - timedelta(seconds=600), pages.page(True))
+        for i in range(3):
+            assert _poll(t, src, SWITCH + timedelta(seconds=60 * i), None, result="timeout").spacing_s == 60
+        assert _good(t, src, back_at, pages.page(True)).gap_before is want
+
+
+def test_writer_failures_before_the_first_good_poll_are_a_gap(scout_dir):
+    cfg = wire_config(scout_dir)
+    src = cfg.source("edgar_atom")
+    t = CoverageTracker(cfg)
+    assert _good(t, src, DAY, [f"s{i}" for i in range(5)]).gap_before is False  # a short page, nothing failed
+    t = CoverageTracker(cfg)
+    _poll(t, src, DAY, None, result="timeout")
+    assert _good(t, src, DAY + timedelta(seconds=60), [f"s{i}" for i in range(5)]).gap_before is True
+
+
+def test_gap_open_ignores_periodic_forms(scout_dir):
+    """10-Q and 10-K are polled for the gate-5 check only (not in params `gate6_feeds`)."""
+    cfg = wire_config(scout_dir, edgar_atom_forms=["8-K", "10-K"])
+    src = cfg.source("edgar_atom")
+    t, pages = CoverageTracker(cfg), _Feed()
+    _good(t, src, DAY - timedelta(seconds=60), pages.page(False))
+    _good(t, src, DAY, pages.page(True))
+    _poll(t, src, DAY, None, feed="10-K", result="timeout")
+    assert t.gap_open("edgar_atom", DAY + timedelta(seconds=1)) is False
+    t2 = CoverageTracker(cfg)
+    _poll(t2, src, DAY, None, feed="10-K", result="timeout")
+    assert t2.gap_open("edgar_atom", DAY) is True  # no gate-6 feed polled yet
+
+
 # --------------------------------------------------------------------------- the seed
 
 
@@ -175,7 +213,8 @@ def test_missing_or_corrupt_seed_fails_closed(scout_dir):
     day_file.write_bytes(b'{"format":1,"source":"edgar_atom","feed":"8-K","start":"2026-11-02T14:59:00Z",'
                          b'"end":"2026-11-02T14:59:00Z","result":"ok","spacing_s":"60"}\nnot json\n{"format":9}\n')
     paths.day_file(paths.facts, et_date(DAY)).write_bytes(b"\x00\xff garbage\n")
-    assert load_seeds(paths, DAY, sources=("edgar_atom",), cap=5000, days=7) == {}  # unreadable spacing
+    seed = load_seeds(paths, DAY, sources=("edgar_atom",), cap=5000, days=7)[("edgar_atom", "8-K")]
+    assert seed.guids == () and seed.spacing_s == 0.0  # an unreadable spacing reads as 0, as in the reader
     rec, _new = _poll(_seeded(cfg, paths, DAY), src, DAY, [f"x{i}" for i in range(PAGE)])
     assert rec.overlap is False and rec.gap_before is True
     assert load_seeds(object(), DAY, sources=("edgar_atom",), cap=5000, days=7) == {}  # never raises
@@ -231,6 +270,48 @@ def test_a_restart_through_the_wire_poller_keeps_coverage(scout_dir):
     assert coverage.gaps(rows, "prnewswire", DAY, back, max_gap_s=180) == []
 
 
+def test_a_restart_through_the_edgar_poller_keeps_coverage(scout_dir):
+    """End to end: the real EdgarAtomPoller (one fact per listing, feed = form, first_seen_at = the
+    poll's end), FactWriter and HealthWriter; Scout restarts between polls. The page is full
+    (max_items = its 7 entries), so only the seed can give the first poll after the restart overlap."""
+    from helpers_fakes import FakeTickerMap  # noqa: PLC0415
+    from helpers_wire import atom_url  # noqa: PLC0415
+
+    from scout.edgar_atom import EdgarAtomPoller  # noqa: PLC0415
+
+    cfg = wire_config(scout_dir, edgar_atom_forms=["8-K"], sources={"edgar_atom": {"max_items": 7}})
+    paths = ScoutPaths.from_config(cfg)
+    body = fixture("edgar_getcurrent_8k.atom")
+    clock = ManualClock(DAY)
+    names = {1234567: ("ACME", "Nasdaq"), 7654321: ("BETA", "NYSE")}
+
+    def poller(tracker):
+        fetcher = FakeFetcher()
+        return fetcher, EdgarAtomPoller(cfg, fetcher, FakeRawSink(), FactWriter(paths, clock), HealthWriter(paths),
+                                        FakeBoard(), FakeTickerMap(names), clock, tracker=tracker)
+
+    fetcher, edgar = poller(CoverageTracker(cfg))
+    for i in range(2):
+        at = DAY + timedelta(seconds=60 * i)
+        clock.set(at)
+        fetcher.results[atom_url(cfg, "8-K")] = fetch_result("edgar_atom", "u", body, at=at)
+        edgar.poll(at)
+    back = DAY + timedelta(seconds=60 + 90)
+    clock.set(back)
+    fetcher, edgar = poller(_seeded(cfg, paths, back))
+    fetcher.results[atom_url(cfg, "8-K")] = fetch_result("edgar_atom", "u", body, at=back)
+    assert edgar.poll(back) == 0  # nothing stored twice
+    rows = [r for r in read_jsonl(paths.day_file(paths.health, et_date(DAY))) if r["source"] == "edgar_atom"]
+    assert [r["overlap"] for r in rows] == [False, True, True]
+    assert rows[-1]["gap_before"] is False
+    assert coverage.gaps(rows, "edgar_atom", DAY, back, max_gap_s=180) == []
+    unseeded = CoverageTracker(cfg)
+    fetcher, edgar = poller(unseeded)
+    fetcher.results[atom_url(cfg, "8-K")] = fetch_result("edgar_atom", "u", body, at=back)
+    edgar.poll(back)
+    assert unseeded._feeds[("edgar_atom", "8-K")].last.overlap is False  # 0.2.0: the restart was a gap
+
+
 # --------------------------------------------------------------------------- writer and reader agree
 
 
@@ -239,12 +320,15 @@ def _reader_verdicts(records: list[dict], max_gap_s: float) -> list[bool]:
     polls = [coverage.poll_of(datetime.fromisoformat(r["start"].replace("Z", "+00:00")), r) for r in records]
     found = coverage.chain_gaps(polls, polls[0][0], polls[-1][0], max_gap_s)
     out, prev = [], None
-    for at, good, _overlap, _sp in polls:
+    for at, good, overlap, _sp in polls:
         if not good:
             continue
+        b = iso(at)
         if prev is not None:
-            a, b = iso(prev), iso(at)
+            a = iso(prev)
             out.append(any(g["from"] >= a and a < g["to"] <= b for g in found))
+        else:  # the first good poll: failed polls before it, or no overlap (the reader's no_poll_at_start)
+            out.append(not overlap or any(g["why"] == "failed_poll" and g["to"] <= b for g in found))
         prev = at
     return out
 
@@ -254,13 +338,13 @@ def _random_run(cfg, paths, rng: random.Random, restarts: bool) -> list[dict]:
     t, pages = CoverageTracker(cfg), _Feed()
     at = SWITCH - timedelta(minutes=40) + timedelta(seconds=rng.randint(0, 600))
     out: list[dict] = []
-    first = True
+    first = True  # no good poll yet: failures may come first
     steps = [(rng.random(), rng.random(), rng.choice((20, 45, 60, 61, 90, 125, 185, 300, 590, 610, 1199, 1300)),
               rng.random()) for _ in range(rng.randint(5, 40))]
     for fail_roll, overlap_roll, step, restart_roll in steps:
-        if restarts and restart_roll < 0.15 and not first:
+        if restarts and restart_roll < 0.15 and out:
             t = _seeded(cfg, paths, at)
-        if fail_roll < 0.25 and not first:
+        if fail_roll < 0.25:
             rec = _poll(t, src, at, None, result=rng.choice(("network", "timeout", "http_error")))
             HealthWriter(paths).record(rec)
         else:
@@ -285,7 +369,7 @@ def test_writer_gap_before_agrees_with_the_reader(scout_dir, tmp_path):
         cfg = wire_config(restart_dir)
         restarted = _random_run(cfg, ScoutPaths.from_config(cfg), random.Random(seed), restarts=True)
         assert restarted == plain  # a restart changes no record
-        writer = [r["gap_before"] for r in plain if r["result"] == "ok"][1:]
+        writer = [r["gap_before"] for r in plain if r["result"] == "ok"]
         assert writer == _reader_verdicts(plain, float(cfg.source_max_gap_s)), seed
         tally["gap"] += sum(writer)
         tally["clear"] += len(writer) - sum(writer)

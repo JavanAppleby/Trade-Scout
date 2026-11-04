@@ -79,16 +79,24 @@ res = reader.entry_blocks("ACME", as_of, lookback_days=3, macro_before_min=5, ma
 `false` needs every gate-6 source polled without a gap over the answer's window (SCOUT_SPEC 6.2).
 The reader recomputes the gaps from Scout's health records; it does not trust Scout's own flags.
 
+- Only the feeds in params `gate6_feeds` are checked (EDGAR's 10-Q and 10-K are polled for the
+  gate-5 check only and hold nothing gate 6 or `entry_blocks` reads). With no list, every feed is.
 - Two good polls of a feed are a gap when they are further apart than max(`source_max_gap_s`,
   2 x S), with S the larger `spacing_s` of the two. The poll before the 04:00 ET switch was
   scheduled at the 600 s night spacing, so up to 1200 s is fine there.
 - A good poll without overlap is a gap.
 - Failed polls: when 1 to 3 polls failed in a row and the next good poll overlaps, the limit grows
-  by S per failed poll and the failures are not gaps. Four or more in a row are gaps.
-- Restarts: since Scout 0.2.1 the first poll after a restart overlaps like any other poll (Scout
-  reads its seen items and last good poll back from its own files), so a short restart is no
-  longer a gap; a long outage still is. Records written before 0.2.1 keep their restart gaps,
-  which leave the window after 3 trading days.
+  by each failed poll's own `spacing_s` and the failures are not gaps. Four or more in a row are
+  one gap from the good poll before them to the good poll after them.
+- Only polls that ended by the answer's time count ("as of t" sees no later poll).
+- Restarts: since Scout 0.2.1 the first poll after a restart is judged like any other poll (Scout
+  reads its seen items and last good poll back from its own files). It is still a gap unless it
+  starts within the limit of the last good poll before the stop: by day about 180 s (plus 60 s per
+  failed poll before the stop), at night 1200 s. So a restart that takes more than about a minute
+  by day, or a slow first EDGAR cycle after it, is still a gap; a long outage always is. Records
+  written before 0.2.1 keep their restart gaps, which leave the window after 3 trading days.
+
+## What the answers mean
 
 
 - **Gate 6, `fresh_catalyst`**: `true` when a wire release or filing naming the stock, with a

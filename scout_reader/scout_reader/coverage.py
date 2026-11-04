@@ -13,15 +13,22 @@ polls reaches from at or before `start` to within the gap limit of `end`, with n
   max(`max_gap_s`, 2 x S), where S is the larger `spacing_s` of the two good polls (owner,
   2026-11-04: the poll before the 04:00 ET switch from idle to active spacing was scheduled at the
   idle spacing). When 1 to `MAX_FORGIVEN` failed polls lie between them and the later good poll
-  overlaps, the allowance is the limit plus S per failed poll (each failure used up one slot of
-  the schedule);
+  overlaps, the allowance is the limit plus each failed poll's own `spacing_s` (each failure used
+  up one slot of the schedule, at the spacing it was scheduled at). A run of more than
+  `MAX_FORGIVEN` failures is one `failed_poll` gap from the good poll before it to the good poll
+  after it;
 - `no_poll_at_start`: no good poll at or before `start` (or none at all);
 - `no_poll_at_end`: the last good poll is longer than the limit before `end`;
 - `missing_feed`: a feed the caller expects (`feeds`, from params `gate6_feeds`) has no record at
   all. Without this, a feed that stopped writing health records more than a day before the window
   would simply vanish and the remaining feeds would count as full coverage.
 
-A poll "observes" at its `start`. Pass the records of the ET days covering [start - 1 day, end] so
+When `feeds` is given, only those feeds are checked (owner, 2026-11-04): the other feeds of the
+source (EDGAR's 10-Q and 10-K, polled for the gate-5 check only) hold no fact that gate 6 or
+`entry_blocks` reads. Without `feeds`, every feed of the source is checked.
+
+A poll "observes" at its `start`; a poll whose `end` is after the window's end (or unreadable) is
+not used, so an "as of t" answer sees only polls finished by t. Pass the records of the ET days covering [start - 1 day, end] so
 the poll before the window is found. Each gap is {"from", "to", "why"} (UTC "...Z"), clipped to the
 window. An input that cannot be read gives one gap over the whole window with why "error": fail
 closed, never an exception into the caller.
@@ -85,18 +92,22 @@ def _gaps(records: Iterable[Mapping[str, Any]], source: str, start: datetime, en
     for rec in records:
         if not isinstance(rec, Mapping) or not known(rec) or rec.get("source") != source:
             continue
-        at = parse_time(rec.get("start"))
-        if at is None or at > end:
-            continue
+        at, done = parse_time(rec.get("start")), parse_time(rec.get("end"))
+        if at is None or at > end or done is None or done > end:
+            continue  # no look-ahead: a poll not finished by `end` is not used
         feeds.setdefault(str(rec.get("feed") or ""), []).append((at, rec))
+    wanted: set[str] | None = None
     if expected is not None and not isinstance(expected, (str, bytes)):
-        missing = [str(f) for f in expected if str(f) not in feeds]
+        wanted = {str(f) for f in expected} or None  # an empty list checks every feed (fail closed)
+        missing = [f for f in (wanted or ()) if f not in feeds]
     else:
         missing = []
     if not feeds:
         return [_gap(start, end, "no_poll_at_start")] + ([_gap(start, end, "missing_feed")] if missing else [])
     out: list[dict[str, str]] = [_gap(start, end, "missing_feed") for _f in missing[:1]]
-    for polls in feeds.values():
+    for name, polls in feeds.items():
+        if wanted is not None and name not in wanted:
+            continue  # a feed gate 6 does not read (owner, 2026-11-04)
         out.extend(_feed_gaps(sorted(polls, key=lambda p: p[0]), start, end, max_gap_s))
     out.sort(key=lambda g: (g["from"], g["to"], g["why"]))
     unique: list[dict[str, str]] = []
@@ -123,14 +134,16 @@ def _feed_gaps(polls: list[tuple[datetime, Mapping[str, Any]]], start: datetime,
     return chain_gaps([poll_of(at, rec) for at, rec in polls], start, end, max_gap_s)
 
 
-def allowance_s(max_gap_s: float, spacing_before: float, spacing_after: float, failed: int, overlap: bool) -> float:
+def allowance_s(max_gap_s: float, spacing_before: float, spacing_after: float,
+                failed_spacings: Sequence[float], overlap: bool) -> float:
     """The longest interval between two good polls that is not a gap (SS 6.2): max(`max_gap_s`, 2 x S)
-    with S the larger spacing of the two polls, plus S per failed poll between them when there are
-    1 to `MAX_FORGIVEN` of them and the later poll overlaps. `scout.health` uses the same rule."""
+    with S the larger spacing of the two polls, plus the `spacing_s` of each failed poll between
+    them when there are 1 to `MAX_FORGIVEN` of them and the later poll overlaps. `scout.health` uses
+    the same rule."""
     s = max(float(spacing_before), float(spacing_after))
     limit = max(float(max_gap_s), 2.0 * s)
-    if overlap and 0 < failed <= MAX_FORGIVEN:
-        limit += failed * s
+    if overlap and 0 < len(failed_spacings) <= MAX_FORGIVEN:
+        limit += sum(float(f) for f in failed_spacings)
     return limit
 
 
@@ -149,25 +162,31 @@ def chain_gaps(chain: Sequence[tuple[Any, ...]], start: datetime, end: datetime,
     anchor: datetime | None = None  # the last good poll
     anchor_spacing = 0.0
     failed: list[tuple[datetime, datetime, str]] = []  # failures since `anchor`, not yet forgiven
+    failed_spacings: list[float] = []  # their own spacing_s
     limit = max_gap_s
     for p in polls:
         at, good, overlap, spacing = p[0], p[1], p[2], p[3]
         limit = max(max_gap_s, 2.0 * spacing)
         if not good:
-            (failed if anchor is not None else raw).append((anchor or at, at, "failed_poll"))
+            if anchor is not None:
+                failed.append((anchor, at, "failed_poll"))
+                failed_spacings.append(spacing)
+            else:
+                raw.append((at, at, "failed_poll"))
             continue
         if anchor is None:
             pass  # the first good poll: what came before it is `no_poll_at_start`
         elif not overlap:
             raw.append((anchor, at, "no_overlap"))
             raw.extend(failed)
-        elif (at - anchor).total_seconds() > allowance_s(max_gap_s, anchor_spacing, spacing, len(failed), True):
+        elif (at - anchor).total_seconds() > allowance_s(max_gap_s, anchor_spacing, spacing, failed_spacings, True):
             raw.append((anchor, at, "interval"))
             raw.extend(failed)
         elif len(failed) > MAX_FORGIVEN:
-            raw.extend(failed)  # too many failures in a row: they stay gaps
+            raw.extend(failed)  # too many failures in a row: they stay gaps,
+            raw.append((anchor, at, "failed_poll"))  # up to the good poll after them
         # else: the good poll overlaps the one before the failures, in time: nothing was missed
-        failed = []
+        failed, failed_spacings = [], []
         anchor, anchor_spacing = at, spacing
     raw.extend(failed)  # no good poll after them (yet)
     first_good = next((p[0] for p in polls if p[1]), None)

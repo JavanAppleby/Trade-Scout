@@ -10,14 +10,16 @@ the last good poll, and builds each poll's record:
 - `gap_before` (D7): the interval since the last good poll of this feed is a gap: the poll failed,
   it has no overlap, more than `MAX_FORGIVEN` (3) polls failed since the last good poll, or the
   interval is longer than `scout_reader.coverage.allowance_s`: max(`source_max_gap_s`, 2 x S) with S
-  the larger spacing of this poll and the last good poll, plus S per failed poll between them (1 to
-  3). With no earlier good poll at all, an overlapping poll has no gap before it.
+  the larger spacing of this poll and the last good poll, plus each failed poll's own spacing (1 to
+  3 of them). With no earlier good poll at all, an overlapping poll has no gap before it unless
+  polls failed before it (the reader counts those failures as gaps).
 - a seed (`scout.coverage_seed`, owner 2026-11-04): at start, each feed's seen ids, last good poll
   and failed polls since come from Scout's own stored facts and health records, so the first poll
   after a restart is judged like any other. No seed (or a broken one): the feed starts empty, as
   before 0.2.1.
-- `gap_open(source)`: the latest poll of some feed left a gap, or (given `now`) the last good poll
-  is older than that limit. The heartbeat publishes it.
+- `gap_open(source)`: the latest poll of some gate-6 feed left a gap, or (given `now`) its last good
+  poll is older than that limit. Periodic forms (10-Q, 10-K, ...: polled for the gate-5 check only,
+  not in params `gate6_feeds`) do not count. The heartbeat publishes it.
 Readers do not trust these flags alone: `scout_reader.coverage.gaps` recomputes gaps from the stored
 records.
 """
@@ -31,7 +33,7 @@ from typing import TYPE_CHECKING
 
 from scout.calendar import in_active_hours
 from scout.clock import et_date, parse_iso
-from scout.config import ScoutConfig, SourceConfig
+from scout.config import PERIODIC_FORMS, ScoutConfig, SourceConfig
 from scout.models import FetchResult, HealthRecord, SourceState
 from scout.paths import ScoutPaths
 from scout.store import append_jsonl
@@ -96,7 +98,7 @@ class _Feed:
         self.seen: OrderedDict[str, None] = OrderedDict()
         self.anchor: datetime | None = None  # start of the last good poll
         self.anchor_spacing_s: float = 0.0  # its spacing
-        self.failed: int = 0  # failed polls since the anchor
+        self.failed: list[float] = []  # the spacing of each failed poll since the anchor
         self.spacing_s: float = 0.0  # the spacing of the latest poll
         self.last: HealthRecord | None = None
 
@@ -116,7 +118,7 @@ class CoverageTracker:
             for g in seed.guids[-self.cfg.seen_guid_cap:]:
                 state.seen[g] = None
             state.anchor, state.anchor_spacing_s = seed.anchor, seed.spacing_s
-            state.spacing_s, state.failed = seed.spacing_s, seed.failed
+            state.spacing_s, state.failed = seed.spacing_s, list(seed.failed_spacings)
         return state
 
     def _feed(self, source: str, feed: str) -> _Feed:
@@ -156,8 +158,8 @@ class CoverageTracker:
         if not good or not overlap:
             gap_before = True
         elif state.anchor is None:
-            gap_before = False  # the feed holds fewer items than it can: nothing passed unseen
-        elif state.failed > MAX_FORGIVEN:
+            gap_before = bool(state.failed)  # the reader counts failures before any good poll as gaps
+        elif len(state.failed) > MAX_FORGIVEN:
             gap_before = True  # too many failed polls in a row to forgive
         else:
             gap_before = (start - state.anchor).total_seconds() > allowance_s(
@@ -173,15 +175,15 @@ class CoverageTracker:
                 state.seen.move_to_end(g)
             while len(state.seen) > self.cfg.seen_guid_cap:
                 state.seen.popitem(last=False)
-            state.anchor, state.anchor_spacing_s, state.failed = start, spacing, 0
+            state.anchor, state.anchor_spacing_s, state.failed = start, spacing, []
         else:
-            state.failed += 1
+            state.failed.append(spacing)
         state.spacing_s = spacing
         state.last = rec
         return rec
 
     def gap_open(self, source: str, now: datetime | None = None) -> bool:
-        feeds = [self._feeds[k] for k in self._feeds if k[0] == source]
+        feeds = [self._feeds[k] for k in self._feeds if k[0] == source and k[1].upper() not in PERIODIC_FORMS]
         if not feeds:
             return True
         for state in feeds:

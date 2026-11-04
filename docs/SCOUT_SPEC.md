@@ -267,20 +267,35 @@ does not overlap or the good-to-good interval exceeds the limit, or no good poll
 
 The rules in full (owner, 2026-11-04; Scout and `scout_reader` 0.2.1), the same in Scout's
 `gap_before` and in the reader, which recomputes them from the stored health records:
+- **Which feeds**: the feeds of each gate-6 source listed in params `gate6_feeds`. EDGAR's
+  periodic forms (10-Q, 10-K, 20-F, 40-F) are polled for the gate-5 check only; the SS 6.4 table
+  never classes them, so no gate-6 or `entry_blocks` fact comes from them and their gaps do not
+  count. With no list, every feed of the source counts.
+- **As of t**: only polls that ended by t count.
 - **Limit between two good polls**: max(`source_max_gap_s`, 2 x S), where S is the larger
   `spacing_s` of the two polls. The poll just before 04:00 ET was scheduled at the 600 s night
   spacing, so the next one may come up to 1200 s later even though it runs at the 60 s day spacing.
 - **Failed polls between them**: when 1 to 3 polls failed in a row and the next good poll overlaps,
-  the limit grows by S per failed poll (each failure used one slot of the schedule), and the
-  failures are not gaps. Four or more failures in a row stay gaps.
+  the limit grows by each failed poll's own `spacing_s` (each failure used one slot of the schedule
+  at the spacing it ran at), and the failures are not gaps. Four or more failures in a row stay
+  gaps, from the good poll before them to the good poll after them. Failed polls before a feed's
+  first good poll are gaps.
+  Example: good 03:50 ET (600 s), failures at 04:00, 04:01 and 04:02 (60 s each): the next good
+  poll may come up to 2 x 600 + 3 x 60 = 1380 s after 03:50.
 - **Restarts**: Scout keeps the seen guids and the last good poll of each feed across a restart.
   At start it reads them back from its own files: the guids of the facts stored by good polls
   (a fact's `first_seen_at` is its poll's `end`) and the last good health record of each feed,
   with the failed polls after it, over the last `fact_dedupe_days` ET days. The first poll after a
   restart is then judged like any other: it must overlap, and the interval from the last good
-  poll before the stop must be within the limit, so a long outage is still a gap. A missing or
-  unreadable file means no seed, and the first poll claims no overlap (a gap, as before 0.2.1).
-  Only what Scout wrote before the restart is read.
+  poll before the stop must be within the limit, so a long outage is still a gap. By day that
+  limit is about 180 s from the last good poll, so a restart that takes more than about a minute,
+  or a slow first EDGAR cycle after it, is still a gap. A missing or unreadable file means no
+  seed: the first poll is judged with no seen ids (a full page is then a gap, as before 0.2.1; a
+  page shorter than the feed's maximum still overlaps). Only what Scout wrote before the restart
+  is read. Health records carry no feed URL, so the seed cannot tell that the owner changed a
+  wire's `url` in config.toml: ids seen on the old feed could then count as overlap on the new one
+  at the first poll. EDGAR's URLs are fixed per form. A wire URL change is rare and made by the
+  owner; this is a known limit of the seed.
 - Health records are append-only: the restart gaps recorded before 0.2.1 stay in the files and
   turn `false` into `unknown` until they leave the 3-trading-day window.
 
