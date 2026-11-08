@@ -29,7 +29,7 @@ def test_beat_writes_the_spec_shape_and_a_beat_line(paths: ScoutPaths, cfg: Scou
     assert hb.beat(clock.now())
     body = _read(paths)
     assert set(body) == SS101_KEYS and body["format"] == 1 and body["stopped"] is False
-    assert body["at"] == "2026-11-02T14:00:00Z" and body["version"] == "0.2.2"
+    assert body["at"] == "2026-11-02T14:00:00Z" and body["version"] == "0.2.3"
     assert body["sources"]["edgar_atom"] == {"enabled": True, "status": "ok", "last_ok": "2026-11-02T14:00:00Z",
                                              "last_error": None, "gap_open": False}
     assert body["sources"]["prnewswire"]["status"] == "starting"

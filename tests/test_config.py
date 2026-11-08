@@ -67,7 +67,7 @@ def test_example_documents_every_key() -> None:
 def test_with_contact_email(scout_dir: Path) -> None:
     c = config_from_dict({"contact_email": SECRET}, scout_dir)
     assert c.http_allowed()
-    assert c.user_agent() == f"Scout/0.2.2 ({SECRET})"
+    assert c.user_agent() == f"Scout/0.2.3 ({SECRET})"
     assert SECRET not in repr(c) and SECRET not in str(c)
     assert SECRET not in str(c.public_dict())
 

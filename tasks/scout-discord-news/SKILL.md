@@ -37,7 +37,7 @@ In PowerShell:
     $et = [TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, 'Eastern Standard Time'); $et.ToString('yyyy-MM-dd HH:mm dddd'); [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
 
 ('Eastern Standard Time' is Windows' id for US Eastern and follows daylight saving.) If the ET day is
-Saturday or Sunday, or the ET time is before 04:00 or at/after 20:00, finish at once with the single
+Saturday or Sunday, or a US market holiday (2026-11-26, 2026-12-25, 2027-01-01, 2027-01-18, 2027-02-15, 2027-03-26, 2027-05-31, 2027-06-18, 2027-07-05, 2027-09-06, 2027-11-25, 2027-12-24), or the ET time is before 04:00 or at/after 20:00, finish at once with the single
 line "outside US hours (ET <time>)": open nothing, write nothing.
 
 ## Step 0b: one run at a time

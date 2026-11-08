@@ -3,7 +3,7 @@
 Spec: docs/SCOUT_SPEC.md. Design: docs/DESIGN.md.
 """
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 FORMAT = 1  # the record format every Scout file carries (SS 10)
 
 __all__ = ["FORMAT", "__version__"]

@@ -83,10 +83,12 @@ def trading_day_of(dt: datetime) -> date:
 
 
 def in_active_hours(dt: datetime, cfg: ScoutConfig) -> bool:
-    """True when `dt`'s ET wall time is inside `active_hours_et` [start, end) on any day."""
+    """True when `dt`'s ET wall time is inside `active_hours_et` [start, end) on a trading day (owner,
+    2026-11-09: weekends and market holidays run at idle spacing, as overnight does)."""
     start, end = cfg.active_hours_et
-    t: time = _to_et(dt).time()
-    return start <= t < end
+    et = _to_et(dt)
+    t: time = et.time()
+    return is_trading_day(et.date()) and start <= t < end
 
 
 __all__ = [*_reader_all, "Session", "in_active_hours", "night_bounds", "session_at", "trading_day_of"]

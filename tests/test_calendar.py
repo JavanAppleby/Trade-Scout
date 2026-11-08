@@ -96,6 +96,8 @@ def test_in_active_hours(cfg, et) -> None:  # noqa: ANN001
     assert cal.in_active_hours(et("2026-11-02", "19:59"), cfg)
     assert not cal.in_active_hours(et("2026-11-02", "20:00"), cfg)
     assert not cal.in_active_hours(et("2026-11-02", "03:59"), cfg)
+    assert not cal.in_active_hours(et("2026-11-07", "12:00"), cfg)  # a Saturday
+    assert not cal.in_active_hours(et("2026-11-26", "12:00"), cfg)  # Thanksgiving
 
 
 def test_naive_times_are_refused() -> None:

@@ -331,8 +331,8 @@ The rules in full (owner, 2026-11-04; Scout and `scout_reader` 0.2.1, with the o
 PR Newswire's feed holds only 20 items. The live health records of 1-4 Nov 2026 showed more than
 20 releases within a minute at the top of some hours (e.g. 13:01, 14:00, 15:01 UTC): 7 true
 no-overlap gaps. Since 0.2.2 (owner, 2026-11-04) it is polled every 30 s (the hard minimum for its
-host) from :58 to :05 ET around each hour inside active hours, every calendar day (weekends and
-holidays too); a burst larger than 20 in 30 s is still recorded as a gap, never hidden. Never
+host) from :58 to :05 ET around each hour inside active hours, on trading days only (owner, 2026-11-09: active hours
+now apply on trading days; weekends and market holidays run at idle spacing); a burst larger than 20 in 30 s is still recorded as a gap, never hidden. Never
 faster than the spacing the fetcher keeps for the host: a `host_min_spacing_s` above 30 s for
 www.prnewswire.com sets the spacing in that window (never above `min_spacing_s`). Not covered: one
 of the 7 overflows (3 Nov 13:31 UTC, 08:30 ET) came at a half-hour release time, outside the

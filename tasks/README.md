@@ -20,7 +20,7 @@ a few minutes to recurring tasks; the schedules leave room for it.
 
 | Task | Cron (Brisbane) | In ET (EST / EDT) | Reads | Writes |
 |---|---|---|---|---|
-| `scout-jason-daily` | `7,22,37,52 0-10,18-23 * * 1-6` | every 15 min, 04:00-20:00 ET Mon-Fri, plus Sunday 09:00-20:00 ET (EST) / 10:00-21:00 ET (EDT) for the weekly plan | Discord #daily-watchlist, #weekly-trade-plan, #free-analysis (MAIN STAGE); the weekly-plan PDF via `tools/fetch_weekly_plan.py` | `inbox\jason\<date>.daily.json`, `inbox\jason\<monday>.weekly.json`, `inbox\jason\raw\<monday>.weekly.txt`, capture files `inbox\discord\{daily-watchlist,weekly-trade-plan,free-analysis}\<stamp>.jsonl`, `inbox\discord\_cursor_jason.json` |
+| `scout-jason-daily` | `7,22,37,52 18-23 * * 1-5` and, as `scout-jason-daily-morning`, `7,22,37,52 0-10 * * 2-6` (owner, 2026-11-09: no runs on closed days) | every 15 min, 04:00-20:00 ET Mon-Fri; the weekly plan is collected by Monday's first run | Discord #daily-watchlist, #weekly-trade-plan, #free-analysis (MAIN STAGE); the weekly-plan PDF via `tools/fetch_weekly_plan.py` | `inbox\jason\<date>.daily.json`, `inbox\jason\<monday>.weekly.json`, `inbox\jason\raw\<monday>.weekly.txt`, capture files `inbox\discord\{daily-watchlist,weekly-trade-plan,free-analysis}\<stamp>.jsonl`, `inbox\discord\_cursor_jason.json` |
 | `scout-jason-tuesday` | `0 13,19 * * 3` | Tue 22:00 + Wed 04:00 EST / Tue 23:00 + Wed 05:00 EDT | WebSearch/WebFetch (and Chrome on YouTube for the transcript panel) | `inbox\jason\<tuesday>.tuesday.json`, `inbox\jason\raw\<tuesday>.tuesday.txt` |
 | `scout-discord-news` | `*/10 0-10,18-23 * * 1-6` | every 10 min, 04:00-20:00 ET Mon-Fri (both); scanners about hourly | Discord #brianna-news, #stockmktnewz, #major-headlines, #earnings-whispers, #market-movers, #open-outcrier (MARKET NEWS) every run; #15m-scanner, #daily-scanner, #weekly-scanner (SCANNERS) when 50 minutes have passed since they were last read | capture files `inbox\discord\<channel>\<stamp>.jsonl`, `inbox\discord\_cursor.json` |
 
@@ -31,8 +31,8 @@ All paths are under `E:\Scout` (the install the owner runs). The tasks run only 
 atomic renames (level files and capture files are both written as `*.tmp` and renamed).
 
 **scout-jason-daily.** Every 15 minutes (owner, 2026-11-02: before pre-market, and often, because
-Jason posts more than once and at different times). The cron covers Brisbane 00:07-10:52 and
-18:07-23:52, Monday to Saturday (minutes 7, 22, 37 and 52, so it never starts in the same minute as
+Jason posts more than once and at different times). The two crons cover Brisbane 18:07-23:52 Monday to Friday and
+00:07-10:52 Tuesday to Saturday (minutes 7, 22, 37 and 52, so it never starts in the same minute as
 the news task). On weekdays ET the runs from 04:00 to 20:00 ET do the work and the
 edge runs exit at once ("outside US hours"). Monday 00:07-10:52 Brisbane is **Sunday** ET (09:07-19:52
 EST / 10:07-20:52 EDT): those runs look only for the coming week's plan and capture new posts, so a

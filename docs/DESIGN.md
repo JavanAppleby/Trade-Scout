@@ -1637,8 +1637,8 @@ releases appear within a minute: 7 true no-overlap gaps. The owner chose both fi
      04:00-20:00 ET (15 full windows of 7 minutes, 04:00-04:05 and 19:58-20:00), 112 minutes at 30 s
      instead of 60 s: about 112 more a day, 1552 instead of 1440 (a test counts it). No new source or
      URL. A burst of more than 20 releases within 30 s is still recorded as a gap, never hidden.
-     The window runs every calendar day (weekends and holidays too), as the owner chose it
-     ("within active hours"). `spacing_in_force` never goes below the spacing the fetcher keeps
+     The window runs on trading days only since 0.2.3 (owner, 2026-11-09: `in_active_hours` is
+     false on weekends and market holidays, which run at idle spacing as overnight does). `spacing_in_force` never goes below the spacing the fetcher keeps
      for the host (`http.host_spacing_s`: a configured `host_min_spacing_s` above 30 s sets it), so
      the job never polls faster than the fetcher sends and the record stores the real spacing.
 3. **Review fixes** (0.2.2 review; the owner's rule kept, only made safe):
