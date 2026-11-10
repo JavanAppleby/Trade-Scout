@@ -51,6 +51,11 @@ spend limit, put `ANTHROPIC_API_KEY=...` in a file named `.env` in Scout's folde
   changes a file it has already added. (The scheduled Claude tasks add files themselves; see below.)
 - **Add Read**: note your own read of a stock for the thesis-read paper test (asks the ticker, long
   or short, strength 1 to 5, and why). Nothing trades on it. See "Thesis reads" below.
+- **Check Market**: checks the market feed of the thesis reads now: whether Alpaca answered, the
+  newest prices of SPY, QQQ and IWM with their age, what a reader would see, and last whether your
+  key works. In the early hours (before about 08:00 ET, which is 22:00 or 23:00 in Brisbane) the
+  prices are old; that is normal, and the check still says the key works. It never shows the key and writes no
+  record or state, only its log lines. See "The market for the readers" below.
 - **Update Scout**: downloads and installs the latest version. Stop Scout first: while Scout is
   running, Update Scout says so and changes nothing.
 
@@ -63,6 +68,7 @@ spend limit, put `ANTHROPIC_API_KEY=...` in a file named `.env` in Scout's folde
     python -m scout levels score              # score past level files (report only)
     python -m scout discord check <file>      # check one Discord capture file (writes nothing)
     python -m scout reads add [TICKER long|short STRENGTH [WHY]]   # note your own read (asks when given nothing)
+    python -m scout reads market              # check the market feed for the readers (writes only its log lines)
     python -m scout check [--week YYYY-Www]   # this week's hand-check sample
     python -m scout verify                    # the verification report
     python -m scout answers SYMBOL... [--as-of ISO-time]   # print answers (writes nothing)
@@ -118,6 +124,33 @@ get a "stale" line when too old to read).
 Use **Add Read** to note your own reads. The note waits in `inbox\reads\` until Scout runs with reads
 on; the command tells you when it is waiting. With `reads_enabled = false` the running Scout does
 nothing for reads at all.
+
+### The market for the readers (0.3.2)
+
+You asked (11 Nov 2026) for another source of the market's direction, so the readers no longer see
+"Market: not available". With reads on, Scout asks Alpaca's market-data service once a minute,
+from 04:00 to 20:00 ET on trading days, for SPY, QQQ and IWM, using your free Alpaca key. It only
+reads market data from `data.alpaca.markets`: it never places, sees or changes an order or an
+account. Put the two lines of your key in Scout's `.env` (the same file as the Claude key):
+
+    APCA_API_KEY_ID=your key id
+    APCA_API_SECRET_KEY=your secret
+
+(`ALPACA_API_KEY` / `ALPACA_SECRET_KEY` and `ALPACA_KEY_ID` / `ALPACA_API_SECRET` work too. If more
+than one pair is set, the first whole pair in that order wins; two lines with names from different
+pairs still work when no pair is whole.) Then
+double-click **Check Market** to see that Alpaca accepts the key.
+
+What the readers see, honestly: during about 08:00 to 17:00 ET the price is live but from the IEX
+exchange only (a small share of all trading, so it can lag the whole market a little); outside those
+hours it is the whole market's price, at least 20 minutes old. The change is against the whole
+market's close of the previous trading day. A reader sees a line such as "Market at 10:01:58 ET:
+SPY 681.20 +0.31%; QQQ 611.05 +0.42%; IWM 241.13 -0.22%"; once the data is 5 minutes old or more it
+says how old ("15 minutes before now"), and data older than 30 minutes (`reads_market_max_age_s`) is
+not shown at all. Each read records what market it was shown (`market_shown`). The brief adds one
+line a day: polls recorded, too old and failed, and how many reads were shown the market. The feed
+changes no answer of Scout's and never stops or starts a buy. To turn it off, add
+`reads_market_enabled = false` to `config.toml`.
 
 ## Jason's material and the Paper Gains Discord (scheduled Claude tasks)
 

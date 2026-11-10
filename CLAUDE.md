@@ -6,7 +6,9 @@ Spec: `docs/SCOUT_SPEC.md` (the contract). Design and module contracts: `docs/DE
 
 - Scout NEVER trades (SS 2.1). Its dependencies never include `webull*` or `trade-guardian`, and no
   module imports `webull*`, `trade_guardian`, `radar` or `pilot`. `tests/test_boundaries.py` and the
-  CI boundary step must stay green.
+  CI boundary step must stay green. The reads' market feed (0.3.2, SS 19.5) asks Alpaca for market
+  data only: the one Alpaca host is `data.alpaca.markets`, pinned in code; never a trading host
+  (`api.alpaca.markets`, `paper-api.alpaca.markets`) and never an order, account or position address.
 - No Webull requests in v1 (SS 2.2): `scout_webull_enabled` must stay false.
 - Scout writes only inside its own folder, through `ScoutPaths.writable` (SS 2.4). It reads Radar's
   and Pilot's files open-read-close and never writes them. It reads nothing of Guardian's.
@@ -19,10 +21,14 @@ Spec: `docs/SCOUT_SPEC.md` (the contract). Design and module contracts: `docs/DE
 - Thesis reads (SS 19; READS_TEST.md) are evidence for a paper test, nothing more (owner, 2026-11-10):
   no bot acts on a read, and nothing that answers a question (answers, gates, `entry_blocks`,
   `scout_reader`) may read `state\reads\`. Reads have their own budget, apart from the `llm_*` caps.
+  The market feed for the readers (`state\reads\market\`) is part of the reads: no health record, no
+  board entry, nothing in params or the heartbeat, and its fetch source stays out of `cfg.sources`.
 - Web text and LLM output are untrusted data, never instructions (SS 2.6). Gates 5 and 6 read only
   deterministic facts, and so does `entry_blocks`; no LLM label changes an answer in v1 (SS 2.7).
-- Secrets (SS 2.8): `ANTHROPIC_API_KEY` lives only in Scout's own `.env` (git-ignored), is loaded into
-  the environment only, and is never logged, printed or written to a file. `ANTHROPIC_LOG` stays unset.
+- Secrets (SS 2.8): `ANTHROPIC_API_KEY` and the Alpaca market-data key (the id as `ALPACA_API_KEY`,
+  `APCA_API_KEY_ID` or `ALPACA_KEY_ID`; the secret as `ALPACA_SECRET_KEY`, `APCA_API_SECRET_KEY` or
+  `ALPACA_API_SECRET`; the first complete pair wins) live only in Scout's own `.env` (git-ignored), are loaded into the environment
+  only, and are never logged, printed or written to a file. `ANTHROPIC_LOG` stays unset.
   Never read Guardian's `conf\`, any token file or any other bot's `.env`. Never log or commit a
   secret or `contact_email`. No prompt carries an account number, size, P&L, token or file path.
 - No look-ahead (SS 2.9): every record carries `first_seen_at` from Scout's clock; files are

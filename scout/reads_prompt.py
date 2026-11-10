@@ -9,8 +9,10 @@
   session calendar), and every time in it is ET and says so. The bar tables say their order, that
   the last 1-minute row is the newest completed minute, that volumes and sizes are shares, and what
   a "p" bar is; VWAP is shown to the price's own precision and ATR to two more places (it is a
-  distance, and cents would distort a small one); the market line says "not available" when the
-  pack has none. Radar's values are numbers, times and short codes: each is
+  distance, and cents would distort a small one); the market line (0.3.2, `scout.reads_market`) shows
+  Scout's market feed or the pack's own block, whichever is newer, only while it is at most
+  `reads_market_max_age_s` old, says how old it is from 5 minutes on, and says "not available"
+  otherwise. Radar's values are numbers, times and short codes: each is
   checked and rewritten (a value that is not a plain number, time or code is shown as "?"), so
   nothing from the pack reaches the model as free text. Third-party text (news titles, Jason's
   levels and notes) and the reader's own earlier read go in `<item ... nonce=...>` blocks, escaped
@@ -44,8 +46,10 @@ from scout.config import ScoutConfig
 from scout.config_reads import ReaderConfig
 from scout.llm_prompts import LlmRequest, clean_ticker, item_block, new_nonce
 from scout.reads_budget import reader_job
+from scout.reads_market import market_line, shown_market
 
 PROMPT_VERSION = "r1"
+_FROM_PACK: Any = object()  # build_read's `market` not given: the pack's own block, under the age rule
 DIRECTIONS = ("long", "short", "none")
 REASON_KINDS = ("trend", "momentum", "volume", "level", "catalyst", "book", "market", "pattern", "risk")
 REASON_SIDES = ("for", "against")
@@ -250,7 +254,8 @@ def find_line(find: Any, today: Any = None) -> str | None:
             f"flags {_codes(f.get('flags'))}")
 
 
-def _pack_lines(pack: Mapping[str, Any], today: Any, found: Any = None) -> list[str]:
+def _pack_lines(pack: Mapping[str, Any], today: Any, found: Any = None, market: Mapping[str, Any] | None = None,
+                now: datetime | None = None) -> list[str]:
     q, d = _obj(pack.get("quote")), _obj(pack.get("day"))
     places = price_places(pack)
     lines = []
@@ -281,10 +286,9 @@ def _pack_lines(pack: Mapping[str, Any], today: Any, found: Any = None) -> list[
         lines.append(f"Radar's buy checks at {_et(c.get('at'), today)}: ready {ready}; failed: "
                      f"{_codes(c.get('failed'))} (the names of Radar's own internal checks; a failed check is "
                      "context, not by itself a reason against)")
-    m = _obj(pack.get("market"))
-    parts = [f"{clean_ticker(k) or '?'} {fmt_num(_obj(v).get('last'))} {_pct(_obj(v).get('change_pct'))}"
-             for k, v in m.items() if k != "at" and isinstance(v, Mapping)][:6]
-    lines.append(f"Market at {_et(m.get('at'), today)}: " + "; ".join(parts) if parts else "Market: not available")
+    # 0.3.2: the block chosen by reads_market.shown_market (Scout's market feed or the pack's own, each
+    # only while fresh); the pack's `market` is not read here
+    lines.append(market_line(market, now or parse_iso(pack.get("made_at")) or datetime.now(timezone.utc), today))
     bars = pack.get("bars_1m") if isinstance(pack.get("bars_1m"), list) else []
     lines.append("1-minute bars, oldest first; the last row is the newest completed minute (start ET, open, high, "
                  "low, close, volume in shares; w = exchange bar, p = built from Radar's quote samples about every "
@@ -348,10 +352,12 @@ def _first_read_block(first: Mapping[str, Any], nonce: str, today: Any) -> str:
 
 def build_read(pack: Mapping[str, Any], ctx: Mapping[str, Any], reader: ReaderConfig, cfg: ScoutConfig, *,
                first: Mapping[str, Any] | None = None, nonce: str | None = None, now: datetime | None = None,
-               found: Mapping[str, Any] | None = None) -> LlmRequest:
+               found: Mapping[str, Any] | None = None, market: Any = _FROM_PACK) -> LlmRequest:
     """The request for one read. `ctx` is Scout's facts (`scout.reads_context.scout_context`);
     `first` is the reader's own first read on this candidate, for a reread, and `found` the first
-    pack's `find` when the thesis holds it. `now` is the present moment (the pack's time if None)."""
+    pack's `find` when the thesis holds it. `now` is the present moment (the pack's time if None).
+    `market` is the shown market block (`scout.reads_market.shown_market`; None = not available);
+    when it is not given, the pack's own block is shown under the same age rule."""
     nonce = nonce or new_nonce()
     symbol = clean_ticker(pack.get("symbol"))
     if symbol is None:
@@ -365,7 +371,9 @@ def build_read(pack: Mapping[str, Any], ctx: Mapping[str, Any], reader: ReaderCo
             f"evidence packed at {_et(pack.get('made_at'), today)} by the scanner "
             f"({'first pack' if pack.get('seq') == 0 else 'refresh ' + fmt_num(pack.get('seq'))})."]
     scout_lines, blocks = _scout_lines(ctx, nonce, cfg)
-    body = head + _pack_lines(pack, today, found if first is not None else None) + scout_lines
+    if market is _FROM_PACK:
+        market = shown_market(pack.get("market"), None, moment, cfg.reads.market_max_age_s)
+    body = head + _pack_lines(pack, today, found if first is not None else None, market, moment) + scout_lines
     if first is not None:
         body.append("Your first read on this candidate is item FIRST. Say whether the idea is intact, weaker, "
                     "faded or invalidated now, and score it again.")

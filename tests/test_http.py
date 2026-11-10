@@ -461,3 +461,111 @@ def test_tls_verification_is_never_disabled_in_code():
     hits = [f"{p.name}:{i}" for p in sorted(root.glob("*.py"))
             for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if bad.search(line)]
     assert hits == []
+
+
+# --------------------------------------------------------------------------- 0.3.2: the market feed's extras
+
+
+def test_the_per_request_extras_never_show_their_headers() -> None:
+    """The extra headers carry the Alpaca key: the options object leaves them out of its repr."""
+    from scout.http import _Options  # noqa: PLC0415
+
+    shown = repr(_Options({"APCA-API-SECRET-KEY": "made-up-secret-value"}, "Scout/x", 5.0, True))
+    assert "made-up-secret-value" not in shown and "APCA" not in shown
+
+DATA_URL = "https://data.alpaca.markets/v2/stocks/snapshots?symbols=SPY&feed=iex"
+
+
+class _Capture:
+    def __init__(self, status=200, body=b"{}", headers=None):
+        self.calls = []
+        self.status, self.body, self.headers = status, body, dict(headers or {})
+
+    def __call__(self, url, headers, timeout_s, max_bytes):
+        self.calls.append((url, dict(headers), timeout_s))
+        return FakeResponse(self.status, self.headers, self.body)
+
+
+def test_extra_headers_cannot_replace_base_headers(cfg, clock):
+    t = _Capture()
+    f = HttpFetcher(cfg, clock, transport=t)
+    got = f.fetch("alpaca_market", DATA_URL, conditional=False,
+                  headers={"user-agent": "x", "Accept-Encoding": "br", "Host": "evil", "X-Extra": "1"})
+    assert got.ok
+    sent = t.calls[0][1]
+    assert sent["User-Agent"] == cfg.user_agent() and sent["Accept-Encoding"] == "gzip, deflate"
+    assert sent["X-Extra"] == "1" and not any(k.lower() == "host" for k in sent)
+    assert sum(1 for k in sent if k.lower() == "user-agent") == 1
+    assert "X-Extra" not in got.headers and "x-extra" not in got.headers  # request headers never in the result
+
+
+def test_user_agent_override_and_timeout_cap(cfg, clock):
+    t = _Capture()
+    f = HttpFetcher(cfg, clock, transport=t)
+    f.fetch("alpaca_market", DATA_URL, conditional=False, user_agent="Scout/9", timeout_s=5)
+    f.fetch("alpaca_market", DATA_URL, conditional=False, timeout_s=999)
+    f.fetch("alpaca_market", DATA_URL, conditional=False)
+    assert t.calls[0][1]["User-Agent"] == "Scout/9" and t.calls[0][2] == 5.0
+    assert t.calls[1][2] == cfg.fetch_timeout_s and t.calls[2][2] == cfg.fetch_timeout_s
+    assert t.calls[1][1]["User-Agent"] == cfg.user_agent()
+
+
+def test_quiet_logs_at_debug(cfg, clock, caplog):
+    f = HttpFetcher(cfg, clock, transport=_Capture(status=500), log=logging.getLogger("t.http"))
+    with caplog.at_level(logging.DEBUG, logger="t.http"):
+        f.fetch("alpaca_market", DATA_URL, conditional=False, quiet=True)
+        f.fetch("alpaca_market", DATA_URL, conditional=False)
+    levels = [r.levelno for r in caplog.records if r.getMessage().startswith("fetch ")]
+    assert levels == [logging.DEBUG, logging.WARNING]
+
+
+def test_quiet_keeps_the_backoff_warning(cfg, clock, caplog):
+    f = HttpFetcher(cfg, clock, transport=_Capture(status=429), log=logging.getLogger("t.http"))
+    with caplog.at_level(logging.DEBUG, logger="t.http"):
+        got = f.fetch("alpaca_market", DATA_URL, conditional=False, quiet=True)
+    assert got.result == "http_error"
+    assert any(r.levelno == logging.WARNING and "backing off" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("url", ["https://paper-api.alpaca.markets/v2/orders", "https://api.alpaca.markets/v2/account",
+                                 "https://data.sandbox.alpaca.markets/v2/stocks/snapshots"])
+def test_no_alpaca_host_but_the_data_host(cfg, clock, url):
+    t = _Capture()
+    got = HttpFetcher(cfg, clock, transport=t).fetch("alpaca_market", url, conditional=False)
+    assert got.result == "refused" and t.calls == []
+
+
+@pytest.mark.parametrize("url", ["https://paper-api.alpaca.markets/v2/orders", "https://api.alpaca.markets/v2/account",
+                                 "https://alpaca.markets/v2/orders", "https://Data.Sandbox.Alpaca.Markets/v2/stocks"])
+def test_the_fetchers_own_alpaca_guard_refuses_even_an_allowed_host(cfg, clock, monkeypatch, url):
+    """Review secrets F4 / tests F7: with the allowed-hosts check passed (a source wrongly listing the
+    host, built past the config checks), the fetcher's own `*.alpaca.markets` guard still refuses."""
+    import dataclasses  # noqa: PLC0415
+    import urllib.parse  # noqa: PLC0415
+
+    from scout.config_reads import market_fetch_source  # noqa: PLC0415
+
+    host = urllib.parse.urlsplit(url).hostname
+    wrong = dataclasses.replace(market_fetch_source(cfg), allowed_hosts=(host, "data.alpaca.markets"))
+    monkeypatch.setattr("scout.http.market_fetch_source", lambda c: wrong)
+    t = _Capture()
+    got = HttpFetcher(cfg, clock, transport=t).fetch("alpaca_market", url, conditional=False)
+    assert got.result == "refused" and t.calls == []
+    assert "the only Alpaca host Scout may ask is data.alpaca.markets" in (got.error or "")
+    ok = HttpFetcher(cfg, clock, transport=t).fetch("alpaca_market", DATA_URL, conditional=False)
+    assert ok.ok and len(t.calls) == 1  # the data host itself still passes
+
+
+def test_market_source_is_fixed_off_with_its_switch_and_never_in_cfg_sources(scout_dir, clock):
+    cfg = config_from_dict({"contact_email": TEST_EMAIL, "reads_market_enabled": False}, scout_dir)
+    t = _Capture()
+    got = HttpFetcher(cfg, clock, transport=t).fetch("alpaca_market", DATA_URL)
+    assert got.result == "refused" and t.calls == []
+    assert "alpaca_market" not in cfg.sources and "alpaca_market" not in config_from_dict({}, scout_dir).sources
+
+
+def test_a_redirect_is_never_followed(cfg, clock):
+    t = _Capture(status=301, headers={"Location": "https://paper-api.alpaca.markets/v2/orders"})
+    got = HttpFetcher(cfg, clock, transport=t).fetch("alpaca_market", DATA_URL, conditional=False)
+    assert got.result == "http_error" and got.status == 301 and len(t.calls) == 1
+    assert H._NoRedirect().redirect_request(None, None, 301, "", {}, "https://paper-api.alpaca.markets/") is None

@@ -65,6 +65,7 @@ from scout.paths import ScoutPaths
 from scout.reads_budget import CAP_REASONS, UNREADABLE, ReadsBudget, reader_job
 from scout.reads_context import scout_context
 from scout.reads_file import ReadsWriter, check_answer, read_line, reads_on, skip_line
+from scout.reads_market import latest_record, shown_market
 from scout.reads_prompt import build_read
 from scout.reads_tail import PackTailer, Polled
 
@@ -378,6 +379,13 @@ class ReadsService:
         self._append(skip_line(reader, pack, why, for_kind=kind, detail=detail, cost_usd=cost), number=False)
         self._mark(reader, pack, kind)
 
+    def _market(self, pack: Mapping[str, Any], now: datetime) -> dict[str, Any] | None:
+        """The market block this read is shown (0.3.2): Scout's market feed (when it is on) or the
+        pack's own block, whichever is newer, each only within `reads_market_max_age_s`."""
+        r = self.cfg.reads
+        rec = latest_record(self.paths, now) if r.market_enabled else None
+        return shown_market(pack.get("market"), rec, now, r.market_max_age_s, r.market_symbols)
+
     def _read(self, reader: ReaderConfig, pack: Mapping[str, Any], th: Thesis | None, now: datetime) -> None:
         kind = "reread" if th is not None else "first"
         made = parse_iso(pack.get("made_at"))
@@ -391,8 +399,9 @@ class ReadsService:
             return
         try:
             ctx = scout_context(self.cfg, self.paths, str(pack.get("symbol")), now, self.reader_api)
+            market = self._market(pack, now)
             request = build_read(pack, ctx, reader, self.cfg, first=th.first if th is not None else None, now=now,
-                                 found=th.found if th is not None else None)
+                                 found=th.found if th is not None else None, market=market)
         except ValueError as exc:
             self._skip(reader, pack, "error", kind, detail=f"prompt:{type(exc).__name__}")
             return
@@ -413,7 +422,7 @@ class ReadsService:
             return
         line = read_line(kind, reader, pack, answer, read_id="", facts_used=list(request.fact_ids),
                          parent_read_id=th.first.get("read_id") if th is not None else None,
-                         usage=outcome.usage, cost_usd=outcome.cost_usd)
+                         usage=outcome.usage, cost_usd=outcome.cost_usd, market_shown=market)
         written = self._append(line, number=True)
         self._mark(reader, pack, kind)
         day = str(pack.get("trading_day"))

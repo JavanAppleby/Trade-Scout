@@ -55,3 +55,23 @@ def test_start_scout_says_when_another_scout_is_running() -> None:
     block = text[text.index(f'"{EXIT_ALREADY_RUNNING}" ('):]
     assert "already running" in block.split(")")[0]
     assert block.split(")")[0].strip().endswith(f"exit /b {EXIT_ALREADY_RUNNING}")
+
+
+def test_check_market_bat() -> None:
+    """0.3.2: Check Market.bat runs the market check (it writes no record or state, only its log lines) and
+    says what its exit code means, in step with `scout.market_check` (0 the key works, also with old
+    prices in the early hours; 1 no answer Scout could read; 2 not set up)."""
+    lines = _lines("Check Market.bat")
+    assert lines[0] == "@echo off" and 'cd /d "%~dp0"' in lines
+    command = r'".venv\Scripts\python.exe" -m scout reads market'
+    assert command in lines
+    run = lines.index(command)
+    assert lines[run + 1] == 'set "RC=%ERRORLEVEL%"'
+    text = "\n".join(lines)
+    assert f'if "%RC%"=="{EXIT_OK}" (' in text and f'"%RC%"=="{EXIT_BAD_INPUT}" (' in text
+    ok_at = lines.index(f'if "%RC%"=="{EXIT_OK}" (')
+    assert "the key works" in lines[ok_at + 1] and "early hours are normal" in lines[ok_at + 1]
+    assert any("could not confirm the key" in line for line in lines[ok_at:])
+    assert "writes nothing" not in text and "writes no record or state, only" in text
+    assert lines[-2] == "pause" and lines[-1] == ""
+    _depths(lines)

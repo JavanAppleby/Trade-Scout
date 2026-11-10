@@ -27,7 +27,10 @@ FILE_NAME = "http_hosts.json"
 FORMAT = 1
 # Hard daily caps in code, whatever the config says (SS 4.1 #7, SS 12 "enforced per host in code").
 # A cap covers the host and every host under it (www.nowflation.com shares nowflation.com's count).
-HARD_MAX_REQUESTS_PER_DAY: dict[str, int] = {"nowflation.com": 10, "api.bls.gov": 20}  # BLS v1: 25 a day
+# data.alpaca.markets (0.3.2, the market feed): a guard against a loop bug only; the feed's most is
+# 2 requests a poll x 4 polls a minute x 16 h = 7,680, plus a few for the previous closes.
+HARD_MAX_REQUESTS_PER_DAY: dict[str, int] = {"nowflation.com": 10, "api.bls.gov": 20,  # BLS v1: 25 a day
+                                             "data.alpaca.markets": 10000}
 
 
 def cap_key(host: str) -> str:

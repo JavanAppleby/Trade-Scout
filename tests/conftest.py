@@ -2,7 +2,7 @@
 
 - no_network (autouse): socket connects only to 127.0.0.1 and name lookups refused. Every attempt is
   recorded and fails the test at teardown, even when the code under test swallowed the error.
-- clean_env (autouse): no ANTHROPIC_* variable reaches a test, so no real key.
+- clean_env (autouse): no ANTHROPIC_*, ALPACA_* or APCA_* variable reaches a test, so no real key.
 - clock: a ManualClock at Monday 2026-11-02 14:00Z (09:00 ET, PRE). et(day, "HH:MM") -> aware UTC.
 - scout_dir / cfg / paths: a tmp Scout folder (runtime folders created) and a config with a
   placeholder contact email.
@@ -89,7 +89,7 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in list(os.environ):
-        if key.upper().startswith("ANTHROPIC_"):
+        if key.upper().startswith(("ANTHROPIC_", "ALPACA_", "APCA_")):
             monkeypatch.delenv(key, raising=False)
 
 

@@ -23,7 +23,8 @@ ROOT = Path(__file__).resolve().parent.parent
 AS_OF = datetime(2026, 11, 2, 23, 0, tzinfo=timezone.utc)
 # the only Scout modules that may name the reads files (writers, the service and the brief's count)
 ALLOWED = {"paths.py", "reads_file.py", "reads_owner.py", "reads_service.py", "reads_tail.py", "reads_report.py",
-           "jobs_reads.py", "reads_budget.py", "reads_context.py", "reads_prompt.py", "config_reads.py"}
+           "jobs_reads.py", "reads_budget.py", "reads_context.py", "reads_prompt.py", "config_reads.py",
+           "reads_market.py", "market_feed.py"}  # 0.3.2: the market feed for the reads
 ANSWERING = ("answers.py", "answers_cli.py", "jobs_answers.py", "verify.py", "verify_check.py", "due_window.py")
 
 _opened: list[str] = []

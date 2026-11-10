@@ -67,7 +67,7 @@ def test_example_documents_every_key() -> None:
 def test_with_contact_email(scout_dir: Path) -> None:
     c = config_from_dict({"contact_email": SECRET}, scout_dir)
     assert c.http_allowed()
-    assert c.user_agent() == f"Scout/0.3.1 ({SECRET})"
+    assert c.user_agent() == f"Scout/0.3.2 ({SECRET})"
     assert SECRET not in repr(c) and SECRET not in str(c)
     assert SECRET not in str(c.public_dict())
 
@@ -245,3 +245,58 @@ def test_a_sub_folder_setting_is_judged_by_windows_and_posix_rules_alike(value: 
     from scout.config_load import is_subfolder
 
     assert is_subfolder(value) is ok
+
+
+# --------------------------------------------------------------------------- 0.3.2: the market feed's settings
+
+
+def test_market_settings_defaults_and_ranges(scout_dir: Path) -> None:
+    r = config_from_dict({}, scout_dir).reads
+    assert r.market_enabled is True and r.market_symbols == ("SPY", "QQQ", "IWM")
+    assert (r.market_poll_s, r.market_max_age_s, r.market_timeout_s) == (60.0, 1800.0, 5.0)
+    ok = config_from_dict({"reads_market_symbols": ["DIA"], "reads_market_poll_s": 15, "reads_market_max_age_s": 60,
+                           "reads_market_timeout_s": 10, "reads_market_enabled": False}, scout_dir).reads
+    assert ok.market_symbols == ("DIA",) and ok.market_enabled is False and ok.market_timeout_s == 10.0
+    for bad in ({"reads_market_poll_s": 14}, {"reads_market_poll_s": 601}, {"reads_market_max_age_s": 59},
+                {"reads_market_max_age_s": 3601}, {"reads_market_timeout_s": 0.5}, {"reads_market_timeout_s": 10.5},
+                {"reads_market_timeout_s": 20},
+                {"reads_market_poll_s": 600, "reads_market_max_age_s": 300},
+                {"reads_market_symbols": []}, {"reads_market_symbols": ["spy"]}, {"reads_market_symbols": ["SPY", "SPY"]},
+                {"reads_market_symbols": ["A", "B", "C", "D", "E", "F", "G"]}, {"reads_market_symbols": ["BAD TICKER"]},
+                {"reads_market_enabled": "yes"}):
+        with pytest.raises(ConfigError, match="reads_market_"):
+            config_from_dict(bad, scout_dir)
+
+
+def test_alpaca_source_fixed_in_code_and_no_table_allowed(scout_dir: Path) -> None:
+    from scout.config_reads import DATA_HOST, market_fetch_source  # noqa: PLC0415
+
+    with pytest.raises(ConfigError, match="sources.alpaca_market"):
+        config_from_dict({"sources": {"alpaca_market": {"enabled": False}}}, scout_dir)
+    full = {"enabled": True, "kind": "reference", "url": f"https://{DATA_HOST}/v2/stocks", "paths": [],
+            "min_spacing_s": 60.0, "idle_spacing_s": 0.0, "allowed_hosts": [DATA_HOST], "terms_note": "",
+            "max_items": 0, "gate6": False, "terms_ok": True}
+    with pytest.raises(ConfigError, match="fixed in code"):
+        config_from_dict({"sources": {"alpaca_market": full}}, scout_dir)
+    c = config_from_dict({}, scout_dir)
+    src = market_fetch_source(c)
+    assert src.name == "alpaca_market" and src.allowed_hosts == (DATA_HOST,) and src.gate6 is False
+    assert "alpaca_market" not in c.sources and "alpaca_market" not in str(c.reader_params())
+    assert market_fetch_source(config_from_dict({"reads_market_enabled": False}, scout_dir)).enabled is False
+
+
+@pytest.mark.parametrize("host", ["paper-api.alpaca.markets", "api.alpaca.markets", "alpaca.markets",
+                                  "data.sandbox.alpaca.markets", "Paper-API.Alpaca.Markets"])
+def test_no_source_may_list_an_alpaca_trading_host(scout_dir: Path, host: str) -> None:
+    table = {"enabled": False, "kind": "reference", "url": "https://example.com/x", "paths": [],
+             "min_spacing_s": 60.0, "idle_spacing_s": 0.0, "allowed_hosts": [host], "terms_note": "",
+             "max_items": 0, "gate6": False, "terms_ok": True}
+    with pytest.raises(ConfigError, match="Alpaca host"):
+        config_from_dict({"sources": {"other": table}}, scout_dir)
+    with pytest.raises(ConfigError, match="Alpaca host"):
+        config_from_dict({"sources": {"other": {**table, "allowed_hosts": ["example.com"],
+                                                "url": f"https://{host}/v2/orders"}}}, scout_dir)
+    for url in (f"https://u:p@{host}:443/v2/orders", f"https://{host}:8443/v2/orders", f"https://user@{host}./x"):
+        with pytest.raises(ConfigError, match="Alpaca host"):  # user info and a port no longer slip past
+            config_from_dict({"sources": {"other": {**table, "allowed_hosts": ["example.com"], "url": url}}},
+                             scout_dir)

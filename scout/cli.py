@@ -30,6 +30,7 @@ DISPATCH: dict[str, tuple[str, str]] = {
     "answers": ("scout.answers_cli", "cli_answers"),
     "discord check": ("scout.discord_ingest", "cli_discord_check"),
     "reads add": ("scout.reads_owner", "cli_reads_add"),
+    "reads market": ("scout.market_feed", "cli_reads_market"),
 }
 
 __all__ = ["DEFAULT_CONFIG", "DISPATCH", "build_parser", "main"]
@@ -72,10 +73,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("file", help="inbox\\discord\\<channel>\\<YYYYMMDDTHHMMSSZ>.jsonl (or .jsonl.tmp)")
 
     reads = sub.add_parser("reads", help="the thesis-read paper test (READS_TEST.md)")
-    rsub = reads.add_subparsers(dest="reads_command", metavar="<add>")
+    rsub = reads.add_subparsers(dest="reads_command", metavar="<add|market>")
     p = rsub.add_parser("add", help="note your own read of a stock (asks when given nothing)")
     p.add_argument("fields", nargs="*", metavar="TICKER long|short STRENGTH [WHY]",
                    help="e.g. ABCD long 4 \"clean break of the high on volume\"")
+    rsub.add_parser("market", help="check the market feed now: the Alpaca key, the newest prices and what a reader "
+                                   "would see (writes no record or state, only its log lines)")
 
     p = sub.add_parser("answers", help="print the reader's answers for symbols (writes nothing)")
     p.add_argument("symbols", nargs="+", metavar="SYMBOL")

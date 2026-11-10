@@ -19,8 +19,20 @@ Top-level keys (`reads_*`) and one `[llm.readers.<id>]` block per reader, in the
     reads_monthly_cost_cap_usd = 20.0  ... and for the month at this one
     radar_packs_subdir = "state/handoff/packs"   Radar's research feed, inside radar_dir
 
+    The market feed for the reads (0.3.2; owner, 2026-11-11; SCOUT_SPEC 19.5):
+    reads_market_enabled = true        the switch (it runs only with reads_enabled and the Alpaca key)
+    reads_market_symbols = ["SPY", "QQQ", "IWM"]   1 to 6 tickers
+    reads_market_poll_s = 60           one poll this often in the PRE, CORE and POST sessions (15 to 600)
+    reads_market_max_age_s = 1800      older market data is not shown to a reader (60 to 3600)
+    reads_market_timeout_s = 5         each request's timeout (1 to 10; never above fetch_timeout_s)
+
     [llm.readers.R1]  enabled, model, effort, max_tokens, sample, rereads, daily_cost_cap_usd,
                       monthly_cost_cap_usd (a reader's own caps; 0 = none)
+
+The market feed's fetch source (`market_fetch_source`) is fixed in code and is NOT in `cfg.sources`,
+so it never reaches the board, the heartbeat, the health records or params (amendment B of the
+build plan): no `[sources.alpaca_market]` table may be written, and no source may list an Alpaca
+host other than the market-data host.
 
 A reader's prompt version is fixed in code (`scout.reads_prompt.PROMPT_VERSION`). Changing its
 model or effort starts a new reader for the scorer (READS_TEST.md 5.1); the read line records
@@ -30,6 +42,7 @@ model, effort and prompt version, so the scorer never pools them.
 from __future__ import annotations
 
 import re
+import urllib.parse
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -39,8 +52,20 @@ from scout.config_load import (
     ConfigError, as_bool, as_float, as_int, as_str, as_str_list, as_table, check_keys, is_subfolder,
 )
 
-__all__ = ["DEFAULT_READERS", "READS_KEYS", "READ_SESSIONS", "ReaderConfig", "ReadsConfig", "reads_from",
-           "validate_reads"]
+__all__ = ["ALPACA_DOMAIN", "DATA_HOST", "DEFAULT_READERS", "MARKET_SOURCE", "READS_KEYS", "READ_SESSIONS",
+           "ReaderConfig", "ReadsConfig", "market_fetch_source", "other_alpaca_host", "reads_from", "validate_reads"]
+
+# The market feed (0.3.2): the one Alpaca host Scout may ask, and its fetch source, fixed in code.
+DATA_HOST = "data.alpaca.markets"
+ALPACA_DOMAIN = DATA_HOST.partition(".")[2]  # every Alpaca host is under it; written once (tests/test_boundaries)
+MARKET_SOURCE = "alpaca_market"
+
+
+def other_alpaca_host(host: str) -> bool:
+    """True for any Alpaca host (the bare domain or one under it) other than the market-data host."""
+    h = str(host).strip().lower().rstrip(".")
+    return (h == ALPACA_DOMAIN or h.endswith("." + ALPACA_DOMAIN)) and h != DATA_HOST
+_MARKET_TICKER = re.compile(r"[A-Z0-9][A-Z0-9.\-]{0,9}")  # scout.llm_prompts.clean_ticker's rule (no import cycle)
 
 READ_SESSIONS = ("PRE", "CORE", "POST")
 READER_EFFORTS = ("low", "medium", "high", "max")
@@ -109,6 +134,11 @@ class ReadsConfig:
     monthly_cost_cap_usd: float = 20.0
     packs_subdir: str = "state/handoff/packs"
     readers: Mapping[str, ReaderConfig] = field(default_factory=_default_readers)
+    market_enabled: bool = True
+    market_symbols: tuple[str, ...] = ("SPY", "QQQ", "IWM")
+    market_poll_s: float = 60.0
+    market_max_age_s: float = 1800.0  # the delayed whole-tape price is 20 to 35 minutes old by construction
+    market_timeout_s: float = 5.0
 
     def enabled_readers(self) -> tuple[ReaderConfig, ...]:
         return tuple(r for r in self.readers.values() if r.enabled)
@@ -126,6 +156,10 @@ _SCALARS: dict[str, tuple[str, Any]] = {
     "reads_daily_cost_cap_usd": ("daily_cost_cap_usd", as_float),
     "reads_monthly_cost_cap_usd": ("monthly_cost_cap_usd", as_float),
     "radar_packs_subdir": ("packs_subdir", as_str),
+    "reads_market_enabled": ("market_enabled", as_bool),
+    "reads_market_symbols": ("market_symbols", lambda n, v: tuple(s.strip() for s in as_str_list(n, v))),
+    "reads_market_poll_s": ("market_poll_s", as_float), "reads_market_max_age_s": ("market_max_age_s", as_float),
+    "reads_market_timeout_s": ("market_timeout_s", as_float),
 }
 READS_KEYS = frozenset(_SCALARS)
 
@@ -178,6 +212,47 @@ def validate_reads(c: Any) -> None:
         _check(0.0 <= rd.monthly_cost_cap_usd <= 10000, f"{where}.monthly_cost_cap_usd: must be in [0, 10000]")
         if rd.enabled and c.reads.enabled:
             _check(c.price(rd.model) is not None, f"{where}.model: has no [llm.prices] row")
+    _validate_market(c)
+
+
+def _validate_market(c: Any) -> None:
+    r: ReadsConfig = c.reads
+    syms = r.market_symbols
+    _check(1 <= len(syms) <= 6 and len(set(syms)) == len(syms),
+           "reads_market_symbols: must list 1 to 6 different tickers")
+    for s in syms:
+        _check(bool(_MARKET_TICKER.fullmatch(s)), f"reads_market_symbols: {s!r} is not an upper-case ticker")
+    _check(r.market_max_age_s >= r.market_poll_s, "reads_market_max_age_s: must be >= reads_market_poll_s")
+    _check(MARKET_SOURCE not in c.sources,
+           f"sources.{MARKET_SOURCE}: the market feed's source is fixed in code; turn the feed on or off with "
+           "reads_market_enabled")
+    for s in c.sources.values():
+        hosts = [*s.allowed_hosts, _url_host(s.url)]
+        for host in (h.strip().lower().rstrip(".") for h in hosts):
+            _check(not other_alpaca_host(host),
+                   f"sources.{s.name}: {host} is an Alpaca host Scout may never ask (only {DATA_HOST})")
+
+
+def _url_host(url: str) -> str:
+    """A URL's host as `urlsplit` reads it (user info and a port left out), or "" when unreadable."""
+    try:
+        return urllib.parse.urlsplit(str(url).strip()).hostname or ""
+    except ValueError:
+        return ""
+
+
+def market_fetch_source(c: Any) -> Any:
+    """The market feed's fetch source (a `scout.config.SourceConfig`), fixed in code except that it is
+    enabled only with `reads_market_enabled`. It is not in `cfg.sources`: nothing lists it to the
+    other bots (amendment B)."""
+    from scout.config import SourceConfig  # noqa: PLC0415 - scout.config imports this module
+
+    return SourceConfig(
+        name=MARKET_SOURCE, enabled=bool(c.reads.market_enabled), kind="market",
+        url=f"https://{DATA_HOST}/v2/stocks", paths=(), min_spacing_s=60.0, idle_spacing_s=0.0,
+        allowed_hosts=(DATA_HOST,),
+        terms_note="The owner's free Alpaca market-data key: snapshots and bars only; no order or account endpoint; "
+                   "personal use, never republished.", max_items=0, gate6=False, terms_ok=True)
 
 
 _RANGES: dict[str, tuple[float, float]] = {
@@ -185,4 +260,5 @@ _RANGES: dict[str, tuple[float, float]] = {
     "reread_min_strength": (1, 5), "reread_max": (0, 100),
     "news_lookback_h": (0, 720), "news_max_items": (0, 50), "item_chars": (20, 2000),
     "daily_cost_cap_usd": (0, 1000), "monthly_cost_cap_usd": (0, 10000),
+    "market_poll_s": (15, 600), "market_max_age_s": (60, 3600), "market_timeout_s": (1, 10),
 }

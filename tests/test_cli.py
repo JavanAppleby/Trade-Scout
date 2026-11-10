@@ -11,7 +11,7 @@ from scout import cli
 
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["--version"]) == 0
-    assert "Scout 0.3.1" in capsys.readouterr().out
+    assert "Scout 0.3.2" in capsys.readouterr().out
 
 
 def test_a_missing_handler_module_exits_3(monkeypatch: pytest.MonkeyPatch,
@@ -49,8 +49,9 @@ def parser_args(argv: list[str]):
 
 def test_every_command_is_dispatched() -> None:
     assert set(cli.DISPATCH) == {"run", "brief", "levels add", "levels score", "check", "verify", "answers",
-                                 "discord check", "reads add"}
+                                 "discord check", "reads add", "reads market"}
     assert parser_args(["reads", "add", "ABCD", "long", "4", "why"]).fields == ["ABCD", "long", "4", "why"]
+    assert parser_args(["reads", "market"]).reads_command == "market"
     assert parser_args(["reads", "add"]).fields == []
     assert parser_args(["levels", "add", "--inbox"]).inbox is True
     assert parser_args(["discord", "check", "x.jsonl"]).file == "x.jsonl"

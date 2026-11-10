@@ -127,6 +127,20 @@ reads_item_chars = 300            # each news title is cut to this many characte
 reads_sample_seed = "reads-v1"    # seed of the hash that picks which finds a sampled reader reads
 reads_daily_cost_cap_usd = 1.50   # reads stop for the ET day at this spend (reads calls only; apart from llm_*)
 reads_monthly_cost_cap_usd = 20.0 # ... and for the month at this spend
+# The market feed for the readers (0.3.2; owner, 2026-11-11): Scout asks Alpaca's market-data service
+# (data.alpaca.markets only; never an order or account address) for these ETFs with your free key, and a
+# reader sees "Market at 10:01:58 ET: SPY 681.20 +0.31%; ..." instead of "Market: not available". Live
+# prices come from the IEX exchange only (about 08:00 to 17:00 ET); outside those hours the price is the
+# whole market's, at least 20 minutes old. The previous close is always the whole market's. It runs only
+# with reads_enabled and the two Alpaca lines in Scout's .env (README); it changes no answer of Scout's.
+# Its fetch source is fixed in code: do not add a [sources.alpaca_market] table.
+reads_market_enabled = true       # false turns the market feed off (readers then see "Market: not available")
+reads_market_symbols = ["SPY", "QQQ", "IWM"]   # 1 to 6 upper-case tickers; every one must have a price
+reads_market_poll_s = 60          # one poll this often in the PRE, CORE and POST sessions (15-600 seconds)
+reads_market_max_age_s = 1800     # market data older than this is not shown to a reader (60-3600 seconds);
+                                  # under about 21 minutes (1260) the whole-market price (20 to 35 minutes old)
+                                  # is never shown, only live IEX prices
+reads_market_timeout_s = 5        # each request gives up after this many seconds (1-10; never above fetch_timeout_s)
 
 # --------------------------------------------------------------------------- schedule, verification, loop
 brief_time_et = "08:20"           # the morning brief is written at this time on trading days

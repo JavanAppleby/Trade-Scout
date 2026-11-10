@@ -114,8 +114,9 @@ def _str_or_none(value: Any) -> str | None:
 
 def read_line(kind: str, reader: Any, pack: Mapping[str, Any], answer: Mapping[str, Any], *, read_id: str,
               parent_read_id: str | None, facts_used: list[str], usage: Mapping[str, int] | None,
-              cost_usd: float) -> dict[str, Any]:
-    """A `first` or `reread` line (without `first_seen_at`, which the writer adds)."""
+              cost_usd: float, market_shown: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """A `first` or `reread` line (without `first_seen_at`, which the writer adds). `market_shown`
+    (0.3.2) is the market block the reader was shown (`scout.reads_market`), or null."""
     q = _quote(pack)
     rec: dict[str, Any] = {
         "format": FORMAT, "kind": kind, "read_id": read_id, "reader": reader.reader_id, "model": reader.model,
@@ -126,8 +127,17 @@ def read_line(kind: str, reader: Any, pack: Mapping[str, Any], answer: Mapping[s
     }
     rec.update({k: answer.get(k) for k in ANSWER_FIELDS})
     rec.update({"parent_read_id": parent_read_id, "facts_used": list(facts_used), "usage": dict(usage or {}),
-                "cost_usd": money(cost_usd)})
+                "cost_usd": money(cost_usd), "market_shown": _shown(market_shown)})
     return rec
+
+
+def _shown(block: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if not block:
+        return None
+    symbols = block.get("symbols") if isinstance(block.get("symbols"), Mapping) else {}
+    return {"source": block.get("source"), "feed": block.get("feed"), "at": block.get("at"),
+            "symbols": {str(s): {"last": v.get("last"), "change_pct": v.get("change_pct")}
+                        for s, v in symbols.items() if isinstance(v, Mapping)}}
 
 
 def skip_line(reader: Any, pack: Mapping[str, Any], why: str, *, for_kind: str, detail: str = "",

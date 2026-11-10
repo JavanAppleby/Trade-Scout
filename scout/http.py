@@ -17,7 +17,10 @@ one of `models.HEALTH_RESULTS`. In order:
    60 s (its feed asks for at most one read a minute), www.sec.gov and data.sec.gov 0.5 s (SS 12:
    EDGAR at most 2 requests a second).
 5. Headers: the declared User-Agent (`cfg.user_agent()`), `Accept-Encoding: gzip, deflate`, and for
-   a conditional fetch the ETag / Last-Modified last seen for that URL (memory only).
+   a conditional fetch the ETag / Last-Modified last seen for that URL (memory only). Since 0.3.2 a
+   caller (the market feed) may add headers (never replacing those), replace the User-Agent, lower
+   the timeout and log quietly (`fetch` keywords). The market feed's source is fixed in code
+   (`config_reads.market_fetch_source`), and no Alpaca host but `data.alpaca.markets` is ever asked.
 6. A body over `fetch_max_bytes` (before or after decompression) is `too_large`.
 7. 200 -> `ok`; 304 -> `not_modified`; 403/429 -> `http_error` and the host's backoff doubles
    (starting from twice its spacing) up to `source_backoff_max_min`; the next 200 or 304 resets it.
@@ -53,7 +56,8 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from scout.clock import Clock, et_date, iso
-from scout.config import ScoutConfig
+from scout.config import ScoutConfig, SourceConfig
+from scout.config_reads import DATA_HOST, MARKET_SOURCE, market_fetch_source, other_alpaca_host
 from scout.http_state import FILE_NAME, HostLimits, HostStateFile, cap_key, hard_cap
 from scout.models import FetchResult
 
@@ -76,6 +80,17 @@ class RawResponse:
 
 
 Transport = Callable[[str, Mapping[str, str], float, int], Any]  # returns a RawResponse-like object
+
+
+@dataclass(frozen=True)
+class _Options:
+    """The 0.3.2 per-request extras of `HttpFetcher.fetch` (the market feed's). The headers carry the
+    Alpaca key, so they are left out of the repr."""
+
+    headers: Mapping[str, str] = field(default_factory=dict, repr=False)
+    user_agent: str | None = None
+    timeout_s: float | None = None
+    quiet: bool = False
 
 
 class HostBlocked(Exception):
@@ -239,6 +254,13 @@ class HttpFetcher:
         """When the last request for `source` was sent (kept across restarts)."""
         return self._source_last.get(source)
 
+    def source_config(self, source: str) -> SourceConfig:
+        """The source's settings: the market feed's fixed in-code source (never in `cfg.sources`, so
+        never on the board), else `cfg.source(source)` (KeyError when unknown)."""
+        if source == MARKET_SOURCE:
+            return market_fetch_source(self.cfg)
+        return self.cfg.source(source)
+
     def _save(self) -> None:
         if self._state is not None:
             self._state.save(self._limits)
@@ -248,7 +270,7 @@ class HttpFetcher:
         if not self.cfg.http_allowed():
             raise HostBlocked("no_http", "contact_email is empty: no HTTP")
         try:
-            src = self.cfg.source(source)
+            src = self.source_config(source)
         except KeyError:
             raise HostBlocked("refused", f"unknown source {source!r}") from None
         if not src.enabled:
@@ -259,6 +281,8 @@ class HttpFetcher:
             raise HostBlocked("refused", "only https is allowed")
         if host not in {h.lower() for h in src.allowed_hosts}:
             raise HostBlocked("refused", f"host {host or '?'} is not allowed for {source}")
+        if other_alpaca_host(host):
+            raise HostBlocked("refused", f"{host}: the only Alpaca host Scout may ask is {DATA_HOST}")
         if parts.username or parts.password or (parts.port not in (None, 443)):
             raise HostBlocked("refused", "credentials or a non-standard port in the URL")
         now = self.clock.now()
@@ -297,7 +321,7 @@ class HttpFetcher:
     def _back_off(self, host: str, source: str) -> float:
         src_spacing = 0.0
         try:
-            src_spacing = self.cfg.source(source).min_spacing_s
+            src_spacing = self.source_config(source).min_spacing_s
         except KeyError:  # pragma: no cover - checked before
             pass
         base = max(self.spacing_for(host), src_spacing, 1.0)
@@ -317,23 +341,39 @@ class HttpFetcher:
 
     # ------------------------------------------------------------------ fetch
 
-    def fetch(self, source: str, url: str, *, conditional: bool = True,
-              max_bytes: int | None = None) -> FetchResult:
+    def fetch(self, source: str, url: str, *, conditional: bool = True, max_bytes: int | None = None,
+              headers: Mapping[str, str] | None = None, user_agent: str | None = None,
+              timeout_s: float | None = None, quiet: bool = False) -> FetchResult:
+        """One request (see the module doc). 0.3.2, for the market feed: `headers` are added after the
+        base ones and can never replace `User-Agent` or `Accept-Encoding` (nor the conditional ones);
+        `user_agent` replaces the declared User-Agent; `timeout_s` is capped at `fetch_timeout_s`;
+        `quiet` logs the per-request line at DEBUG (the 403/429 backoff warning stays). Request
+        headers are never logged and never put in the FetchResult."""
         started = self.clock.now()
+        opts = _Options(dict(headers or {}), user_agent, timeout_s, quiet)
         try:
-            return self._fetch(source, url, conditional, max_bytes, started)
+            return self._fetch(source, url, conditional, max_bytes, started, opts)
         except HostBlocked as exc:
             return self._result(source, url, exc.result, started, error=str(exc))
         except Exception as exc:  # noqa: BLE001 - fetch never raises
             return self._result(source, url, "network", started, error=f"unexpected {type(exc).__name__}")
 
     def _fetch(self, source: str, url: str, conditional: bool, max_bytes: int | None,
-               started: datetime) -> FetchResult:
+               started: datetime, opts: _Options | None = None) -> FetchResult:
+        opts = opts or _Options()
         host = self._check(source, url)
         cap = int(max_bytes) if max_bytes is not None else int(self.cfg.fetch_max_bytes)
         cap = max(1, min(cap, int(self.cfg.fetch_max_bytes)))
+        timeout = float(self.cfg.fetch_timeout_s)
+        if opts.timeout_s is not None:
+            timeout = max(0.1, min(float(opts.timeout_s), timeout))
         self._wait_spacing(host)
-        headers = {"User-Agent": self.cfg.user_agent(), "Accept-Encoding": "gzip, deflate"}
+        headers = {"User-Agent": self.cfg.user_agent() if opts.user_agent is None else opts.user_agent,
+                   "Accept-Encoding": "gzip, deflate"}
+        fixed = {k.lower() for k in headers} | {"if-none-match", "if-modified-since", "host"}
+        for name, value in opts.headers.items():
+            if str(name).lower() not in fixed:
+                headers[str(name)] = str(value)
         if conditional and url in self._validators:
             etag, modified = self._validators[url]
             if etag:
@@ -344,54 +384,55 @@ class HttpFetcher:
         self._note_request(host, sent_at, source)
         t0 = _time.perf_counter()
         try:
-            resp = self.transport(url, headers, float(self.cfg.fetch_timeout_s), cap + 1)
+            resp = self.transport(url, headers, timeout, cap + 1)
         except (TimeoutError, socket.timeout) as exc:
-            return self._done(source, url, host, "timeout", sent_at, t0, error=type(exc).__name__)
+            return self._done(source, url, host, "timeout", sent_at, t0, opts.quiet, error=type(exc).__name__)
         except urllib.error.URLError as exc:
             timed_out = isinstance(exc.reason, (TimeoutError, socket.timeout))
-            return self._done(source, url, host, "timeout" if timed_out else "network", sent_at, t0,
+            return self._done(source, url, host, "timeout" if timed_out else "network", sent_at, t0, opts.quiet,
                               error=type(exc).__name__)
         except OSError as exc:
-            return self._done(source, url, host, "network", sent_at, t0, error=type(exc).__name__)
+            return self._done(source, url, host, "network", sent_at, t0, opts.quiet, error=type(exc).__name__)
         status = int(getattr(resp, "status", 0) or 0)
         resp_headers = {str(k).lower(): str(v) for k, v in dict(getattr(resp, "headers", {}) or {}).items()}
         raw = bytes(getattr(resp, "body", b"") or b"")
         if status in _BACKOFF_STATUSES:
             wait = self._back_off(host, source)
             self.log.warning("%s: %s answered %s; backing off %.0f s", source, host, status, wait)
-            return self._done(source, url, host, "http_error", sent_at, t0, status=status, headers=resp_headers,
+            return self._done(source, url, host, "http_error", sent_at, t0, opts.quiet, status=status, headers=resp_headers,
                               error=f"HTTP {status}; backoff {wait:.0f} s")
         if status == 304:
             self._reset_backoff(host)
-            return self._done(source, url, host, "not_modified", sent_at, t0, status=304, headers=resp_headers)
+            return self._done(source, url, host, "not_modified", sent_at, t0, opts.quiet, status=304, headers=resp_headers)
         if status != 200:
-            return self._done(source, url, host, "http_error", sent_at, t0, status=status, headers=resp_headers,
+            return self._done(source, url, host, "http_error", sent_at, t0, opts.quiet, status=status, headers=resp_headers,
                               error=f"HTTP {status}")
         if len(raw) > cap:
-            return self._done(source, url, host, "too_large", sent_at, t0, status=status, headers=resp_headers,
+            return self._done(source, url, host, "too_large", sent_at, t0, opts.quiet, status=status, headers=resp_headers,
                               error=f"body over {cap} bytes")
         try:
             body = decompress(raw, resp_headers.get("content-encoding", ""), cap)
         except TooLarge:
-            return self._done(source, url, host, "too_large", sent_at, t0, status=status, headers=resp_headers,
+            return self._done(source, url, host, "too_large", sent_at, t0, opts.quiet, status=status, headers=resp_headers,
                               error=f"decompressed body over {cap} bytes")
         except (zlib.error, EOFError, OSError) as exc:
-            return self._done(source, url, host, "network", sent_at, t0, status=status, headers=resp_headers,
+            return self._done(source, url, host, "network", sent_at, t0, opts.quiet, status=status, headers=resp_headers,
                               error=f"bad encoding ({type(exc).__name__})")
         self._reset_backoff(host)
         etag, modified = _header(resp_headers, "etag"), _header(resp_headers, "last-modified")
         if etag or modified:
             self._validators[url] = (etag, modified)
-        return self._done(source, url, host, "ok", sent_at, t0, status=status, headers=resp_headers, body=body)
+        return self._done(source, url, host, "ok", sent_at, t0, opts.quiet, status=status, headers=resp_headers, body=body)
 
     # ------------------------------------------------------------------ results
 
-    def _done(self, source: str, url: str, host: str, result: str, started: datetime, t0: float, *,
-              status: int | None = None, headers: Mapping[str, str] | None = None, body: bytes | None = None,
+    def _done(self, source: str, url: str, host: str, result: str, started: datetime, t0: float, quiet: bool = False,
+              *, status: int | None = None, headers: Mapping[str, str] | None = None, body: bytes | None = None,
               error: str | None = None) -> FetchResult:
         ms = int((_time.perf_counter() - t0) * 1000)
         size = len(body) if body is not None else 0
         level = logging.INFO if result in ("ok", "not_modified") else logging.WARNING
+        level = logging.DEBUG if quiet else level
         self.log.log(level, "fetch %s %s -> %s status=%s bytes=%d ms=%d", source, host, result, status, size, ms)
         return self._result(source, url, result, started, status=status, headers=headers, body=body, error=error)
 

@@ -146,3 +146,72 @@ def test_webull_cannot_be_enabled(scout_dir: Path) -> None:
 
     with pytest.raises(ConfigError, match="scout_webull_enabled"):
         config_from_dict({"scout_webull_enabled": True}, scout_dir)
+
+
+# --------------------------------------------------------------------------- 0.3.2: Alpaca market data only
+
+_ALPACA_HOST = re.compile(r"[\w.-]+\.alpaca\.markets", re.IGNORECASE)
+_ALPACA_ANY = re.compile(r"alpaca\.markets", re.IGNORECASE)  # every mention, however the host is built
+_DATA_HOST_TEXT = re.compile(r"(?<![\w.-])data\.alpaca\.markets(?!\.?[\w-])", re.IGNORECASE)
+_TRADING_PATH = re.compile(r"/v2/(orders|account|positions|watchlists)|/v1/trading", re.IGNORECASE)
+
+
+def _code_files(root: Path = REPO) -> list[Path]:
+    files = [*(root / "scout").rglob("*.py"), *(root / "scout_reader").rglob("*.py"),
+             *(p for pattern in ("*.bat", "*.ps1", "*.cmd") for p in root.glob(pattern))]
+    tools = root / "tools"
+    if tools.is_dir():
+        files += [p for p in tools.rglob("*") if p.is_file() and p.suffix in (".py", ".bat", ".ps1", ".cmd")]
+    return files
+
+
+def _alpaca_problems(text: str) -> list[str]:
+    """What the scan refuses in one file's text: an Alpaca host other than the data host (also a bare
+    `alpaca.markets`, as in a host built from parts), or a broker path."""
+    problems = [f"host {h}" for h in _ALPACA_HOST.findall(text) if h.lower() != "data.alpaca.markets"]
+    if len(_ALPACA_ANY.findall(text)) != len(_DATA_HOST_TEXT.findall(text)):
+        problems.append("alpaca.markets not written as data.alpaca.markets")
+    problems += [f"path {m.group(0)}" for m in _TRADING_PATH.finditer(text)]
+    return problems
+
+
+def test_no_alpaca_trading_host_or_order_endpoint_in_code() -> None:
+    """SS 2.1: Scout never trades. The only Alpaca host named anywhere in the code is the market-data
+    host, and no order, account, position, watchlist or trading address appears at all."""
+    named = 0
+    for path in _code_files():
+        text = path.read_text(encoding="utf-8", errors="replace")
+        assert _alpaca_problems(text) == [], path.name
+        named += len(_DATA_HOST_TEXT.findall(text))
+    assert named >= 1  # the pinned host is found, so the scan is looking at the right files
+
+
+@pytest.mark.parametrize("text", [
+    'ROOT = "alpaca.markets"; url = f"https://api.{ROOT}/v2/" + "orders"',
+    'HOST = "alpaca.markets"', "https://paper-api.alpaca.markets/x", "https://data.alpaca.markets.evil.example/x",
+    "https://xdata.alpaca.markets/x", 'path = "/v1/trading/accounts"', 'path = "/v2/watchlists"', '"/v2/orders"',
+])
+def test_the_scan_catches_a_host_built_from_parts_and_broker_paths(text: str) -> None:
+    assert _alpaca_problems(text) != []
+
+
+def test_the_scan_accepts_the_data_host_and_scans_root_scripts(tmp_path: Path) -> None:
+    assert _alpaca_problems('DATA_HOST = "data.alpaca.markets"; f"https://{DATA_HOST}/v2/stocks/bars"') == []
+    assert _alpaca_problems("Scout asks only data.alpaca.markets. Nothing else.") == []
+    for name in ("Check.bat", "Run.ps1", "Go.cmd"):
+        (tmp_path / name).write_text("curl https://api.alpaca.markets/v2/orders\n", encoding="utf-8")
+    found = {p.name for p in _code_files(tmp_path)}
+    assert found == {"Check.bat", "Run.ps1", "Go.cmd"}
+    assert all(_alpaca_problems(p.read_text(encoding="utf-8")) for p in _code_files(tmp_path))
+
+
+def test_market_host_is_the_data_host() -> None:
+    from scout.alpaca_data import closes_url, delayed_url, live_url  # noqa: PLC0415
+    from scout.config_reads import DATA_HOST, market_fetch_source  # noqa: PLC0415
+    from scout.market_feed import SOURCE  # noqa: PLC0415
+
+    assert DATA_HOST == "data.alpaca.markets" and SOURCE == "alpaca_market"
+    cfg = config_from_dict({}, REPO)
+    assert market_fetch_source(cfg).allowed_hosts == (DATA_HOST,)
+    for url in (live_url(["SPY"]), delayed_url(["SPY"], START), closes_url(["SPY"], START.date(), START.date())):
+        assert url.startswith(f"https://{DATA_HOST}/v2/stocks/")

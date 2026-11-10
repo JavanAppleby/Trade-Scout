@@ -1084,6 +1084,11 @@ Keys: `enabled` (bool), `kind` (str: wire, filing, reference, halt, macro, vix),
 (list[str], default []), `min_spacing_s` (float), `idle_spacing_s`* (float; 0 = same), `allowed_hosts`
 (list[str]), `terms_note` (str), `max_items`* (int; feed maximum for the overlap rule, 0 = unknown),
 `gate6`* (bool), `terms_ok`* (bool; false keeps titles/links/times only).
+The market feed's fetch source `alpaca_market` (0.3.2, section 24) is NOT one of these tables: it is
+fixed in code (`config_reads.market_fetch_source`) and kept out of `cfg.sources`, so it never
+reaches the board, the heartbeat, the health records or params. A `[sources.alpaca_market]` table
+is a config error, and so is any source naming a `*.alpaca.markets` host other than
+`data.alpaca.markets`. Its switch is the top-level `reads_market_enabled`.
 
 | name | enabled | kind | url | min / idle spacing | allowed_hosts | max_items | gate6 |
 |---|---|---|---|---|---|---|---|
@@ -1310,9 +1315,16 @@ parenthesised block ending in `exit /b`, read whole by cmd before `git pull` can
   false; gate 5 answers `unknown` when `next_open_after(as_of)` is `None`.
 
 ## 10. HTTP layer (`scout/http.py`)
-`HttpFetcher.fetch(source, url, *, conditional=True, max_bytes=None) -> FetchResult`:
+`HttpFetcher.fetch(source, url, *, conditional=True, max_bytes=None, headers=None, user_agent=None,
+timeout_s=None, quiet=False) -> FetchResult` (the last four since 0.3.2, for the market feed:
+`headers` are added after the base ones and never replace `User-Agent`, `Accept-Encoding`, `Host` or
+the conditional ones; `user_agent` replaces the declared User-Agent; `timeout_s` is capped at
+`fetch_timeout_s`; `quiet` logs the per-request line at DEBUG, the 403/429 backoff warning stays.
+Request headers are never logged and never in the `FetchResult`):
 1. `cfg.http_allowed()` false (empty `contact_email`) -> `result = "no_http"`, no socket opened.
-2. Scheme must be `https`; host must be in the source's `allowed_hosts`; otherwise `refused`.
+2. Scheme must be `https`; host must be in the source's `allowed_hosts` (the source from
+   `source_config(name)`: the fixed `alpaca_market` source, else `cfg.source(name)`); a
+   `*.alpaca.markets` host other than `data.alpaca.markets` is always refused; otherwise `refused`.
 3. Per-host daily cap (`host_max_requests_per_day`) -> `host_cap`.
 4. Per-host spacing: waits (via the clock's `sleep`) until `max(host_min_spacing_s[host] or
    http_default_host_spacing_s, hard minimum, backoff)` has passed since the host's last request.
@@ -1800,7 +1812,8 @@ facts. Fixed in 0.3.1 (section 23).
 
 The contract is `E:\Market_Data\research\reads\READS_TEST.md`; SCOUT_SPEC 19 says what Scout does
 under it. Reads are evidence for a paper test: no bot acts on a read, and nothing that answers a
-question reads them (`state\reads` is deliberately not in `scout_reader.records`).
+question reads them (`state\reads` is deliberately not in `scout_reader.records`). The market feed
+the readers are shown since 0.3.2 is section 24.
 
 **Modules.**
 - `scout/config_reads.py`: `ReadsConfig` (`cfg.reads`) from the top-level `reads_*` keys and
@@ -1928,3 +1941,96 @@ dated row that cannot be read is counted like a live one, so it turns `entry_blo
 
 **Not changed:** the live feed's parsing and polling (60 s, 04:00-20:00 ET), the reader
 (`scout_reader` stays 0.2.2), what blocks a buy from the live feed.
+
+## 24. Market feed for reads (owner, 2026-11-11; 0.3.2)
+
+SCOUT_SPEC 19.5 says what it does; the build plan is
+`E:\Market_Data\research\reads\notes\market_plan.md` (its section 0 amendments A to G) and the facts
+about Alpaca are in `market_alpaca_facts.md` beside it. The feed is evidence for the reads only:
+no health record, no board entry, nothing in params or the heartbeat, its fetch source not in
+`cfg.sources` (amendment B), so no answer of Scout's can change with it.
+
+**Modules.**
+- `scout/alpaca_data.py`: every assumption about Alpaca. `DATA_HOST` (`data.alpaca.markets`, from
+  `config_reads`), `SNAPSHOTS_PATH`, `BARS_PATH`, `FREE_DELAY_S` (20 minutes), `DELAYED_WINDOW_S`
+  (15 minutes), `CLOSES_LOOKBACK_DAYS` (7); `live_url(symbols)` (snapshots, `feed=iex`),
+  `delayed_url(symbols, now)` (1-minute bars, `feed=sip`, `adjustment=raw`, ending `FREE_DELAY_S`
+  before now), `closes_url(symbols, prev_day, day)` (daily bars, `feed=sip`, `adjustment=split`,
+  ending at 00:00 ET of the trading day `day`);
+  `parse_time` (RFC 3339 with 0 to 9 fractional digits, cut to 6, `Z` or an offset), `Price(symbol,
+  last: Decimal, trade_at)`, `parse_snapshots` (flat or under `snapshots`; only `latestTrade.p/.t`),
+  `parse_minute_bars` (the newest bar per symbol; `trade_at = t + 60 s`), `parse_closes` (the bar
+  whose `t` falls on the previous trading day in ET). Numbers are read as `Decimal` from the JSON
+  text, so prices are stored exactly as sent; a price must be a JSON number (not a string or a bool),
+  finite and above 0. A changed shape raises `SchemaError(code)` with a short code, never body text; a
+  missing symbol is simply absent. A non-null `next_page_token` is a changed shape.
+- `scout/market_feed.py`: `MarketPoller(cfg, paths, fetcher, key, clock, *, raw, log, write)` with
+  `tick(now)` (the job: PRE, CORE and POST only; never raises), `poll(now) -> PollOutcome` (one poll
+  in any session: legs `iex`, `sip_delayed` and, until the ET day's closes are held in memory,
+  `closes`), `interval_at(now)` (doubles from `reads_market_poll_s` after 3 failed polls in a row, up
+  to `source_backoff_max_min`); `candidate`, `choose`, `market_record`, `miss_line`, `market_day`.
+  Every request goes through the shared `HttpFetcher` (`conditional=False`, `quiet=True`, the key's
+  headers, User-Agent `Scout/<version>`, `timeout_s = reads_market_timeout_s`). `cli_reads_market`
+  delegates to `scout/market_check.py` (`run_check`, `report`), which builds its own fetcher with no
+  state file and a poller with `write=False`.
+- `scout/jobs_market.py`: `build_jobs(ctx)`: `[]` unless `reads_enabled`, `reads_market_enabled`,
+  `contact_email` and `secrets.alpaca_key()`; with no key, one warning naming the accepted line names.
+  Otherwise `EveryJob("market", poller.tick, reads_market_poll_s, interval_fn=poller.interval_at)`.
+  In `JOB_MODULES` before `scout.jobs_reads`.
+- `scout/reads_market.py`: `market_file(paths, day)` (`state\reads\market\<ET date>.jsonl`),
+  `market_lines` (cached on size and modification time), `latest_record(paths, now)` (the newest
+  usable `market` line with `first_seen_at <= now`), `from_record`, `from_pack`, `shown_market(pack_market,
+  rec, now, max_age_s, order=())` and `market_line(block, now, today)` (SCOUT_SPEC 19.2).
+- `scout/secrets.py`: `ALPACA_ID_NAMES`, `ALPACA_SECRET_NAMES` (in `ALLOWED_ENV`), `ALPACA_KEY_PAIRS`
+  (the three documented pairs), `AlpacaKey` (repr `AlpacaKey(<redacted>)`, `headers()`), `alpaca_key()`
+  (the first complete pair wins; with no complete pair, the first id and the first secret found); `redact` also masks
+  `APCA-API-KEY-ID` and `APCA-API-SECRET-KEY` values.
+- `scout/config_reads.py`: the `reads_market_*` keys, `DATA_HOST`, `MARKET_SOURCE`,
+  `market_fetch_source(cfg)`, the checks (no `[sources.alpaca_market]`, no other Alpaca host).
+  `scout/http_state.py`: the hard cap of 10,000 requests a day for `data.alpaca.markets`.
+- Wiring: `reads_service._market` (Scout's record only when `reads_market_enabled`) passes the shown
+  block to `reads_prompt.build_read(market=...)` and to `reads_file.read_line(market_shown=...)`;
+  `build_read` without `market` shows the pack's own block under the same age rule.
+  `reads_report.market_text` is the brief's line.
+
+**Records.** `market`: `format`, `kind`, `first_seen_at`, `at` (the oldest trade of the feed used),
+`feed` (`iex` or `sip_delayed`), `prev_close_feed` (`sip`), `prev_day`, `trading_day`, `symbols`
+{SYM: `last`, `prev_close`, `trade_at`, `change_pct`}. `miss`: `format`, `kind`, `first_seen_at`,
+`reason` (`stale` for data that is only too old; otherwise the first hard problem, e.g. `timeout`,
+`http_500`, `schema`, `missing_symbol`, `future_time`, `no_prev_close`, `refused_key`), `legs` {leg:
+code}. Prices and closes are the text Alpaca sent; `change_pct` is a fraction to 6 places.
+
+**Choices made here** (where the plan or its amendments leave one, or are wrong about the code):
+- The fetch source is kept out of `cfg.sources` rather than added to `DEFAULT_SOURCES` (the board,
+  the heartbeat, the pace and the brief all list `cfg.sources`); `HttpFetcher.source_config` finds it.
+  `SOURCE_KINDS` is unchanged. `state\http_hosts.json` does record the host and the source's last
+  request time, as for every host (no other bot reads that file).
+- The 403/422 drop compares the requests of the same poll, so a key revoked mid-day is reported as a
+  refused key instead of dropping every request.
+- A stale poll resets the failure count (the service answered); only failed polls slow the feed.
+- A miss line carries `legs` (codes only) besides `reason`.
+- The check command is its own module (`market_check.py`) to keep `market_feed.py` small.
+- A partial `[sources.alpaca_market]` table fails with the generic "a new source must give every key"
+  message (tables are built before validation); a full one says the source is fixed in code.
+
+**Fix round (0.3.2, 11 Nov 2026; `E:\Market_Data\research\reads\notes\market_fixes.md`).**
+- `FREE_DELAY_S` is 20 minutes and URLs are plain `urlencode`: the forms the owner's key was proven
+  with. The previous-close request ends at 00:00 ET of the trading day (`closes_url(symbols,
+  prev_day, day)`), never "recent" whole-tape data. `tests/fixtures/alpaca/` holds the probe's real
+  answers (`test_alpaca_real_answers.py`).
+- A timeout or network failure on any request ends the poll (`ENDS_POLL`); `reads_market_timeout_s`
+  is at most 10. The slowing exponent is capped (`MAX_DOUBLINGS` 16). The future tolerance is 60 s
+  in `market_feed` and `reads_market`. A price outside 0.0001 to 10,000,000 is `SchemaError("price")`.
+- An old candidate with the other price request failed outright is a failed poll with that
+  request's reason. The "normal before about 08:00 ET" words appear in the pre-market only
+  (`pre_market`).
+- The check (`market_check.report`, `exit_code`): the newest prices each request returned, with
+  their age and, in plain words, why the feed would not use them; what a reader sees; one closing
+  line on the key. Exit 0 when a request answered 200 and its answer could be read (old prices in
+  the early hours included); 1 when none could. `PollOutcome.closes` carries the closes the poll
+  could use, partial ones included, for the check's percentages.
+- `secrets.ALPACA_KEY_PAIRS`: the first complete pair wins; with no complete pair, the first id and
+  the first secret found (mixed names keep working). The config check reads a URL's host with
+  `urlsplit(...).hostname`; `config_reads.other_alpaca_host` (on `ALPACA_DOMAIN`, derived from
+  `DATA_HOST`) is the one Alpaca host rule for the config and the fetcher, so the bare domain is
+  written nowhere in the code and the boundary scan can refuse it.

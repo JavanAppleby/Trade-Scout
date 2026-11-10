@@ -17,7 +17,10 @@ later), and on 2026-11-11 chose the readers and their caps (0.3.0, the contract
 `E:\Market_Data\research\reads\READS_TEST.md`): §2 rule 7, §8.5 and §8.6 are amended and §19 (new)
 is added, each marked "owner, 2026-11-10" or "owner, 2026-11-11". The evening dated halt read, which
 had failed on every trading day, was fixed so that it can never add a block (owner, 2026-11-10;
-0.3.1): §4.1 #6, §6.3, §7.5, §7.8, §12 and §13 are amended, each marked "0.3.1". Repo:
+0.3.1): §4.1 #6, §6.3, §7.5, §7.8, §12 and §13 are amended, each marked "0.3.1". On 2026-11-11 the
+owner asked for another source of the market's direction for the readers (0.3.2, the market feed from
+Alpaca's market data, evidence for the reads only): §2.1, §2.8, §4.1 #13, §12, §13 and §19.2 are
+amended and §19.5 (new) is added, each marked "0.3.2". Repo:
 JavanAppleby/Trade-Scout (`E:\Scout_dev`). Scout never trades.
 **Decided** marks the owner's decisions recorded in `docs/HANDOFF.md` §3, `PILOT_SPEC.md` §16 or the
 owner's message of 2026-10-31. **Proposed** marks this spec's suggestions. §16 lists what the owner
@@ -65,7 +68,13 @@ hold may use them (§11). An LLM output is evidence to be scored; it gates nothi
 1. **Never trades** (**decided**). Scout's environment holds no broker code: it installs neither the
    Webull SDK nor Trade Guardian (proposed). Tests: a CI check over Scout's dependency list and lock
    file that no `webull*` or `trade-guardian` package is present, plus an import guard that fails if
-   `webull` or `trade_guardian` is importable from Scout's package.
+   `webull` or `trade_guardian` is importable from Scout's package. The market feed for the reads
+   (0.3.2, §19.5) uses the owner's free Alpaca key for market data only: the only Alpaca host Scout
+   may ask is `data.alpaca.markets` (pinned in code; the fetcher refuses every other
+   `*.alpaca.markets` host, among them the trading hosts `api.alpaca.markets` and
+   `paper-api.alpaca.markets`), and no order, account, position, watchlist or trading address, and
+   no Alpaca host written any other way, appears anywhere in the code or a root script
+   (`tests/test_boundaries.py`).
 2. **No Webull requests in v1** (proposed). Scout takes nothing from the App Key's 60-a-minute
    budget, needs no third login and does not wait on the SDK pin question (§12).
 3. **Own folder and repo** (**decided**: one folder and repo per bot, HANDOFF §3; the layout is
@@ -90,6 +99,15 @@ hold may use them (§11). An LLM output is evidence to be scored; it gates nothi
    `E:\Scout\.env` (git-ignored), are loaded into the environment only and are never logged or
    printed; `ANTHROPIC_LOG` stays unset. Scout never reads Guardian's `conf\`, any token file or any
    other bot's `.env`. No prompt carries an account number, position size, P&L, token or file path.
+   The Alpaca market-data key (0.3.2, §19.5) is two lines in the same `.env`: the key id as one of
+   `ALPACA_API_KEY`, `APCA_API_KEY_ID` or `ALPACA_KEY_ID`, and the secret as one of
+   `ALPACA_SECRET_KEY`, `APCA_API_SECRET_KEY` or `ALPACA_API_SECRET`. The names go in three pairs
+   (`ALPACA_API_KEY` + `ALPACA_SECRET_KEY`, `APCA_API_KEY_ID` + `APCA_API_SECRET_KEY`,
+   `ALPACA_KEY_ID` + `ALPACA_API_SECRET`): the first complete pair wins, and only when no pair is
+   complete do the first id name and the first secret name found make the key. They are loaded into the
+   environment only (as for the Anthropic key, a value already in the environment is not
+   overridden and counts), sent only as the two request headers Alpaca reads, and never logged,
+   printed, written to a file or put in a prompt.
 9. **No look-ahead** (proposed; Radar's EDGAR rule). Every record carries `first_seen_at` from
    Scout's clock. A query "as of t" sees only records with `first_seen_at <= t` and
    `published_at <= t` (and labels with `labelled_at <= t`). Files are append-only, so a replay gets
@@ -150,6 +168,7 @@ changes. Each phase is an owner decision; phases are build order, not a limit on
 | 10a | BLS Public Data API v1 `api.bls.gov/publicAPI/v1/timeseries/data/<series>` (owner's request, 2026-11-04) | The jobs report (payrolls, unemployment rate) and CPI as published (§7.7) | V (read live 2026-11-04) | at start; 08:40 ET daily; 09:15 ET on release days; 3 requests a read | Public data, no key; BLS allows 25 requests a day without one; record only |
 | 11 | Claude API, server `web_search` and `web_fetch` (job J3, §8) | Hold-candidate and gap-filler research | tool exists; accuracy U | capped per day | Output untrusted; `allowed_domains` from config |
 | 12 | `E:\Scout\inbox\jason\` and `inbox\discord\` | Jason's level files (§5); Paper Gains Discord captures (§18) | — | when a scheduled Claude task writes one | Gathered by the owner's scheduled Claude tasks, never by Scout (**decided** 2026-11-01, §18) |
+| 13 | Alpaca market data, `data.alpaca.markets` (owner, 2026-11-11; 0.3.2; §19.5) | SPY, QQQ and IWM for the thesis readers only: the IEX exchange's last trade (`/v2/stocks/snapshots?feed=iex`), the whole market's 1-minute bars ending 20 minutes ago (`/v2/stocks/bars?feed=sip`) and the whole market's previous daily close | V: the owner's key and the answer shapes were tried on 10 Nov 2026 (the owner's probe, `E:\Market_Data\research\reads\market_probe\probe_20261110T200236Z.json`; its bodies are `tests\fixtures\alpaca\`), and the three request forms Scout sends are ones already run against the real service: the IEX snapshot and daily `feed=sip` bars in that probe; 1-minute `feed=sip` bars ending 20 minutes before the request in the owner's first probe of the key (10 Nov 2026, for AAPL; its result is in the research notes, not in this repository). Not yet proven: Scout's own first poll, with its own 15-minute window for three symbols | every 60 s 04:00-20:00 ET on trading days; 2 requests a poll, plus the previous closes once a day | The owner's free key (Basic plan: live prices from IEX only, the whole market at least 15 minutes old; 200 requests a minute); personal use, never republished. Evidence for the reads only: it changes no answer |
 
 Effect of what v1 leaves out: small caps often publish on Accesswire or Newsfile, which have no
 official RSS found. A catalyst there makes gate 6 `false` in v1 (or `unknown` on a coverage gap),
@@ -897,6 +916,10 @@ turns that off).
   requests to about a third (measured on 3-10 Nov 2026). The halt feed's dated read: one request a
   trading-day evening, at most 16 when it keeps failing (every `halts_dated_retry_s`, 15 min; 0.3.1;
   before, about 235 a night, every 60 s from 20:00 ET to midnight while it failed on 2-9 Nov).
+- **Alpaca market data** (0.3.2, §19.5; only with the reads and the key): 2 requests a poll every
+  60 s from 04:00 to 20:00 ET, about 1,920 a trading day, plus 1 a day for the previous closes; at
+  most 2 of the free plan's 200 a minute. A hard cap in code of 10,000 a day for
+  `data.alpaca.markets` guards against a loop bug. Never paced (no `[pace]` line names it).
 
 ## 13. Configuration (Scout's `config.toml`; documented in `config.example.toml`; proposed defaults)
 - **Paths:** `radar_dir` (""), `radar_handoff_subdir` ("state/handoff"; owner, 2026-11-04),
@@ -933,6 +956,13 @@ turns that off).
   `discord_schedule_max_ahead_days` (14), `discord_max_file_bytes` (2000000),
   `discord_expected_every_min` (40), `discord_cadence_channels` (the six MARKET NEWS channels), `discord_capture_hours_et` (["04:00", "20:00"]),
   `discord_brief_max_items` (10). DESIGN 6.9 documents them.
+- **The market feed for the reads (0.3.2, §19.5):** `reads_market_enabled` (true; it runs only with
+  `reads_enabled` and the Alpaca key), `reads_market_symbols` (["SPY", "QQQ", "IWM"]; 1 to 6),
+  `reads_market_poll_s` (60; 15 to 600), `reads_market_max_age_s` (1800; 60 to 3600, and at least
+  the poll interval; a value under about 21 minutes hides the whole-market price, which is 20 to 35
+  minutes old, so only live IEX prices would then show), `reads_market_timeout_s` (5; 1 to 10, never
+  above `fetch_timeout_s`). Its fetch
+  source is fixed in code: a `[sources.alpaca_market]` table is a config error.
 
 Radar gains `scout_dir` and `jason_near_level_pct`. Pilot gains `scout_dir` and `pilot_hold_check_et`
 ("19:40"). Guardian gains no key. No per-ticker settings anywhere.
@@ -1181,13 +1211,17 @@ the owner's choices of 11 Nov 2026). This section says what Scout does under it.
 - The prompt, version `r1`, is fixed in `scout.reads_prompt` (READS_TEST.md §5.2-5.3). It starts
   with the present moment ("Now 09:00:15 ET, pre-market, 30 minutes to the open") and shows every time
   in ET. It carries the pack as compact tables (oldest first, volumes and sizes in shares, "p" bars
-  explained, "Market: not available" when the pack has none, Radar's failed checks marked as its own
-  internal checks), Scout's news and filings for the symbol, the `entry_blocks` answer, Jason's
+  explained, Radar's failed checks marked as its own internal checks), the market line (0.3.2,
+  §19.5: "Market at 10:01:58 ET: SPY 681.20 +0.31%; QQQ 611.05 +0.42%; IWM 241.13 -0.22%", with
+  "(15 minutes before now)" after the time once the data is 5 minutes old or more, whole minutes
+  rounded down, and "Market: not available" when nothing is fresh enough), Scout's news and filings for the symbol, the `entry_blocks` answer, Jason's
   levels and whether a macro window is open; third-party text is fenced and marked as data. The
   answer schema uses only the structured-output keywords the API reference lists as supported. It never
   carries an account number, position size, P&L, token or file path, and never the owner's own notes.
 - The reads file `state\reads\<trading day>.jsonl` (READS_TEST.md §5.4) is append-only, every line
-  with `first_seen_at` from Scout's clock; `cost_usd` is a decimal string (READS_TEST.md §3).
+  with `first_seen_at` from Scout's clock; `cost_usd` is a decimal string (READS_TEST.md §3). Since
+  0.3.2 a `first` or `reread` line also carries `market_shown`: the market block the reader was shown
+  (`source` "scout" or "radar", `feed`, `at`, and per symbol `last` and `change_pct`), or null.
 
 ### 19.3 The owner's reads
 `Add Read.bat` (`python -m scout reads add`) asks the ticker, long or short, strength 1 to 5 and why
@@ -1207,3 +1241,76 @@ together. A reads ledger that cannot be read gives an `error` skip line (detail
 (§8.6): reads spend never counts toward `llm_daily_cost_cap_usd` or `llm_monthly_cost_cap_usd`, a
 refused or capped read never stops J1, J3 or J4, and their spend and caps never stop a read. The
 brief shows the reads by reader and the reads spend apart from the other jobs' spend.
+
+### 19.5 The market feed for the readers (owner, 2026-11-11; Scout 0.3.2)
+The owner asked on 11 Nov 2026 for another source of the market's direction ("find another source
+... like Alpaca"), so the readers no longer see "Market: not available" all day. Radar is not
+changed and Scout sends no Webull request (§2.2).
+
+- **What it is, honestly.** Scout asks Alpaca's market-data service with the owner's free key for
+  SPY, QQQ and IWM (`reads_market_symbols`). Live prices on the free plan come from the IEX exchange
+  only (about 2.5% of the volume), which trades from about 08:00 to 17:00 ET. Outside those hours
+  the newest price is the whole market's (all US exchanges), at least 20 minutes old (Alpaca's free
+  rule is 15 minutes; Scout asks for bars ending 20 minutes ago, the form the owner's key was proven
+  to allow on 10 Nov 2026). The previous close is always the whole
+  market's daily close (the last regular-session trade Alpaca counts; usually, but not by
+  definition, the official close). A reader therefore sees the market's direction, not its exact
+  last tick.
+- **One poll** every `reads_market_poll_s` (60 s), from 04:00 to 20:00 ET on trading days only,
+  only with `reads_enabled`, `reads_market_enabled`, a `contact_email` and the key: (1) the IEX last
+  trade per symbol (`/v2/stocks/snapshots?feed=iex`; only `latestTrade` is read); (2) the whole
+  market's 1-minute bars over the 15 minutes ending 20 minutes ago (`/v2/stocks/bars?feed=sip`; the
+  newest bar's close, at the end of its minute); (3) once a day until held, the whole market's daily
+  bars of the week before, ending at 00:00 ET of the trading day (always hours old, so never
+  "recent" data), for the previous trading day's close (§3's calendar). Query strings are plain
+  `urlencode` (commas and colons percent-encoded), the form already run against the real service.
+  The request carries the key's two headers and the User-Agent `Scout/<version>` (never the contact
+  email); no redirect is followed; each request times out after `reads_market_timeout_s` (5 s; at
+  most 10), and a timeout or network failure on any request ends that poll: no further request is
+  sent in it.
+- **The record.** Each of (1) and (2) is a candidate only when every symbol has a price (a JSON
+  number from 0.0001 to 10,000,000; anything else is a changed shape), a previous close, and a trade
+  time no more than 60 s ahead of Scout's clock (a PC clock a little slow) and no earlier than the
+  day's 04:00 ET. The newest candidate wins (its time is its oldest trade); a tie goes to the whole
+  market. It is appended to `state\reads\market\<ET date>.jsonl` when it is at most
+  `reads_market_max_age_s` (1800 s) old: `format`, `kind` "market", `first_seen_at` (Scout's clock),
+  `at`, `feed` ("iex" or "sip_delayed"), `prev_close_feed` ("sip"), `prev_day`, `trading_day`, and per
+  symbol `last` and `prev_close` (the text Alpaca sent), `trade_at` and `change_pct` (a fraction to 6
+  places, `last / prev_close - 1`). A poll that sent a request and recorded nothing appends a `miss`
+  line instead: `format`, `kind` "miss", `first_seen_at`, a `reason` code (`stale` when the data is
+  only too old, as before about 08:00 ET; else for example `timeout`, `http_500`, `schema`,
+  `no_prev_close`, `refused_key`) and each request's code. When the only candidate is too old while
+  the other price request failed outright, the poll is failed with that request's reason, not
+  `stale`. A poll that sent no request (the host backing off, a request dropped) writes no line.
+  Never body text, never the key.
+- **What a reader sees** (`scout.reads_market`, at the moment of the read): Scout's newest record
+  first seen by then and the pack's own `market` block, whichever is newer, each only when at most
+  `reads_market_max_age_s` old and not in the future; otherwise "Market: not available". The read
+  line records it as `market_shown` (or null). The brief shows one line a day: "Market feed (SPY,
+  QQQ, IWM): 905 polls recorded, 3 too old, 4 failed; reads shown the market: R1 58 of 61, R2 9 of 9."
+- **Failures** never raise into the loop and change nothing else. The poller logs once per change of
+  state. A 403 or 429 puts the host in the fetcher's backoff (no request while it lasts). A request
+  refused (403 or 422) while another request of the same poll was answered is dropped until the
+  next ET day (the plan does not allow it; the key works). When no request is answered and one is
+  refused with 401 or 403, the log says once: "Alpaca refused the key: check the two lines in
+  Scout's .env." After 3 failed polls in a row the interval doubles, up to `source_backoff_max_min`
+  (the doubling is capped, so a long run of failures can never overflow); a poll with usable or
+  merely old data resets it. The "normal before about 08:00 ET" wording appears in the pre-market
+  only. A body the parser refused is kept once in
+  `state\raw\alpaca_market\` for a look.
+- **Isolation (it changes no answer).** The feed is evidence for the reads only. It has no health
+  record, no board entry and no line in the heartbeat's `sources` or in params; its fetch source is
+  fixed in code and not in `cfg.sources` (so not even `scout_reader`'s fallback when params cannot
+  be read can see it). Nothing that answers a question, no gate, `entry_blocks` and nothing in
+  `scout_reader` reads the market file (`tests/test_market_isolation.py`: the heartbeat, the beats,
+  the health files, params and the board are byte for byte the same with the feed recording,
+  failing and off). It can neither stop nor start a buy.
+- **The check.** `Check Market.bat` (`python -m scout reads market`) runs one poll now and says
+  whether Alpaca answered (per request); the newest prices each request returned, with their age
+  and where they came from, even when the feed would not use them because they are too old (in
+  plain words, never reason codes; in the closed hours: that they are hours old, and that the key
+  works); what a reader would see right now from the running Scout's records; and one closing line
+  saying whether the key works. It never prints the key and writes no record or state, only its log
+  lines. Exit codes: 0 the key works (a request was answered and its answer could be read, also when
+  the prices are only old, as in the early hours), 1 no request was answered or no answer could be
+  read, 2 not set up.
