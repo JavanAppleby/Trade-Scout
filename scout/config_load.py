@@ -11,19 +11,33 @@ import math
 import tomllib
 from collections.abc import Mapping
 from datetime import date, time
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from scout.clock import parse_hhmm
 
 __all__ = [
     "ConfigError", "as_bool", "as_date_list", "as_float", "as_int", "as_str", "as_str_list", "as_table", "as_time",
-    "as_time_list", "check_keys", "read_toml",
+    "as_time_list", "check_keys", "is_subfolder", "read_toml",
 ]
 
 
 class ConfigError(ValueError):
     """Invalid or unreadable Scout config.toml. The message names the key."""
+
+
+def is_subfolder(value: str) -> bool:
+    """True for a relative folder with no drive, no root and no "..", judged by Windows' path rules
+    and by POSIX's alike. The bots run on Windows, so "C:/x", "C:x" and a backslash ".." must be
+    refused wherever the config is checked (the tests also run on Linux, where the native rules
+    would let them through)."""
+    if not value.strip():
+        return False
+    for flavour in (PureWindowsPath, PurePosixPath):
+        p = flavour(value)
+        if p.is_absolute() or p.drive or p.anchor or ".." in p.parts:
+            return False
+    return True
 
 
 def as_bool(name: str, value: Any) -> bool:

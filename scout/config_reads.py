@@ -32,12 +32,11 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
 from scout.config_load import (
-    ConfigError, as_bool, as_float, as_int, as_str, as_str_list, as_table, check_keys,
+    ConfigError, as_bool, as_float, as_int, as_str, as_str_list, as_table, check_keys, is_subfolder,
 )
 
 __all__ = ["DEFAULT_READERS", "READS_KEYS", "READ_SESSIONS", "ReaderConfig", "ReadsConfig", "reads_from",
@@ -165,9 +164,7 @@ def validate_reads(c: Any) -> None:
     _check(bool(r.sample_seed.strip()), "reads_sample_seed: must be set")
     _check(r.daily_cost_cap_usd <= r.monthly_cost_cap_usd,
            "reads_daily_cost_cap_usd: must be <= reads_monthly_cost_cap_usd")
-    sub = Path(r.packs_subdir)
-    _check(bool(r.packs_subdir.strip()) and not sub.is_absolute() and not sub.drive and not sub.anchor
-           and ".." not in sub.parts,
+    _check(is_subfolder(r.packs_subdir),
            "radar_packs_subdir: must be a folder inside Radar's folder (relative, no drive, no '..')")
     for rid, rd in r.readers.items():
         where = f"llm.readers.{rid}"

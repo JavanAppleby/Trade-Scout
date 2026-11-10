@@ -228,3 +228,18 @@ def test_wire_idle_spacing_must_be_zero_or_at_least_30(tmp_path) -> None:
         config_from_dict({"sources": {"prnewswire": {"idle_spacing_s": 5.0}}}, tmp_path)
     assert config_from_dict({"sources": {"prnewswire": {"idle_spacing_s": 0.0}}}, tmp_path)
     assert config_from_dict({"sources": {"prnewswire": {"idle_spacing_s": 30.0}}}, tmp_path)
+
+
+@pytest.mark.parametrize(("value", "ok"), [
+    ("state/handoff", True), ("state\\handoff\\packs", True), ("out", True),
+    ("", False), ("  ", False), ("../elsewhere", False), ("..\\x", False), ("a/../b", False), ("a\\..\\b", False),
+    ("C:/abs", False), ("C:\\x", False), ("C:state", False), ("/state", False), ("/abs", False), ("\\state", False),
+    ("\\\\server\\share", False), ("//server/share/x", False),
+])
+def test_a_sub_folder_setting_is_judged_by_windows_and_posix_rules_alike(value: str, ok: bool) -> None:
+    """Regression (CI, 2026-11-11): the native path rules let "C:/abs", "C:state" and a backslash
+    ".." through on Linux, so two settings' tests failed there. The bots run on Windows; the check
+    is now the same on every system."""
+    from scout.config_load import is_subfolder
+
+    assert is_subfolder(value) is ok
