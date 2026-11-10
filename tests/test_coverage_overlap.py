@@ -298,8 +298,11 @@ def test_prnewswire_is_polled_every_30_s_around_the_hour(scout_dir: Path) -> Non
     st = transport.times("stocktitan")
     assert min(_intervals(st)) >= 59  # only PR Newswire is in hour_turn_sources
     health = [r for r in read_jsonl(ctx.paths.health / "2026-11-02.jsonl") if r["source"] == "prnewswire"]
-    assert {r["spacing_s"] for r in health if turn[0] <= datetime.fromisoformat(r["start"][:-1]).replace(
-        tzinfo=timezone.utc) < turn[1]} == {30.0}
+    turn_spacings = [r["spacing_s"] for r in health if turn[0] <= datetime.fromisoformat(r["start"][:-1]).replace(
+        tzinfo=timezone.utc) < turn[1]]
+    # 0.2.4: a poll records the slower spacing when its next poll falls after the window (`recorded_spacing`):
+    # only the last 30 s poll before :05 says 60 s, the wait to its next poll
+    assert set(turn_spacings[:-1]) == {30.0} and turn_spacings[-1] == 60.0
 
 
 def test_the_hour_turn_window_and_its_extra_requests(scout_dir: Path) -> None:

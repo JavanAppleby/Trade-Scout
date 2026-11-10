@@ -36,8 +36,8 @@ from scout.running import AlreadyRunning, ScoutLock
 from scout.scheduler import Job, run_due
 from scout.store import append_jsonl, canonical_json, read_jsonl, sha256_text
 
-JOB_MODULES = ("scout.jobs_wire", "scout.jobs_macro", "scout.jobs_levels", "scout.jobs_discord", "scout.jobs_answers",
-               "scout.jobs_llm", "scout.jobs_brief")
+JOB_MODULES = ("scout.jobs_pace", "scout.jobs_wire", "scout.jobs_macro", "scout.jobs_levels", "scout.jobs_discord",
+               "scout.jobs_answers", "scout.jobs_llm", "scout.jobs_brief")
 _PARAM_META = ("format", "first_seen_at", "config_sha256")
 EXIT_ALREADY_RUNNING = 4
 
@@ -88,6 +88,15 @@ class AppContext:
 
     def llm_transport(self) -> Any:
         return self._service("llm_transport", "scout.llm_client", "build_transport")
+
+    def pace(self) -> Any:
+        """The polling pace in force (scout.pace; owner, 2026-11-10), shared by the schedules, the
+        coverage tracker and the heartbeat's aging (`board.pace`)."""
+        if "pace" not in self._services:
+            pace = importlib.import_module("scout.pace").Pace(self.cfg, self.paths, log=self.log.getChild("pace"))
+            self._services["pace"] = pace
+            self.board.pace = pace
+        return self._services["pace"]
 
 
 def build_context(config_path: Path | str, clock: Clock | None = None,

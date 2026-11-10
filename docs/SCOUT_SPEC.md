@@ -8,8 +8,10 @@ approved Radar's squad split (Radar's `docs/SQUAD_SPLIT_PROPOSAL.md`): Scout may
 signals (block only), and §1, §2 rules 4-5, §6.2-6.4, §7.1, §7.5, §7.8 (new), §9.1, §10.3, §13 and §17
 are amended, each marked "owner, 2026-11-04"; §6.2 was amended again the same day (0.2.1: restarts,
 the 04:00 ET spacing switch and failed polls; 0.2.2: the overlap rule), and §4.1 #1 and #4 (0.2.2:
-EDGAR yields to the wires; PR Newswire at 30 s around the hour). Repo:
-JavanAppleby/Trade-Scout (`E:\Scout_dev`). Scout never trades.
+EDGAR yields to the wires; PR Newswire at 30 s around the hour). On 2026-11-10 the owner asked Scout
+to slow down by how often each source really updates and to keep adjusting it (0.2.4, the polling
+pace): §4.1 #1, #4, #4b and #6, §6.2, §6.5 (new), §12 and §13 are amended, each marked "owner,
+2026-11-10". Repo: JavanAppleby/Trade-Scout (`E:\Scout_dev`). Scout never trades.
 **Decided** marks the owner's decisions recorded in `docs/HANDOFF.md` §3, `PILOT_SPEC.md` §16 or the
 owner's message of 2026-10-31. **Proposed** marks this spec's suggestions. §16 lists what the owner
 still has to decide, each with a recommended default. This file lives in Trade Guardian's `docs\`
@@ -125,13 +127,13 @@ changes. Each phase is an owner decision; phases are build order, not a limit on
 ### 4.1 Phase 1 (v1). Free except the optional Claude API
 | # | Source | What Scout takes | Status | Cadence (proposed) | Terms note |
 |---|---|---|---|---|---|
-| 1 | SEC EDGAR "getcurrent" Atom (8-K, 6-K, S-1, S-3, F-1, F-3, 424B*, EFFECT, NT 10-Q, NT 10-K) | Market-wide filings, form, 8-K item codes (in each summary) | V (40 entries a page; page with `count=100`) | every 60 s 04:00-20:00 ET, every 10 min otherwise; between two form requests the due wire polls run (owner, 2026-11-04; 0.2.2), so a slow SEC never delays the wires by more than one request | Fair access: at most 10 req/s; declared User-Agent with a contact email |
+| 1 | SEC EDGAR "getcurrent" Atom (8-K, 6-K, S-1, S-3, F-1, F-3, 424B*, EFFECT, NT 10-Q, NT 10-K) | Market-wide filings, form, 8-K item codes (in each summary) | V (40 entries a page; page with `count=100`) | every 60 s 04:00-20:00 ET, every 10 min otherwise; between two form requests the due wire polls run (owner, 2026-11-04; 0.2.2), so a slow SEC never delays the wires by more than one request. Since 0.2.4 each form is paced by the hour (§6.5; owner, 2026-11-10): never faster than this, at most every 5 min in trading hours (NT 10-Q, NT 10-K, 10-Q, 10-K: 30 min) and every 30 min otherwise | Fair access: at most 10 req/s; declared User-Agent with a contact email |
 | 2 | SEC EDGAR submissions JSON per CIK | Last periodic report: form, `reportDate`, `fiscalYearEnd`; 8-K 2.02 dates | V (Radar uses it) | on demand, cached per CIK per day | as above |
 | 3 | SEC `company_tickers_exchange.json` | CIK to ticker and exchange | V (Radar uses it) | daily | as above |
-| 4 | PR Newswire RSS (all releases) | Title, link, guid, `pubDate`, exchange tags "(NASDAQ: XXX)" | V (RSS 2.0, 20 items) | every 60 s; every 30 s from :58 to :05 ET around each hour inside 04:00-20:00 ET (`hour_turn_*`; owner, 2026-11-04; 0.2.2: more than 20 releases can appear within a minute at the top of an hour; 30 s is the hard minimum for www.prnewswire.com; about 112 more requests a day) | Terms of the RSS UNVERIFIED: store title, link and times only until the owner reads them (build step 2) |
-| 4b | Stock Titan RSS (`www.stocktitan.net/rss`, added 2026-11-04 by the owner) | Title ending "\| XXX Stock News", link, guid, `pubDate` | V (RSS 2.0, 100 items) | every 60 s 04:00-20:00 ET, 600 s otherwise | Terms name its RSS feeds as an allowed way to collect data (personal use); 30 requests in 5 minutes. Reposts GlobeNewswire, Business Wire and the other wires |
+| 4 | PR Newswire RSS (all releases) | Title, link, guid, `pubDate`, exchange tags "(NASDAQ: XXX)" | V (RSS 2.0, 20 items) | every 60 s; every 30 s from :58 to :05 ET around each hour inside 04:00-20:00 ET (`hour_turn_*`; owner, 2026-11-04; 0.2.2: more than 20 releases can appear within a minute at the top of an hour; 30 s is the hard minimum for www.prnewswire.com; about 112 more requests a day). Since 0.2.4 paced by the hour (§6.5; owner, 2026-11-10): at most every 2 min in trading hours and 30 min otherwise, and never so slow that a burst like the busiest seen in that hour fills more than half the page; the :58-:05 window stays | Terms of the RSS UNVERIFIED: store title, link and times only until the owner reads them (build step 2) |
+| 4b | Stock Titan RSS (`www.stocktitan.net/rss`, added 2026-11-04 by the owner) | Title ending "\| XXX Stock News", link, guid, `pubDate` | V (RSS 2.0, 100 items) | every 60 s 04:00-20:00 ET, 600 s otherwise; since 0.2.4 paced by the hour as PR Newswire (§6.5; owner, 2026-11-10) | Terms name its RSS feeds as an allowed way to collect data (personal use); 30 requests in 5 minutes. Reposts GlobeNewswire, Business Wire and the other wires |
 | 5 | ~~GlobeNewswire RSS (public companies)~~ | - | Removed 2026-11-03 (owner) | - | Refused Scout's declared User-Agent (403, Akamai) on 2026-11-01 and 2026-11-03; reading it would need permission, and Scout uses only sources that allow automated reading without asking |
-| 6 | Nasdaq Trader halt RSS (`feed=tradehalts`; `&haltdate=MMDDYYYY` once after 20:00 ET) | Halts and LULD pauses, reason codes, resumption times | V | at least 60 s apart (hard minimum in code), 04:00-20:00 ET | Free; "do not query more than once a minute"; must not edit or misrepresent the feed, so rows are stored as received. An open halt blocks Radar's buy signals (§7.8; owner, 2026-11-04) |
+| 6 | Nasdaq Trader halt RSS (`feed=tradehalts`; `&haltdate=MMDDYYYY` once after 20:00 ET) | Halts and LULD pauses, reason codes, resumption times | V | at least 60 s apart (hard minimum in code), 04:00-20:00 ET; never paced (§6.5; owner, 2026-11-10) | Free; "do not query more than once a minute"; must not edit or misrepresent the feed, so rows are stored as received. An open halt blocks Radar's buy signals (§7.8; owner, 2026-11-04) |
 | 7 | nowflation.com `/data/release_calendar.json`, `/data/realtime.json`, `/forecasts/index.json`; fallback `/nowflation.ics` | CPI, NFP, PCE and FOMC times; inflation nowcast | V | once at start; 08:20 ET daily; 08:50 ET on release days; at most 10 requests a day | Free with credit "Nowflation" and a link; no reselling or redistributing the raw files; robots.txt allows ClaudeBot; JSON paths undocumented |
 | 8 | BLS release schedule `.ics` | CPI and Employment Situation times (cross-check of #7) | V (no DTSTAMP) | weekly | Public; lenient parser |
 | 9 | FOMC decision dates | static table in config | federalreserve.gov, by hand | — | 2027 dates tentative |
@@ -310,6 +312,11 @@ The rules in full (owner, 2026-11-04; Scout and `scout_reader` 0.2.1, with the o
     keeps its 0.2.1 meaning.
   - The reader takes `source_overlap_max_gap_s` only as a finite number in (0, 86400]; anything
     else means the rules above alone.
+- **Recorded spacing** (owner, 2026-11-10; 0.2.4): a poll's `spacing_s` is the larger of the spacing
+  in force when it ran and the one in force when its next poll falls due, so a poll just before a
+  switch to a slower spacing (20:00 ET, or a slower pace for the next hour, §6.5) says how long the
+  schedule may really wait. Before 0.2.4 it stored the faster spacing, and the reader saw a short
+  false `no_poll_at_end` gap after each slow-down. No other rule changes.
 - **Restarts**: Scout keeps the seen guids and the last good poll of each feed across a restart.
   At start it reads them back from its own files: the guids of the facts stored by good polls
   (a fact's `first_seen_at` is its poll's `end`) and the last good health record of each feed,
@@ -383,6 +390,53 @@ Facts go to `state\facts\<date>.jsonl` (§10.2). **Facts never depend on an LLM.
   listing_notice). Owner, 2026-11-04: Mercer's Chapter 11 8-K was classed `contract_or_other`
   through its financing agreement (1.01), and 8,258 of 9,371 filing facts on 3 Nov were banks'
   424B2 notes classed `offering`.
+
+### 6.5 Polling pace (owner, 2026-11-10; 0.2.4)
+The owner (2026-11-10): "Slow Scout down by a factor based on how frequent each source has updated
+data - and continue to monitor and adjust timings as time goes on."
+
+- **What is paced:** each EDGAR form (each its own feed) and each wire (PR Newswire, Stock Titan).
+  Not paced: the halt feed (below), and the sources already read at their publication times or on
+  demand (nowflation, BLS, the BLS results, Cboe, SEC's ticker list, submissions).
+- **The rule:** for each feed and each ET hour of a trading day (and once for weekends and market
+  holidays), the typical time between new items is the hour's polled time in Scout's own health
+  records over the last `lookback_days` (7) divided by the polls that found something new. The feed
+  is polled about every `factor` (0.5) x that gap: about two polls per new item, so a busy hour
+  stays fast and a quiet one slows down. An hour with nothing new gets the slowest allowed spacing.
+- **Never faster than before:** a paced spacing is never below the source's own `min_spacing_s`
+  (04:00-20:00 ET on trading days) or `idle_spacing_s` (otherwise), and PR Newswire keeps its 30 s
+  from :58 to :05.
+- **Never so slow that a page overflows:** for a feed with a page size, the spacing stays where the
+  most new items Scout saw within any window of that length in that hour fit in `page_fill` (half)
+  of the page. PR Newswire keeps only 20 items and passed 20 within a minute on the hour on most
+  days of 2-9 Nov, so it stays at 60 s in those hours; a burst at 21:00 ET on 5 Nov keeps 21:00 fast.
+- **The slowest allowed** (`[pace.slowest_active_s]` inside `active_hours_et` on trading days, when
+  Radar asks for blocks; `[pace.slowest_idle_s]` otherwise, when Radar asks for nothing; Radar's buy
+  checks never run in its NIGHT session):
+  - **Halts: never paced** (60 s, as before). A halt blocks only while it is open; a LULD pause lasts
+    5 minutes, so a slower poll could miss a whole pause. Radar's signals sit close to pauses (2-9
+    Nov: MF signalled 9 minutes before its pause; CRIS and AEHL within 2-4 hours of theirs).
+  - **Wires: 2 minutes** in trading hours. A release is usually the first public notice of an
+    offering, reverse split, listing notice or bankruptcy; the feeds themselves show a release about
+    2 minutes after it is published (median, 5-9 Nov), so this adds at most a minute in a quiet hour.
+  - **The other EDGAR forms** (8-K, S-1, S-3, F-1, F-3, 424B and EFFECT, whose filings can block a
+    buy, and 6-K): **5 minutes** in trading hours. A filing usually follows the release of the same
+    news (an 8-K within four business days, a 424B5 after the pricing release); busy forms stay
+    faster by the rule.
+  - **NT 10-Q, NT 10-K, 10-Q, 10-K: 30 minutes**: read for the 19:30 ET hold answers and the evening
+    check only.
+  - **Every feed outside trading hours: 30 minutes** (`source_overlap_max_gap_s`, the longest pause
+    one repeated item covers). EDGAR releases nothing new from about 18:00 to 06:00 ET; the switch to
+    the faster pace on the hour (04:00, 06:00) polls at once.
+- **Adjusting as time goes on:** recalculated every day at `recalc_time_et` (03:30 ET) and at start
+  when the saved plan is more than a day old or was made with other settings; saved in
+  `state\pace\<ET date>.jsonl` (append-only), so a restart keeps it. An hour polled for less than
+  `min_hours` (2) in the lookback keeps the fixed spacing. The daily brief's "Polling pace" section
+  shows each feed's spacing by hour, its fixed spacing and its hit rate.
+- **Coverage is unchanged:** each health record stores the spacing it ran at (§6.2, recorded
+  spacing), so the gap rules allow exactly what the schedule waits, no more.
+- **Measured effect** (the live records of 3-10 Nov 2026): about 5,100 requests a trading day to the
+  paced feeds instead of 14,500, and about 700 instead of 3,300 on a closed day.
 
 ## 7. The hold answers and other context
 ### 7.1 Gate 6: `fresh_catalyst(S, as_of)`
@@ -798,7 +852,8 @@ turns that off).
 - **Other hosts** (enforced per host in code): EDGAR at most 2 requests a second; each RSS feed and the
   halt feed at least 60 s apart (wires may go to 30 s, the hard minimum in code; PR Newswire does from
   :58 to :05 ET, §4.1 #4); nowflation at most 10 a day; BLS
-  weekly; Cboe daily.
+  weekly; Cboe daily. Since 0.2.4 the pace (§6.5; owner, 2026-11-10) lowers the EDGAR and wire
+  requests to about a third (measured on 3-10 Nov 2026).
 
 ## 13. Configuration (Scout's `config.toml`; documented in `config.example.toml`; proposed defaults)
 - **Paths:** `radar_dir` (""), `radar_handoff_subdir` ("state/handoff"; owner, 2026-11-04),
@@ -810,6 +865,10 @@ turns that off).
   `hour_turn_sources` (["prnewswire"]), `hour_turn_start_min` (58), `hour_turn_end_min` (5),
   `hour_turn_spacing_s` (30; owner, 2026-11-04), `source_backoff_max_min` (30), `fetch_max_bytes`
   (2000000), `ticker_exchange_prefixes`, `class_keywords`.
+- **Polling pace (owner, 2026-11-10; §6.5):** the `[pace]` table: `enabled` (true), `factor` (0.5),
+  `lookback_days` (7), `recalc_time_et` ("03:30"), `min_hours` (2.0), `page_fill` (0.5), and
+  `[pace.slowest_active_s]` / `[pace.slowest_idle_s]` keyed "source" or "source:FORM" (defaults in
+  §6.5; 0 or no line = not paced; the halt feed cannot be paced).
 - **Answers:** `hold_catalyst_classes` (§7.1), `earnings_lookback_days` (45),
   `earnings_due_start_days` (10), `earnings_due_end_days_quarter` (50), `earnings_due_end_days_annual`
   (95), `hold_block_macro_events` (false), `fomc_dates`, `scan_max_price` (20.0).

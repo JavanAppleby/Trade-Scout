@@ -73,6 +73,18 @@ All of these are built in v1. (A command whose module is missing says "not built
 `reports\` (the brief and the verification report), `inbox\jason\` (level files) and
 `inbox\discord\` (Discord capture files). All are created on first run and ignored by git.
 
+## How often Scout polls (the polling pace, 0.2.4)
+
+Scout slows each news and filing feed (each SEC form, PR Newswire, Stock Titan) to how often it
+really has something new. For every hour of a trading day, and once for weekends and holidays, it
+works out from the last 7 days how long that feed typically goes between new items, and polls about
+twice in that time. It works this out again every day at 03:30 ET, so the timings follow the feeds.
+It never polls faster than before, never so slowly that a burst could push items off a feed's page,
+and in trading hours never waits longer than 2 minutes for a wire or 5 minutes for an SEC filing that
+could block a Radar buy (30 minutes at night and at weekends). The halt feed is never slowed. The
+morning brief's "Polling pace" section shows each feed's timings. The settings are the `[pace]`
+table in `config.example.toml`; `enabled = false` there puts every feed back on its fixed timing.
+
 ## Jason's material and the Paper Gains Discord (scheduled Claude tasks)
 
 Scout itself never logs in to Discord, YouTube or X and never downloads Jason's material. Scheduled

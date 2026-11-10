@@ -1,6 +1,6 @@
 ---
 name: scout-discord-news
-description: Every 10 minutes in US pre-market to after-hours, copy new posts from six Paper Gains Discord MARKET NEWS channels (and, about once an hour, the three SCANNERS channels) into Scout's inbox as capture files (read-only on Discord)
+description: Every 15 minutes in US pre-market to after-hours, copy new posts from six Paper Gains Discord MARKET NEWS channels (and, about once an hour, the three SCANNERS channels) into Scout's inbox as capture files (read-only on Discord)
 ---
 
 Capture new posts from nine channels of the Paper Gains (Jason's School of Gains) Discord into Scout's
@@ -8,7 +8,8 @@ inbox: six MARKET NEWS channels and the three SCANNERS channels. Scout is the ow
 (record and brief only; one structured earnings list may make one of its checks more cautious;
 scanner cards are record and brief only). The file format is Scout's contract:
 E:\Scout\docs\INBOX.md section 3 (scanner cards: section 3.3). Read that section first if
-anything below is unclear. The task runs every 10 minutes and this run is one poll: be quick, and
+anything below is unclear. The task runs every 15 minutes (owner, 2026-11-10: set from its measured
+hit rate, tasks/README.md) and this run is one poll: be quick, and
 finish early when nothing is new. The six MARKET NEWS channels are read on every run; the three
 SCANNERS channels only about once an hour (step 3).
 
@@ -42,7 +43,7 @@ line "outside US hours (ET <time>)": open nothing, write nothing.
 
 ## Step 0b: one run at a time
 
-A run can take longer than the 10 minutes between runs (a busy channel, catching up after a
+A run can take longer than the 15 minutes between runs (a busy channel, catching up after a
 weekend). Two runs at once would both move `_cursor.json`, so read
 E:\Scout\inbox\discord\_news_run.json if it exists:
 
@@ -141,7 +142,7 @@ For each channel read this run:
    agrees with Scout's check. If the snippet returns nothing (Discord changed its page), use
    read_page / get_page_text instead, and take each message id from the message's "Copy Message
    Link" target or element id; a post whose id you cannot read is skipped and reported.
-3. Read back to the cursor; there is NO 24-hour limit. The first run on Monday (04:05 ET) must
+3. Read back to the cursor; there is NO 24-hour limit. The first run on Monday (about 04:10 ET) must
    reach back to Friday evening's cursor (about 56 hours), and after an outage (PC asleep, app
    closed) further. If the oldest loaded message is still newer than the cursor's last_message_id,
    scroll the message list up (computer scroll over the list) and read again, until you reach the

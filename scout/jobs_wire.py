@@ -10,6 +10,10 @@
 - the EDGAR cycle runs the due wire jobs between its form requests (`EdgarAtomPoller.between`;
   owner, 2026-11-04): one thread, so the fetcher's host spacing, the writers and the heartbeat are
   used exactly as before, and a slow SEC no longer pushes the wire polls past `source_max_gap_s`.
+- the polling pace (`ctx.pace()`, `scout.pace`; owner, 2026-11-10): each wire and each EDGAR form
+  is polled at its own paced spacing for the hour (never faster than the spacings above); the EDGAR
+  job runs at its fastest form's spacing and polls the forms that are due. The tracker records the
+  same spacing.
 A disabled source gets no job (the board shows it `disabled`). One CoverageTracker serves every
 source of this module, seeded from Scout's own stored facts and health records (`scout.coverage_seed`,
 owner 2026-11-04) so a restart does not open a coverage gap by itself.
@@ -24,6 +28,7 @@ from scout.edgar_atom import SOURCE as EDGAR_ATOM
 from scout.edgar_atom import EdgarAtomPoller
 from scout.health import CoverageTracker, board_state, spacing_in_force
 from scout.scheduler import EveryJob, Job, run_due
+from scout.wire_rss import FEED as WIRE_FEED
 from scout.wire_rss import WirePoller
 
 __all__ = ["build_jobs", "wire_sources"]
@@ -39,10 +44,11 @@ def wire_sources(cfg: Any) -> list[str]:
 
 def build_jobs(ctx: Any) -> list[Job]:
     cfg = ctx.cfg
+    pace = ctx.pace() if cfg.pace.enabled else None
     wires = wire_sources(cfg)
     seeds = load_seeds(ctx.paths, ctx.clock.now(), sources=(EDGAR_ATOM, *wires), cap=cfg.seen_guid_cap,
                        days=cfg.fact_dedupe_days)
-    tracker = CoverageTracker(cfg, seeds)
+    tracker = CoverageTracker(cfg, seeds, pace=pace)
     jobs: list[Job] = []
     for name in ("edgar_tickers", EDGAR_ATOM, *wires):
         src = cfg.source(name)
@@ -61,7 +67,7 @@ def build_jobs(ctx: Any) -> list[Job]:
         wire = WirePoller(cfg, name, ctx.fetcher(), ctx.raw(), ctx.facts(), ctx.health(), ctx.board, ctx.clock,
                           tracker=tracker, log=ctx.log.getChild(name))
         wire_jobs.append(EveryJob(name, wire.poll, src.min_spacing_s, src.idle_spacing_s or None, cfg,
-                                  interval_fn=lambda now, s=src: spacing_in_force(s, now, cfg)))
+                                  interval_fn=lambda now, s=src: spacing_in_force(s, now, cfg, pace, WIRE_FEED)))
     if cfg.source(EDGAR_ATOM).enabled:
         src = cfg.source(EDGAR_ATOM)
         log = ctx.log.getChild(EDGAR_ATOM)
@@ -70,6 +76,8 @@ def build_jobs(ctx: Any) -> list[Job]:
             run_due(wire_jobs, ctx.clock.now(), log, ctx.clock)
 
         poller = EdgarAtomPoller(cfg, ctx.fetcher(), ctx.raw(), ctx.facts(), ctx.health(), ctx.board, ticker_map,
-                                 ctx.clock, tracker=tracker, log=log, between=between if wire_jobs else None)
-        jobs.append(EveryJob(EDGAR_ATOM, poller.poll, src.min_spacing_s, src.idle_spacing_s or None, cfg))
+                                 ctx.clock, tracker=tracker, log=log, between=between if wire_jobs else None,
+                                 pace=pace)
+        jobs.append(EveryJob(EDGAR_ATOM, poller.poll, src.min_spacing_s, src.idle_spacing_s or None, cfg,
+                             interval_fn=poller.interval_at))
     return jobs + wire_jobs

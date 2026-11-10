@@ -19,6 +19,7 @@ from scout.config_load import (
     ConfigError, as_bool, as_date_list, as_float, as_int, as_str, as_str_list, as_table, as_time, as_time_list,
     check_keys, read_toml,
 )
+from scout.config_pace import PaceConfig, pace_from_table
 from scout.config_validate import EFFORTS, KNOWN_CLASSES, LOG_LEVELS, PRICE_KEYS, SOURCE_KINDS, WEEKDAYS, validate
 from scout.models import WIRE_CLASSES
 
@@ -249,6 +250,7 @@ class ScoutConfig:
     host_max_requests_per_day: Mapping[str, int] = field(default_factory=lambda: _frozen(DEFAULT_HOST_MAX_PER_DAY))
     class_keywords: Mapping[str, tuple[str, ...]] = field(default_factory=lambda: _frozen(DEFAULT_CLASS_KEYWORDS))
     sources: Mapping[str, SourceConfig] = field(default_factory=lambda: _frozen({}))
+    pace: PaceConfig = field(default_factory=PaceConfig)  # the [pace] table (owner, 2026-11-10; scout.config_pace)
 
     # 6.4 answers
     hold_catalyst_classes: tuple[str, ...] = ("fda", "trial", "contract", "earnings_result")  # owner, 2026-11-04
@@ -440,7 +442,7 @@ def _plain(value: Any) -> Any:
         return [_plain(v) for v in value]
     if isinstance(value, Mapping):
         return {str(k): _plain(v) for k, v in value.items()}
-    if isinstance(value, (SourceConfig, LlmJobConfig, LlmPrice)):
+    if isinstance(value, (SourceConfig, LlmJobConfig, LlmPrice, PaceConfig)):
         return {f.name: _plain(getattr(value, f.name)) for f in fields(value)}
     if isinstance(value, time):
         return value.strftime("%H:%M")
@@ -449,7 +451,7 @@ def _plain(value: Any) -> Any:
     return value
 
 
-TABLE_KEYS = frozenset({"host_min_spacing_s", "host_max_requests_per_day", "class_keywords", "sources", "llm"})
+TABLE_KEYS = frozenset({"host_min_spacing_s", "host_max_requests_per_day", "class_keywords", "sources", "llm", "pace"})
 _DERIVED = frozenset({"scout_dir", "llm_jobs", "llm_prices", "web_search_usd_per_1000"})
 SCALAR_KEYS = frozenset(f.name for f in fields(ScoutConfig)) - TABLE_KEYS - _DERIVED
 CONFIG_KEYS: frozenset[str] = SCALAR_KEYS | TABLE_KEYS
@@ -569,10 +571,9 @@ def _tables(data: Mapping[str, Any]) -> dict[str, Any]:
     for model, table in prices_given.items():
         prices[model] = _llm_price(model, table)
     out["llm_prices"] = _frozen(prices)
+    if "pace" in data:
+        out["pace"] = pace_from_table(data["pace"])
     return out
-
-
-# --------------------------------------------------------------------------- validation
 
 
 # --------------------------------------------------------------------------- loading

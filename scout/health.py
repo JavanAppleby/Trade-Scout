@@ -23,16 +23,23 @@ the last good poll, and builds each poll's record:
   With no earlier good poll at all, an overlapping poll has no gap before it unless polls failed
   before it (the reader counts those failures as gaps).
 - `spacing_in_force`: a source's spacing at a time: `min_spacing_s` inside `active_hours_et`,
-  `idle_spacing_s` outside, and for `hour_turn_sources` at most `hour_turn_spacing_s` from minute
-  `hour_turn_start_min` to `hour_turn_end_min` ET around each hour inside active hours (owner,
-  2026-11-04). The scheduler polls at this spacing and each health record stores it.
+  `idle_spacing_s` outside, then the polling pace for the feed (`scout.pace`, owner 2026-11-10: never
+  faster than those, never slower than the feed's limit), and for `hour_turn_sources` at most
+  `hour_turn_spacing_s` from minute `hour_turn_start_min` to `hour_turn_end_min` ET around each hour
+  inside active hours (owner, 2026-11-04). The scheduler polls at this spacing.
+- `recorded_spacing` (0.2.4): what a poll's health record stores: the spacing in force, or the
+  slower one in force when the next poll falls due (a switch to a slower pace, or to the idle spacing
+  at the end of active hours, just after this poll). The gap rule allows 2 x the larger spacing of
+  two polls, and 2 x the last poll's spacing at the end of a window, so the record says how long the
+  schedule may really wait; with the earlier spacing every slow-down left a short false gap.
 - a seed (`scout.coverage_seed`, owner 2026-11-04): at start, each feed's seen ids, last good poll
   and failed polls since come from Scout's own stored facts and health records, so the first poll
   after a restart is judged like any other. No seed (or a broken one): the feed starts empty, as
   before 0.2.1.
 - `gap_open(source)`: the latest poll of some gate-6 feed left a gap, or (given `now`) its last good
-  poll is older than that limit. Periodic forms (10-Q, 10-K, ...: polled for the gate-5 check only,
-  not in params `gate6_feeds`) do not count. The heartbeat publishes it.
+  poll is older than that limit (from the larger of its recorded spacing and the spacing in force
+  now). Periodic forms (10-Q, 10-K, ...: polled for the gate-5 check only, not in params
+  `gate6_feeds`) do not count. The heartbeat publishes it.
 Readers do not trust these flags alone: `scout_reader.coverage.gaps` recomputes gaps from the stored
 records.
 """
@@ -41,8 +48,8 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping, Sequence
-from datetime import datetime
-from typing import TYPE_CHECKING
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from scout.calendar import in_active_hours
 from scout.clock import et_date, parse_iso, to_et
@@ -57,7 +64,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from scout.coverage_seed import FeedSeed
 
 __all__ = ["GOOD_RESULTS", "CoverageTracker", "HealthWriter", "board_state", "gap_limit_s", "in_hour_turn",
-           "spacing_in_force", "status_for"]
+           "recorded_spacing", "spacing_in_force", "status_for"]
 
 GOOD_RESULTS = frozenset({"ok", "not_modified"})
 _UNAVAILABLE = frozenset({"schema", "no_http", "too_large", "host_cap"})
@@ -87,19 +94,32 @@ def in_hour_turn(now: datetime, cfg: ScoutConfig) -> bool:
     return minute >= start or minute < end  # the window wraps the hour, e.g. :58 to :05
 
 
-def spacing_in_force(src: SourceConfig, now: datetime, cfg: ScoutConfig) -> float:
-    """`min_spacing_s` inside `active_hours_et`, `idle_spacing_s` outside (0 = the same); for a
-    source in `hour_turn_sources`, at most `hour_turn_spacing_s` around the hour (`in_hour_turn`).
-    Validation keeps `hour_turn_spacing_s` at or above the host's hard minimum (scout.http); a
-    larger configured `host_min_spacing_s` for the source's host also bounds it here, so the job
-    never polls faster than the fetcher sends (it would sleep inside the one loop) and each health
-    record stores the spacing really kept (0.2.2 review)."""
-    if src.idle_spacing_s and not in_active_hours(now, cfg):
-        return float(src.idle_spacing_s)
+def spacing_in_force(src: SourceConfig, now: datetime, cfg: ScoutConfig, pace: Any = None,
+                     feed: str | None = None) -> float:
+    """`min_spacing_s` inside `active_hours_et`, `idle_spacing_s` outside (0 = the same); with `pace`
+    (`scout.pace.Pace`), the paced spacing of `feed` (or, with no feed, of the source's fastest feed),
+    which is never faster than those; for a source in `hour_turn_sources`, at most
+    `hour_turn_spacing_s` around the hour (`in_hour_turn`). Validation keeps `hour_turn_spacing_s` at
+    or above the host's hard minimum (scout.http); a larger configured `host_min_spacing_s` for the
+    source's host also bounds it here, so the job never polls faster than the fetcher sends (it would
+    sleep inside the one loop) and each health record stores the spacing really kept (0.2.2 review)."""
+    base = float(src.idle_spacing_s if src.idle_spacing_s and not in_active_hours(now, cfg) else src.min_spacing_s)
+    if pace is not None:
+        base = pace.spacing(src, feed, now, base) if feed is not None else pace.source_spacing(src, now, base)
     if src.name in cfg.hour_turn_sources and in_hour_turn(now, cfg):
         kept = max((host_spacing_s(cfg, h) for h in src.allowed_hosts), default=0.0)
-        return min(float(src.min_spacing_s), max(float(cfg.hour_turn_spacing_s), kept))
-    return float(src.min_spacing_s)
+        return min(base, max(float(cfg.hour_turn_spacing_s), kept))
+    return base
+
+
+def recorded_spacing(src: SourceConfig, now: datetime, cfg: ScoutConfig, pace: Any = None,
+                     feed: str | None = None) -> float:
+    """The spacing a poll at `now` stores (0.2.4): the larger of the spacing in force now and the one
+    in force when the next poll falls due, so a switch to a slower spacing right after this poll is
+    no false gap. One look ahead suffices: the pace changes on the hour and no spacing is above an
+    hour, so a switch to a faster spacing in between only brings the next poll earlier."""
+    first = spacing_in_force(src, now, cfg, pace, feed)
+    return max(first, spacing_in_force(src, now + timedelta(seconds=first), cfg, pace, feed))
 
 
 def gap_limit_s(cfg: ScoutConfig, spacing_s: float) -> float:
@@ -138,8 +158,10 @@ class _Feed:
 
 
 class CoverageTracker:
-    def __init__(self, cfg: ScoutConfig, seeds: Mapping[tuple[str, str], FeedSeed] | None = None) -> None:
+    def __init__(self, cfg: ScoutConfig, seeds: Mapping[tuple[str, str], FeedSeed] | None = None,
+                 pace: Any = None) -> None:
         self.cfg = cfg
+        self.pace = pace  # scout.pace.Pace: the schedules' spacing per feed (None: the fixed spacing)
         self._feeds: dict[tuple[str, str], _Feed] = {}
         self._seeds = dict(seeds or {})
 
@@ -178,7 +200,7 @@ class CoverageTracker:
         `page_size` is the number of entries on the page when it differs from len(guids)."""
         state = self._feed(src.name, feed)
         outcome = result or fetch.result
-        spacing = spacing_in_force(src, now, self.cfg)
+        spacing = recorded_spacing(src, now, self.cfg, self.pace, feed)
         start = parse_iso(fetch.started_at) or now
         good = outcome in GOOD_RESULTS
         overlap: bool | None = None
@@ -222,13 +244,17 @@ class CoverageTracker:
         return rec
 
     def gap_open(self, source: str, now: datetime | None = None) -> bool:
-        feeds = [self._feeds[k] for k in self._feeds if k[0] == source and k[1].upper() not in PERIODIC_FORMS]
+        feeds = [(k[1], self._feeds[k]) for k in self._feeds if k[0] == source and k[1].upper() not in PERIODIC_FORMS]
         if not feeds:
             return True
-        for state in feeds:
+        src = self.cfg.sources.get(source)
+        for feed, state in feeds:
             if state.last is None or state.last.gap_before or state.last.result not in GOOD_RESULTS:
                 return True
-            if now is not None and state.anchor is not None and \
-                    (now - state.anchor).total_seconds() > gap_limit_s(self.cfg, state.spacing_s):
-                return True
+            if now is not None and state.anchor is not None:
+                spacing = state.spacing_s
+                if src is not None:  # the next poll comes at the spacing in force now (as the reader allows)
+                    spacing = max(spacing, spacing_in_force(src, now, self.cfg, self.pace, feed))
+                if (now - state.anchor).total_seconds() > gap_limit_s(self.cfg, spacing):
+                    return True
         return False

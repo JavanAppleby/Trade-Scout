@@ -382,6 +382,12 @@ files Scout already writes.
 
 **`scout/jobs_wire.py`**: `build_jobs(ctx) -> list[Job]`: `edgar_tickers` (daily 03:50 ET and at
 start), `edgar_atom` (`EveryJob` with the source's spacings), and one job per source of kind `wire` (`prnewswire`, `stocktitan`).
+Since 0.2.4 every one of them runs at the polling pace (`ctx.pace()`, section 21): the wires'
+`interval_fn` and the EDGAR job's (`EdgarAtomPoller.interval_at`, its fastest form) ask
+`health.spacing_in_force(src, now, cfg, pace, feed)`, and a cycle polls only the forms that are due.
+
+**`scout/pace.py`**, **`scout/jobs_pace.py`**, **`scout/config_pace.py`**, **`scout/brief_pace.py`**
+(owner, 2026-11-10; 0.2.4): the polling pace, section 21.
 
 ### 2.3 Layer 1: halts, macro and regime (unit `macro`)
 
@@ -1014,6 +1020,12 @@ Files: `format, file ("<channel>/<name>"), channel, size, mtime_ns, sha256, capt
 lines, posts_new, posts_repeat, rejects`. Rejects: `format, at, file, channel, line, reason,
 message_id`. The capture files themselves are `docs/INBOX.md` section 3.
 
+### 5.12 Pace plan (`state\pace\<ET date>.jsonl`; 0.2.4, section 21)
+`format, first_seen_at, lookback_from, factor, lookback_days, min_hours, page_fill, feeds` (a list of
+{`source, feed, max_items, wanted_s, polled_h, polls, hits, max_new`}, each list 25 values: ET hours
+0-23 of a trading day, then closed days; `wanted_s` null for an hour polled less than `min_hours`).
+Scout's own file: no reader reads it (`scout.paths.PACE`, not in `scout_reader.records`).
+
 ## 6. Configuration (`config.toml`; `config.example.toml` documents every key)
 
 Top-level keys must come before tables. Types: str, int, float, bool, list[str], time "HH:MM",
@@ -1202,6 +1214,22 @@ the reader ignores any source the params do not name.
 
 Every channel list must be a subset of `discord_channels`; channel names are lower case.
 
+### 6.10 The polling pace (`[pace]`; owner, 2026-11-10; section 21)
+| Key | Type | Default |
+|---|---|---|
+| pace.enabled | bool | true (false: every source at its fixed spacing, as before 0.2.4) |
+| pace.factor | float | 0.5 (0.05 to 1.0) |
+| pace.lookback_days | int | 7 (2 to 60) |
+| pace.recalc_time_et | time | "03:30" |
+| pace.min_hours | float | 2.0 (0.25 to 1000) |
+| pace.page_fill | float | 0.5 (0.05 to 1.0) |
+| [pace.slowest_active_s] | table "source" or "source:FORM" -> float | "edgar_atom" 300; "edgar_atom:NT 10-Q", ":NT 10-K", ":10-Q", ":10-K" 1800; "prnewswire" 120; "stocktitan" 120 |
+| [pace.slowest_idle_s] | table, as above | "edgar_atom", "prnewswire", "stocktitan" 1800 |
+
+Each value 0 (not paced) or 30 to 3600; only wire and filing sources; a form must be one of
+`edgar_atom_forms` (a default line for a form not polled is unused). A table given in config.toml
+replaces the default table.
+
 ## 7. Facts, health and coverage flow (one poll)
 1. The job's `due(now)` uses the source's spacing for `now` (`health.spacing_in_force`:
    `active_hours_et`, and for `hour_turn_sources` the hour turn). `run_due` asks each job at the
@@ -1221,8 +1249,9 @@ levels file), `write_params`, then the loop of section 2.1. Jobs (owner unit):
 | Job | When | Unit |
 |---|---|---|
 | edgar_tickers | start, daily 03:50 ET | wire |
-| edgar_atom | 60 s 04:00-20:00 ET, 600 s otherwise; the due wire jobs run between its form requests (0.2.2) | wire |
-| prnewswire, stocktitan (every source of kind wire) | 60 s (stocktitan 600 s 20:00-04:00 ET); prnewswire 30 s from :58 to :05 ET inside 04:00-20:00 ET (0.2.2) | wire |
+| pace_start, pace | at start when the saved plan is stale; daily at `pace.recalc_time_et` (03:30 ET), closed days too (0.2.4, section 21) | pace |
+| edgar_atom | 60 s 04:00-20:00 ET, 600 s otherwise; the due wire jobs run between its form requests (0.2.2); since 0.2.4 each form at its pace (section 21) | wire |
+| prnewswire, stocktitan (every source of kind wire) | 60 s (stocktitan 600 s 20:00-04:00 ET); prnewswire 30 s from :58 to :05 ET inside 04:00-20:00 ET (0.2.2); since 0.2.4 at their pace (section 21) | wire |
 | nasdaq_halts | 60 s 04:00-20:00 ET (the job is checked every 1 s; the poller keeps the 60 s from the real send); once after 20:00 ET with `haltdate` | macro |
 | nowflation | start; 08:20 ET; 08:50 ET on release days (at most 10 requests a day) | macro |
 | bls | start, then every `[sources.bls] min_spacing_s` | macro |
@@ -1667,3 +1696,90 @@ Nov 31 of its intervals were over 180 s (the longest 307 s), so an open halt can
 a few minutes late; passing the halts job to `between()` is the same one-thread mechanism and
 needs the owner's decision. PR Newswire bursts at half-hour release times (3 Nov 13:31 UTC) are
 outside the :58-:05 window.
+
+## 21. Polling pace (owner, 2026-11-10; 0.2.4)
+
+The owner: "Slow Scout down by a factor based on how frequent each source has updated data - and
+continue to monitor and adjust timings as time goes on." SCOUT_SPEC 6.5 is the contract.
+
+**Measured first** (the live install's health records, 2-9 Nov 2026; each poll records `new_items`):
+- EDGAR releases nothing new from about 18:00 to 06:00 ET (filings after 17:30 are disseminated at
+  06:00, where every form has a burst), yet every form was polled every 60 s until 20:00 and every
+  10 minutes overnight. F-1, F-3, NT 10-Q, NT 10-K, EFFECT, S-1 and 10-K found something new in under
+  3 % of polls; 8-K in 24 % before the open, 8 % in regular hours, 28 % after the close; 424B (banks'
+  notes) in 61 % of regular-hours polls.
+- PR Newswire found something new in 35-38 % of polls by day, 14 % at night, 3 % on closed days, and
+  overflowed its 20-item page at the top of busy hours on most days, even at 30 s (8:00, 9:00, 10:00
+  ET), and at 21:22 and 21:29 ET on 5 Nov. Stock Titan's 100-item page overflowed at 16:06 and 16:07
+  ET on 4 and 5 Nov.
+- Halts cluster in regular hours: polls finding a new halt about 13 times a day in each of the 09:00
+  and 10:00 ET hours, about twice a day before 09:00 and twice after 16:00. Radar's 210 signals of 4-9 Nov all had Scout `unknown`; the only bad-news facts near any of
+  them were LULD pauses (MF paused 9 minutes after its signal; CRIS and AEHL within 2-4 hours).
+- A wire item reaches Scout a median 154 s (PR Newswire) and 116 s (Stock Titan) after it is
+  published, an EDGAR filing about 60 s after acceptance, at today's 60 s polls.
+
+**Modules.**
+- `scout/pace.py`: `slot_of(at)` (ET hour 0-23 on a trading day, `CLOSED` = 24 otherwise);
+  `measure(records, start, end, sources) -> {(source, feed): FeedPolls}` (good polls in time order,
+  per slot the polled time, polls, polls with new items and the largest one; `busiest(slot, s)`, the
+  most new items within s seconds ending at a poll of the slot); `wanted_spacing` (`factor` x the
+  polled time per poll with new items, rounded down; the page guard binary-searches `GRID_S` for the
+  largest spacing whose `busiest` fits in `page_fill` x `max_items`); `build_plan` -> `PacePlan` of
+  `FeedPlan`s (record 5.12); `Pace`: `spacing(src, feed, now, fixed)` clamps the wanted spacing
+  between `fixed` and the feed's slowest (`PaceConfig.slowest`), `source_spacing` (the fastest
+  feed), `stale(now)`, `recalc(now)` (reads the lookback's health day files, appends the plan);
+  `load_latest(paths, as_of=None)` (newest readable plan, as-of rule for the brief; never raises).
+- `scout/jobs_pace.py`: `pace_start` (at start, when the plan is missing, more than 26 hours old, from
+  the future, or made with other `[pace]` settings; it steps aside when the daily job is due on the
+  same tick) and `pace` (`DailyJob` at `recalc_time_et`, closed days too; seeded from the saved
+  plan's time so a restart after 03:30 does not read again). First in `scout.app.JOB_MODULES`.
+- `scout/config_pace.py`: `PaceConfig`, `pace_from_table`, `validate_pace` (6.10).
+- `scout/brief_pace.py`: `sec_pace`, after "Source health": per feed the spacing by hour (listed from
+  the start of active hours), closed days, the fixed spacing and the hit rate; the requests a trading
+  day now and at the fixed spacing; what is not paced. "No pace worked out yet" before the first plan.
+- `health.spacing_in_force(src, now, cfg, pace=None, feed=None)`: the fixed spacing, then the pace,
+  then the hour turn (unchanged). `health.recorded_spacing`: the larger of the spacing now and the
+  one when the next poll falls due (below). `CoverageTracker(cfg, seeds, pace)` records it, and
+  `gap_open` allows the larger of a feed's recorded spacing and its spacing now.
+- `EdgarAtomPoller(..., pace)`: `interval_at(now)` (the fastest form, the job's `interval_fn`), a cycle
+  polls the forms whose own spacing has passed since the cycle they were last polled in (a clock
+  step back of more than `CLOCK_STEP_BACK_S` makes them due), and the status and `last_ok` come from
+  every form's latest result. Without a pace every cycle polls every form, as before.
+- `AppContext.pace()` builds the one `Pace` and sets `board.pace`; `heartbeat._aged` ages a source by
+  the larger of its spacing now and the recorded spacing at its `last_ok`.
+
+**Choices.**
+- **By ET hour, not by session:** EDGAR's dead hours (04:00-06:00 and 18:00-20:00 inside active
+  hours) and its 06:00 burst fall inside sessions. A switch to a faster hour takes effect at once
+  (the job asks its interval at every tick), so the 06:00 burst is read at 06:00.
+- **`factor` 0.5:** when new items arrive at random, polling every 0.5 x the measured gap settles
+  where about half the polls find something new (at about 0.7 x the mean time between items), from
+  any start, within a day or two; a factor of 1 or more would drift every quiet hour to the slowest
+  allowed. A busy hour (most polls find something) stays at the fixed spacing.
+- **The page guard counts items within a window, not a rate:** one new item in a 60 s poll is not a
+  rate of one a minute; counting the items seen within a window of the candidate spacing keeps an
+  hour with a real burst fast and lets an hour with a release now and then slow down.
+- **Never faster than before** (`min_spacing_s` / `idle_spacing_s` stay the floor); the hour turn
+  stays. **The slowest allowed** and why: SCOUT_SPEC 6.5 (halts never; wires 2 minutes and EDGAR
+  forms 5 minutes in trading hours, the gate-5-only forms 30 minutes; 30 minutes otherwise).
+- **Recorded spacing (also without pacing):** the gap rule allows 2 x the larger spacing of two
+  polls and 2 x the last poll's spacing at the end of a window. A poll just before a slow-down stored
+  the faster spacing, so the reader saw a `no_poll_at_end` gap until the next poll: about 7 minutes
+  after 20:00 ET every trading day before 0.2.4, and after every slower hour with the pace. One look
+  ahead suffices (the pace changes on the hour, no spacing exceeds an hour). Writer and reader use the
+  stored value, so they still agree.
+- **Old restart records:** polls after restarts before the 0.2.1 seed (2-4 Nov) show up to 100 new
+  items at once; they keep those hours at the fixed spacing until they leave the 7-day window (the
+  safe direction).
+
+**Measured effect** (the plan from the live records of 3-10 Nov): about 5,100 requests a trading day to
+the paced feeds instead of 14,500, and about 700 instead of 3,300 on a closed day. Recalculating
+reads about 35 MB of health records and takes about 2 seconds, once a day at 03:30 ET.
+
+**Not changed:** the halt feed (60 s in active hours), the macro and reference schedules (already at
+publication times or on demand), the inbox check (`inbox_poll_s`, local files only), and the Claude
+jobs (not sources; capped by cost). Seen while measuring and left for the owner (no change here): the
+after-20:00 ET dated halt read (`&haltdate=`) fails on every trading day ("no readable row ...
+unreadable time '09:30:17            '": that feed pads HaltTime with spaces, which `_TIME` refuses)
+and is tried again every 60 s until midnight ET, about 235 requests a night; its rows never reach the
+facts.

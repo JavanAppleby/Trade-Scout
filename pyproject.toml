@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scout"
-version = "0.2.3"
+version = "0.2.4"
 description = "Market-context bot for the owner's trading system. Gathers facts, answers true/false/unknown. Never trades."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"

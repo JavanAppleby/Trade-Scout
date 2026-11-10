@@ -321,6 +321,42 @@ max_items = 0
 gate6 = false
 terms_ok = true
 
+# Polling pace (owner, 2026-11-10): each paced feed (a wire, or one EDGAR form) is polled about every
+# factor x the typical time between its new items, worked out for each ET hour of a trading day (and once
+# for weekends and market holidays) from the last lookback_days of Scout's own poll records, and
+# recalculated every day at recalc_time_et (and at start when the saved pace is more than a day old or
+# was made with other settings here). Never faster than the source's min_spacing_s / idle_spacing_s
+# above, never slower than its line in the two tables below, and never so slow that the busiest poll
+# seen in that hour would fill more than page_fill of the feed's page (max_items). The daily brief's
+# "Polling pace" section shows each feed's pace. The halt feed is never paced (a halt block lasts only
+# as long as the halt), nor are the sources read at fixed times (nowflation, BLS, Cboe, SEC's ticker list).
+[pace]
+enabled = true            # false: every source keeps its fixed spacing (Scout before 0.2.4)
+factor = 0.5              # 0.5 = about two polls per typical gap between new items (0.05 to 1.0)
+lookback_days = 7         # ET days of poll records the pace is worked out from (2 to 60)
+recalc_time_et = "03:30"  # worked out again every day at this ET time
+min_hours = 2.0           # an hour polled less than this in the lookback keeps the fixed spacing
+page_fill = 0.5           # a burst like the busiest one seen may fill at most this share of a page
+
+# The slowest each feed may be polled inside active_hours_et on trading days, when Radar asks Scout
+# for blocks before a buy signal. "source" or "source:FORM" (one EDGAR form; a form's line wins);
+# 0 or no line = not paced; 30 to 3600 seconds. A table here replaces the whole default table.
+[pace.slowest_active_s]
+"edgar_atom" = 300.0           # filings that can block a buy (8-K, 424B, S-1, ...) usually follow a wire release: 5 min
+"edgar_atom:NT 10-Q" = 1800.0  # read for the evening hold answers (19:30 ET) only
+"edgar_atom:NT 10-K" = 1800.0
+"edgar_atom:10-Q" = 1800.0     # read for the evening gate-5 check only
+"edgar_atom:10-K" = 1800.0
+"prnewswire" = 120.0           # a wire release is usually the first notice of bad news: 2 min
+"stocktitan" = 120.0
+
+# ... and at every other time (nights, weekends, market holidays), when Radar asks for nothing.
+# 1800 s = source_overlap_max_gap_s, the longest pause one repeated item covers.
+[pace.slowest_idle_s]
+"edgar_atom" = 1800.0
+"prnewswire" = 1800.0
+"stocktitan" = 1800.0
+
 # Claude jobs (used only when llm_enabled = true). effort: low, medium, high or max.
 [llm.jobs.J1]   # headline labels
 enabled = true

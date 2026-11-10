@@ -17,6 +17,13 @@ logged and never stops the EDGAR cycle.
 
 Whether `type=424B` returns every 424B* form is UNVERIFIED (D6): the poller keeps every entry the
 page returns, whatever its form, and the fixture marks the shape as synthetic until a live capture.
+
+With the polling pace (`pace`, `scout.pace`; owner, 2026-11-10) each form has its own spacing: the
+job runs at the fastest form's spacing (`interval_at`) and a cycle polls only the forms whose own
+spacing has passed since their last poll, so a quiet form (F-3, NT 10-K) is read every few minutes
+while 8-K stays at 60 s. The source's status and `last_ok` come from every form's latest result, so
+a form that failed and is not due again keeps the source from reading "ok". Without a pace every
+cycle polls every form (the behaviour before 0.2.4).
 """
 
 from __future__ import annotations
@@ -25,14 +32,16 @@ import logging
 import urllib.parse
 from collections.abc import Callable
 from datetime import datetime
+from typing import Any
 
 from scout.clock import Clock, iso
 from scout.config import ScoutConfig
 from scout.edgar_parse import AtomEntry, SchemaError, filing_class, parse_getcurrent_atom
 from scout.facts import make_fact_id
-from scout.health import CoverageTracker, board_state, status_for
+from scout.health import GOOD_RESULTS, CoverageTracker, board_state, spacing_in_force, status_for
 from scout.interfaces import FactSink, Fetcher, HealthSink, RawSink, StatusBoard, TickerMap
 from scout.models import Fact
+from scout.scheduler import CLOCK_STEP_BACK_S
 
 __all__ = ["SOURCE", "EdgarAtomPoller", "form_url"]
 
@@ -47,20 +56,43 @@ def form_url(template: str, form: str) -> str:
 class EdgarAtomPoller:
     def __init__(self, cfg: ScoutConfig, fetcher: Fetcher, raw: RawSink, facts: FactSink, health: HealthSink,
                  board: StatusBoard, ticker_map: TickerMap, clock: Clock, *, tracker: CoverageTracker | None = None,
-                 log: logging.Logger | None = None, between: Callable[[], object] | None = None) -> None:
+                 log: logging.Logger | None = None, between: Callable[[], object] | None = None,
+                 pace: Any = None) -> None:
         self.cfg = cfg
         self.src = cfg.source(SOURCE)
         self.fetcher, self.raw, self.facts, self.health, self.board = fetcher, raw, facts, health, board
         self.ticker_map = ticker_map
         self.clock = clock
-        self.tracker = tracker or CoverageTracker(cfg)
+        self.tracker = tracker or CoverageTracker(cfg, pace=pace)
         self.log = log or logging.getLogger("scout.edgar_atom")
         self.between = between
+        self.pace = pace
         self.last_ok: str | None = None
         self.last_error: str | None = None
         # Forms whose last 200 page was not fully read: the fetcher may keep its ETag, so the next
         # request for them goes without validators (0.2.2 review).
         self.refetch_full: set[str] = set()
+        self.last_polled: dict[str, datetime] = {}  # the cycle time each form was last polled at (paced)
+        self.form_results: dict[str, str] = {}  # each form's latest result
+
+    def spacing(self, form: str, now: datetime) -> float:
+        """One form's spacing at `now` (its pace, or the source's fixed spacing)."""
+        return spacing_in_force(self.src, now, self.cfg, self.pace, form)
+
+    def interval_at(self, now: datetime) -> float:
+        """How often the cycle runs: the fastest form's spacing at `now` (the job's `interval_fn`)."""
+        return min((self.spacing(f, now) for f in self.cfg.edgar_atom_forms), default=float(self.src.min_spacing_s))
+
+    def _due(self, form: str, now: datetime) -> bool:
+        """Paced: the form's own spacing has passed since the cycle it was last polled in (a clock
+        step back of more than `CLOCK_STEP_BACK_S` makes it due, as for any job). Not paced: always."""
+        last = self.last_polled.get(form)
+        if self.pace is None or last is None:
+            return True
+        elapsed = (now - last).total_seconds()
+        if elapsed < 0:
+            return -elapsed > CLOCK_STEP_BACK_S
+        return elapsed >= self.spacing(form, now) - 1e-6
 
     def _publish(self, status: str, now: datetime) -> None:
         self.board.update(SOURCE, board_state(self.src.enabled, status, self.last_ok, self.last_error,
@@ -71,7 +103,8 @@ class EdgarAtomPoller:
         return bool(ready()) if callable(ready) else True
 
     def poll(self, now: datetime) -> int:
-        """Poll every configured form once; returns the number of new facts."""
+        """Poll every configured form that is due (every form when not paced); returns the number of
+        new facts."""
         if not self.src.enabled:
             self._publish("disabled", now)
             return 0
@@ -80,11 +113,14 @@ class EdgarAtomPoller:
             self.log.info("edgar_atom: skipped (%s)", self.last_error)
             self._publish("stale", now)
             return 0
-        results: list[str] = []
-        added = 0
-        for i, form in enumerate(self.cfg.edgar_atom_forms):
-            if i and self.between is not None:
+        added = polled = 0
+        for form in self.cfg.edgar_atom_forms:
+            if not self._due(form, now):
+                continue
+            if polled and self.between is not None:
                 self._yield()
+            polled += 1
+            self.last_polled[form] = now
             try:
                 got, result = self._poll_form(form, now)
             except Exception as exc:  # noqa: BLE001 - one form's failure never stops the later forms
@@ -92,10 +128,11 @@ class EdgarAtomPoller:
                 self.log.warning("edgar_atom %s: poll failed (%s)", form, type(exc).__name__)
                 got, result = 0, "network"
             added += got
-            results.append(result)
-        if all(r in ("ok", "not_modified") for r in results):
+            self.form_results[form] = result
+        latest = [self.form_results[f] for f in self.cfg.edgar_atom_forms if f in self.form_results]
+        if polled and all(r in GOOD_RESULTS for r in latest):
             self.last_ok = iso(self.clock.now())
-        self._publish(status_for(results), now)
+        self._publish(status_for(latest), now)
         return added
 
     def _yield(self) -> None:

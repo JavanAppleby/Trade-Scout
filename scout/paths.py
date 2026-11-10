@@ -18,7 +18,9 @@ from scout_reader import records as R
 if TYPE_CHECKING:  # pragma: no cover
     from scout.config import ScoutConfig
 
-__all__ = ["OwnFolderError", "ScoutPaths", "is_within", "overlaps"]
+__all__ = ["PACE", "OwnFolderError", "ScoutPaths", "is_within", "overlaps"]
+
+PACE = "state/pace"  # the polling pace plans (owner, 2026-11-10); not a reader file, so not in scout_reader.records
 
 
 class OwnFolderError(RuntimeError):
@@ -148,6 +150,11 @@ class ScoutPaths:
     def verify(self) -> Path:
         return self.root / R.VERIFY
 
+    @property
+    def pace(self) -> Path:
+        """The polling pace plans, `<ET date>.jsonl` (scout.pace; Scout's own, no reader reads them)."""
+        return self.root / PACE
+
     # ------------------------------------------------------------------ files
 
     @property
@@ -198,5 +205,5 @@ class ScoutPaths:
         for folder in (self.state, self.logs, self.reports, self.inbox_jason, self.inbox_discord, self.discord,
                        self.levels, self.facts,
                        self.health, self.answers, self.labels, self.llm, self.macro, self.raw, self.beats,
-                       self.edgar_due, self.jason, self.verify):
+                       self.edgar_due, self.jason, self.verify, self.pace):
             self.writable(folder).mkdir(parents=True, exist_ok=True)

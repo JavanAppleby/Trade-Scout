@@ -10,10 +10,11 @@ sources, and append a stopped beat, so no reader accepts a crashed or finished r
 Nothing here raises: a failed write is logged once per failure streak and retried next beat.
 
 Every beat ages the board (`SourceStatusBoard.states_at`): a polled feed (kind wire, filing or
-halt) whose `last_ok` is older than its gap limit (`health.gap_limit_s` of the spacing in force)
-is published with `gap_open: true`, so a beat written while the main loop is busy (the Pulse, below)
-never claims coverage the loop is not polling. The halt feed is aged inside `active_hours_et` only,
-the hours it is polled.
+halt) whose `last_ok` is older than its gap limit (`health.gap_limit_s` of the spacing in force,
+or of the one the poll after `last_ok` was due at when that is slower; with the polling pace,
+`board.pace`, the source's fastest paced feed) is published with `gap_open: true`, so a beat written
+while the main loop is busy (the Pulse, below) never claims coverage the loop is not polling. The
+halt feed is aged inside `active_hours_et` only, the hours it is polled.
 
 `Pulse` keeps the beat going while one job runs long (a host that accepts connections but does not
 answer, a slow Claude call): a daemon thread writes a live beat whenever one is due, but only after
@@ -32,7 +33,7 @@ from scout import __version__
 from scout.calendar import calendar_covers, in_active_hours
 from scout.clock import Clock, et_date, iso, parse_iso
 from scout.config import ScoutConfig
-from scout.health import gap_limit_s, spacing_in_force
+from scout.health import gap_limit_s, recorded_spacing, spacing_in_force
 from scout.models import Beat, HeartbeatBody, SourceState
 from scout.paths import ScoutPaths
 from scout.store import append_jsonl, atomic_write_json
@@ -53,6 +54,7 @@ class SourceStatusBoard:
         }
         self.llm: dict[str, Any] = {"enabled": cfg.llm_enabled, "spent_today_usd": 0.0, "cap_reached": False}
         self.levels: dict[str, Any] = {"current_files": [], "expires": None}
+        self.pace: Any = None  # scout.pace.Pace, set by AppContext.pace(): the aging uses the paced spacing
 
     def update(self, source: str, state: SourceState) -> None:
         self.sources[source] = state
@@ -67,13 +69,13 @@ class SourceStatusBoard:
     def states_at(self, now: datetime) -> dict[str, SourceState]:
         """The sources as a beat at `now` publishes them: a polled feed whose last good poll is older
         than its gap limit gets `gap_open: true` (see the module doc)."""
-        return {n: _aged(self.cfg, n, s, now) for n, s in sorted(self.sources.items())}
+        return {n: _aged(self.cfg, n, s, now, self.pace) for n, s in sorted(self.sources.items())}
 
 
 AGED_KINDS = frozenset({"wire", "filing", "halt"})
 
 
-def _aged(cfg: ScoutConfig | None, name: str, state: SourceState, now: datetime) -> SourceState:
+def _aged(cfg: ScoutConfig | None, name: str, state: SourceState, now: datetime, pace: Any = None) -> SourceState:
     if cfg is None or state.gap_open or state.status != "ok":
         return state
     src = cfg.sources.get(name)
@@ -82,8 +84,10 @@ def _aged(cfg: ScoutConfig | None, name: str, state: SourceState, now: datetime)
     if src.kind == "halt" and not in_active_hours(now, cfg):
         return state
     last = parse_iso(state.last_ok) if state.last_ok else None
-    if last is not None and (now - last).total_seconds() <= gap_limit_s(cfg, spacing_in_force(src, now, cfg)):
-        return state
+    if last is not None:
+        spacing = max(spacing_in_force(src, now, cfg, pace), recorded_spacing(src, last, cfg, pace))
+        if (now - last).total_seconds() <= gap_limit_s(cfg, spacing):
+            return state
     return SourceState(enabled=state.enabled, status=state.status, last_ok=state.last_ok,
                        last_error=state.last_error, gap_open=True)
 
