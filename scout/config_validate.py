@@ -51,7 +51,7 @@ _RANGES: tuple[tuple[str, float, float], ...] = (
     ("j1_batch_size", 1, 200), ("j1_interval_s", 10, 86400), ("j3_no_fact_after_s", 0, 86400),
     ("llm_timeout_s", 1, 1800), ("web_search_usd_per_1000", 0, 1000), ("verify_days", 1, 365),
     ("verify_sample_size", 1, 1000), ("heartbeat_interval_s", 5, 60), ("loop_interval_s", 0.2, 10),
-    ("scout_webull_budget_per_min", 0, 60), ("ticker_map_retry_s", 60, 86400),
+    ("scout_webull_budget_per_min", 0, 60), ("ticker_map_retry_s", 60, 86400), ("halts_dated_retry_s", 60, 14400),
     ("levels_long_horizon_sessions", 1, 260), ("inbox_poll_s", 5, 3600), ("discord_text_max_chars", 100, 100000),
     ("discord_image_text_max_chars", 100, 100000), ("discord_max_post_age_days", 1, 60),
     ("discord_posted_at_tolerance_s", 0, 3600), ("discord_schedule_max_ahead_days", 1, 60),

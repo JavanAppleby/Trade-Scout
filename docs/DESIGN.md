@@ -397,16 +397,22 @@ Since 0.2.4 every one of them runs at the polling pace (`ctx.pace()`, section 21
 ### 2.3 Layer 1: halts, macro and regime (unit `macro`)
 
 **`scout/halts.py`**: `parse_halts(body: bytes) -> list[HaltRow]` and `parse_halts_rows(body) ->
-(rows, skipped reasons)` (BOM stripped; `ndaq` namespace; Market stored as received, any non-empty
-text, or None when missing (owner, 2026-11-04); HaltTime ET with optional fractional seconds;
-`pubDate` ignored; no order assumed; empty `ResumptionTradeTime` = still halted; a bad row is skipped
+(rows, skipped reasons)` (BOM stripped; `ndaq` namespace; every field matched stripped and stored as
+received in `HaltRow.row`, padding included (0.3.1); Market stored as received, any non-empty text,
+or None when missing (owner, 2026-11-04), the dated feed's `Mkt` when there is no Market (0.3.1);
+HaltTime ET with optional fractional seconds, spaces allowed between the seconds and the fraction
+and left out of `HaltRow.halt_time` and the key (`_unpadded`; the dated feed, section 23); `pubDate`
+ignored; no order assumed; empty `ResumptionTradeTime` = still halted; a bad row is skipped
 and counted, the poll logs a warning per row and writes "skipped N bad row(s): ..." in its health
-record's `error` while staying `ok`; raises `SchemaError` on feed drift or when no row is readable);
+record's `error` while staying `ok`; an unreadable time shows its first 40 characters; raises
+`SchemaError` on feed drift or when no row is readable);
 `class HaltPoller(...)`, `poll(now) -> int` (facts `kind = "halt"`, guid = symbol|HaltDate|HaltTime;
 a later row with a resumption writes a new fact with `resumed_at`; the after-20:00 ET
-`&haltdate=MMDDYYYY` read once per day). Hard minimum 60 s spacing in code. A halt or resumption is
-marked seen only after its fact is stored; a failed write raises, and the next read is unconditional
-(no 304) so the row is tried again.
+`&haltdate=MMDDYYYY` read once per day, `dated_read(now)`: done after a good result, a failed one
+tried again after `halts_dated_retry_s` (900 s; 0.3.1), and it writes nothing for a row with no
+resumption, so it never adds an open halt (section 23)). Hard minimum 60 s spacing in code. A halt
+or resumption is marked seen only after its fact is stored; a failed write raises, and the next read
+is unconditional (no 304) so the row is tried again.
 
 **`scout/nowflation.py`**: `parse_release_calendar(body) -> NowCalendar`, `parse_realtime(body) ->
 NowRealtime`, `parse_forecasts(body) -> NowForecasts`, `parse_ics(body) -> list[IcsEvent]`
@@ -1065,6 +1071,7 @@ date "YYYY-MM-DD". Values marked * are this design's additions beyond SS 13.
 | seen_guid_cap * | int | 5000 |
 | fact_dedupe_days | int | 7 |
 | ticker_map_retry_s * | int | 600 (a failed read of SEC's ticker list is retried after this; added at integration) |
+| halts_dated_retry_s * | int | 900 (0.3.1: a failed evening dated halt read is tried again after this; 60-14400; section 23) |
 | edgar_atom_forms * | list[str] | ["8-K", "6-K", "S-1", "S-3", "F-1", "F-3", "424B", "EFFECT", "NT 10-Q", "NT 10-K", "10-Q", "10-K"] (10-Q and 10-K for the gate-5 check only; periodic forms are left out of `gate6_feeds`) |
 | ticker_exchange_prefixes | list[str] | ["NASDAQ", "Nasdaq", "NYSE", "NYSE American", "NYSE MKT", "NYSE Arca", "OTCQB", "OTCQX", "OTC", "Cboe BZX"] |
 | wire_title_ticker_suffixes | list[str] | ["Stock News"] (a wire title ending "\| XXX Stock News" names XXX; Stock Titan) |
@@ -1085,7 +1092,7 @@ Keys: `enabled` (bool), `kind` (str: wire, filing, reference, halt, macro, vix),
 | edgar_tickers | true | reference | https://www.sec.gov/files/company_tickers_exchange.json | 86400 / 86400 | www.sec.gov | 0 | false |
 | prnewswire | true | wire | https://www.prnewswire.com/rss/news-releases-list.rss | 60 / 60 | www.prnewswire.com | 20 | true |
 | stocktitan | true | wire | https://www.stocktitan.net/rss | 60 / 600 | www.stocktitan.net | 100 | true |
-| nasdaq_halts | true | halt | https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts | 60 / 0 (not polled 20:00-04:00 except the one dated read) | www.nasdaqtrader.com | 0 | false |
+| nasdaq_halts | true | halt | https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts | 60 / 0 (not polled 20:00-04:00 except the one dated read; a failed one again after `halts_dated_retry_s`) | www.nasdaqtrader.com | 0 | false |
 | nowflation | true | macro | https://nowflation.com, paths ["/data/release_calendar.json", "/data/realtime.json", "/forecasts/index.json", "/nowflation.ics"] | schedule-driven | nowflation.com | 0 | false |
 | bls | true | macro | https://www.bls.gov/schedule/news_release/bls.ics (UNVERIFIED path; confirm at build step 2) | 604800 | www.bls.gov | 0 | false |
 | cboe_vix | true | vix | https://cdn-api.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv | 86400 | cdn-api.cboe.com | 0 | false |
@@ -1257,7 +1264,7 @@ levels file), `write_params`, then the loop of section 2.1. Jobs (owner unit):
 | pace_start, pace | at start when the saved plan is stale; daily at `pace.recalc_time_et` (03:30 ET), closed days too (0.2.4, section 21) | pace |
 | edgar_atom | 60 s 04:00-20:00 ET, 600 s otherwise; the due wire jobs run between its form requests (0.2.2); since 0.2.4 each form at its pace (section 21) | wire |
 | prnewswire, stocktitan (every source of kind wire) | 60 s (stocktitan 600 s 20:00-04:00 ET); prnewswire 30 s from :58 to :05 ET inside 04:00-20:00 ET (0.2.2); since 0.2.4 at their pace (section 21) | wire |
-| nasdaq_halts | 60 s 04:00-20:00 ET (the job is checked every 1 s; the poller keeps the 60 s from the real send); once after 20:00 ET with `haltdate` | macro |
+| nasdaq_halts | 60 s 04:00-20:00 ET (the job is checked every 1 s; the poller keeps the 60 s from the real send); once after 20:00 ET with `haltdate`, a failed one again every `halts_dated_retry_s` (15 min) until midnight ET (0.3.1, section 23) | macro |
 | nowflation | start; 08:20 ET; 08:50 ET on release days (at most 10 requests a day) | macro |
 | bls | start, then every `[sources.bls] min_spacing_s` | macro |
 | fomc | start, then daily (the table in config) | macro |
@@ -1787,7 +1794,7 @@ jobs (not sources; capped by cost). Seen while measuring and left for the owner 
 after-20:00 ET dated halt read (`&haltdate=`) fails on every trading day ("no readable row ...
 unreadable time '09:30:17            '": that feed pads HaltTime with spaces, which `_TIME` refuses)
 and is tried again every 60 s until midnight ET, about 235 requests a night; its rows never reach the
-facts.
+facts. Fixed in 0.3.1 (section 23).
 
 ## 22. Thesis reads (owner, 2026-11-10 and 2026-11-11; 0.3.0)
 
@@ -1859,3 +1866,65 @@ The reads calls' ledger records are in `state\reads\ledger\<ET date>.jsonl`, sha
   rebuilt thesis does not have it, and the reread prompt goes without it.
 - The answer schemas carry no `description` keywords: the structured-output reference does not list
   them, and the system prompt states every bound.
+
+## 23. The evening dated halt read (owner, 2026-11-10; 0.3.1)
+
+Found while measuring for section 21: the after-20:00 ET `&haltdate=` read failed on every trading
+day since it was built, was tried every 60 s until midnight ET (about 235 requests to
+www.nasdaqtrader.com a night) and left `nasdaq_halts` `unavailable` on the heartbeat overnight. SCOUT_SPEC
+4.1 #6, 6.3, 7.5, 7.8, 12 and 13 are the contract.
+
+**What the dated feed is** (one read of `&haltdate=11092026` on 2026-11-10, between two of the live
+install's own polls, compared with the live install's facts of 9 Nov):
+- The day's halts only (HaltDate that day): 89 rows, the 89 halts the live polls had stored with a
+  9 Nov HaltDate. The live feed also lists older halts still open, and older halts that resumed that
+  day; the dated feed does not.
+- The same fields as the live feed in another order (IssueSymbol, IssueName, Mkt, ReasonCode,
+  PauseThresholdPrice, HaltDate, HaltTime, ResumptionDate, ResumptionQuoteTime, ResumptionTradeTime),
+  with `Mkt` (a letter: Q, N) for Market, and HaltTime padded between the seconds and the fraction:
+  "09:30:17" + 22 spaces + ".816" where the live feed has "09:30:17.816". The other fields are not
+  padded there (the description's HTML cells are). Empty fields are self-closing, as in the live feed.
+- Resumptions exactly as the live feed showed them at its last read of the day: the same
+  ResumptionDate and ResumptionTradeTime for the 86 halts that had resumed, and none for the 3 still
+  halted at 20:00 ET (SWAGW T12, NCI T1, OFAL T1; all three also open in the live feed at 19:59 and at
+  04:00 the next day).
+- Why it failed: `_row` already stripped every field, but the padding sits inside the time, and the
+  error showed only `text[:20]`, the time and 12 of its 22 spaces, so the fraction after them was not
+  seen. On 2 and 3 Nov the same read had failed for the missing Market (the dated feed says `Mkt`),
+  allowed since 0.2.0.
+
+**Parser** (`scout/halts.py`): `_TIME` allows spaces between the seconds and the fraction only;
+`_unpadded` removes them for `HaltRow.halt_time` and the key, so a dated row has the live row's key
+(all 89 of 9 Nov did). Every field is matched stripped; `HaltRow.row` (stored in `extra.row`) keeps
+the text as received, padding included (before 0.3.1 it kept the stripped text; the live feed's fields
+carry no padding, so its stored rows do not change). `Mkt` is the market when there is no Market. An
+unreadable time shows 40 characters. Checked on the live install's saved bodies: all 6,326 live bodies
+of 1-10 Nov (258,276 rows) give the same rows, keys, times and stored fields as before.
+
+**The dated read adds no open halt** (`HaltPoller._facts`): a dated row with no resumption writes
+nothing. Why: such a halt is still open, the live feed keeps listing it until it resumes (every halt
+open at the last live read of 4-9 Nov was listed again at 04:00 ET the next day), and the live polls
+record it and, later, its resumption under the live key. Were a dated copy ever stored under another
+key (a format change in either feed, say a time with or without its fraction), that copy would never
+see the resumption and `entry_blocks` would block the stock for up to 3 trading days
+(`halt_unresolved_since`), typically a stock halted at 19:50 ET for news that resumes the next morning,
+the kind Radar signals. With the rule the dated read adds only halts that ended and resumptions the live
+polls missed (Scout stopped, or the feed failing, until 20:00 ET), and can only end a halt on file,
+never start a block. Nothing is lost for Radar: it asks only from 04:00 ET, when the live feed
+records any open halt at its first poll.
+
+**Retries:** a failed dated read is tried again after `halts_dated_retry_s` (900 s; 60-14400), never
+sooner than the 60 s minimum: at most 16 requests between 20:00 ET and midnight when it keeps failing,
+instead of about 235. `dated_tried` lives in memory, so a restart tries at once.
+
+**Effect** (the 9 Nov capture run through the new code against the live install's facts): a normal
+evening adds no fact (every row already on file) with one request; after a restart in the evening the
+poller's memory is empty and it writes again the resumptions of halts first seen already resumed (34 on
+9 Nov, all on the live keys), as the live poll already does after any restart. The heartbeat now shows
+`nasdaq_halts` `ok` overnight after a good dated read (it was `unavailable` while the read failed);
+Radar asks nothing overnight, and at 04:00 ET the feed is aged as before until the first live poll. A
+dated row that cannot be read is counted like a live one, so it turns `entry_blocks`' `false` into
+`unknown` for the 3-trading-day window (`halt_rows_skipped`); none was unreadable on 9 Nov.
+
+**Not changed:** the live feed's parsing and polling (60 s, 04:00-20:00 ET), the reader
+(`scout_reader` stays 0.2.2), what blocks a buy from the live feed.

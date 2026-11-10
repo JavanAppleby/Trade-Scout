@@ -2,7 +2,7 @@
 
 | Job | When |
 |---|---|
-| nasdaq_halts | every 60 s (never less; `HARD_MIN_SPACING_S`) inside `active_hours_et`; once after the end of active hours (20:00 ET) on a trading day, the `&haltdate=` read |
+| nasdaq_halts | every 60 s (never less; `HARD_MIN_SPACING_S`) inside `active_hours_et`; once after the end of active hours (20:00 ET) on a trading day, the `&haltdate=` read (a failed one again after `halts_dated_retry_s`, 900 s; 0.3.1) |
 | fomc | at start and daily at the first `nowflation_read_times_et` (the table record) |
 | bls | when `[sources.bls] min_spacing_s` (weekly) has passed since the last read (checked hourly) |
 | nowflation | at start unless already read today; daily at each `nowflation_read_times_et` (08:20 ET); at `nowflation_release_day_time_et` (08:50 ET) on a CPI, NFP or PCE day |

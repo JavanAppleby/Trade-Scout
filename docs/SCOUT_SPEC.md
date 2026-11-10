@@ -15,7 +15,10 @@ pace): §4.1 #1, #4, #4b and #6, §6.2, §6.5 (new), §12 and §13 are amended, 
 evidence for each find, Claude readers and the owner score how strong the idea is, a scorer checks
 later), and on 2026-11-11 chose the readers and their caps (0.3.0, the contract
 `E:\Market_Data\research\reads\READS_TEST.md`): §2 rule 7, §8.5 and §8.6 are amended and §19 (new)
-is added, each marked "owner, 2026-11-10" or "owner, 2026-11-11". Repo: JavanAppleby/Trade-Scout (`E:\Scout_dev`). Scout never trades.
+is added, each marked "owner, 2026-11-10" or "owner, 2026-11-11". The evening dated halt read, which
+had failed on every trading day, was fixed so that it can never add a block (owner, 2026-11-10;
+0.3.1): §4.1 #6, §6.3, §7.5, §7.8, §12 and §13 are amended, each marked "0.3.1". Repo:
+JavanAppleby/Trade-Scout (`E:\Scout_dev`). Scout never trades.
 **Decided** marks the owner's decisions recorded in `docs/HANDOFF.md` §3, `PILOT_SPEC.md` §16 or the
 owner's message of 2026-10-31. **Proposed** marks this spec's suggestions. §16 lists what the owner
 still has to decide, each with a recommended default. This file lives in Trade Guardian's `docs\`
@@ -139,7 +142,7 @@ changes. Each phase is an owner decision; phases are build order, not a limit on
 | 4 | PR Newswire RSS (all releases) | Title, link, guid, `pubDate`, exchange tags "(NASDAQ: XXX)" | V (RSS 2.0, 20 items) | every 60 s; every 30 s from :58 to :05 ET around each hour inside 04:00-20:00 ET (`hour_turn_*`; owner, 2026-11-04; 0.2.2: more than 20 releases can appear within a minute at the top of an hour; 30 s is the hard minimum for www.prnewswire.com; about 112 more requests a day). Since 0.2.4 paced by the hour (§6.5; owner, 2026-11-10): at most every 2 min in trading hours and 30 min otherwise, and never so slow that a burst like the busiest seen in that hour fills more than half the page; the :58-:05 window stays | Terms of the RSS UNVERIFIED: store title, link and times only until the owner reads them (build step 2) |
 | 4b | Stock Titan RSS (`www.stocktitan.net/rss`, added 2026-11-04 by the owner) | Title ending "\| XXX Stock News", link, guid, `pubDate` | V (RSS 2.0, 100 items) | every 60 s 04:00-20:00 ET, 600 s otherwise; since 0.2.4 paced by the hour as PR Newswire (§6.5; owner, 2026-11-10) | Terms name its RSS feeds as an allowed way to collect data (personal use); 30 requests in 5 minutes. Reposts GlobeNewswire, Business Wire and the other wires |
 | 5 | ~~GlobeNewswire RSS (public companies)~~ | - | Removed 2026-11-03 (owner) | - | Refused Scout's declared User-Agent (403, Akamai) on 2026-11-01 and 2026-11-03; reading it would need permission, and Scout uses only sources that allow automated reading without asking |
-| 6 | Nasdaq Trader halt RSS (`feed=tradehalts`; `&haltdate=MMDDYYYY` once after 20:00 ET) | Halts and LULD pauses, reason codes, resumption times | V | at least 60 s apart (hard minimum in code), 04:00-20:00 ET; never paced (§6.5; owner, 2026-11-10) | Free; "do not query more than once a minute"; must not edit or misrepresent the feed, so rows are stored as received. An open halt blocks Radar's buy signals (§7.8; owner, 2026-11-04) |
+| 6 | Nasdaq Trader halt RSS (`feed=tradehalts`; `&haltdate=MMDDYYYY` once after 20:00 ET) | Halts and LULD pauses, reason codes, resumption times | V (the dated feed read live 2026-11-10: padded HaltTime, `Mkt`; §6.3) | at least 60 s apart (hard minimum in code), 04:00-20:00 ET; never paced (§6.5; owner, 2026-11-10). The dated read once after 20:00 ET on a trading day; a failed one is tried again every `halts_dated_retry_s` (15 min), at most 16 times a night (0.3.1; before, every 60 s until midnight ET) | Free; "do not query more than once a minute"; must not edit or misrepresent the feed, so rows are stored as received. An open halt blocks Radar's buy signals (§7.8; owner, 2026-11-04); the dated read never adds an open halt (§6.3; 0.3.1) |
 | 7 | nowflation.com `/data/release_calendar.json`, `/data/realtime.json`, `/forecasts/index.json`; fallback `/nowflation.ics` | CPI, NFP, PCE and FOMC times; inflation nowcast | V | once at start; 08:20 ET daily; 08:50 ET on release days; at most 10 requests a day | Free with credit "Nowflation" and a link; no reselling or redistributing the raw files; robots.txt allows ClaudeBot; JSON paths undocumented |
 | 8 | BLS release schedule `.ics` | CPI and Employment Situation times (cross-check of #7) | V (no DTSTAMP) | weekly | Public; lenient parser |
 | 9 | FOMC decision dates | static table in config | federalreserve.gov, by hand | — | 2027 dates tentative |
@@ -360,13 +363,32 @@ window; bursts at :30 still overflow (a :28 to :35 window would need the owner's
   `parse_submissions` and `flags_from_filings` are copied with a provenance header and a shared
   fixture test; `flags_from_filings` takes a `RadarConfig`, so the copy goes through a small adapter
   (§16 Q10 asks about a shared library instead).
-- **Halts:** strip the BOM; parse with the `ndaq` namespace; Market is stored as received, any
-  non-empty text ("NASDAQ", "NYSE", "AMEX", "Non NASDAQ", a letter) or none (owner, 2026-11-04: those
-  forms refused the whole feed on 2 and 3 Nov); HaltTime is ET with optional fractional seconds;
-  ignore `pubDate`; never assume item order; empty `ResumptionTradeTime` means still halted; a
-  multi-day halt appears only under its first HaltDate. A bad row (a missing field, an unreadable
-  date or time) is skipped, logged and counted in the poll's health record; only a feed with no
-  readable row at all, or that is not the halt feed, is refused.
+- **Halts:** strip the BOM; parse with the `ndaq` namespace; every field is matched with the
+  whitespace around it stripped and stored as received, padding included (0.3.1); Market is stored as
+  received, any non-empty text ("NASDAQ", "NYSE", "AMEX", "Non NASDAQ", a letter) or none (owner,
+  2026-11-04: those forms refused the whole feed on 2 and 3 Nov), and the dated feed's `Mkt` (a
+  letter) counts as Market (0.3.1); HaltTime is ET with optional fractional seconds, and spaces may
+  stand between the seconds and the fraction (0.3.1, below); ignore `pubDate`; never assume item
+  order; empty `ResumptionTradeTime` means still halted; a multi-day halt appears only under its
+  first HaltDate. A bad row (a missing field, an unreadable date or time) is skipped, logged and
+  counted in the poll's health record; only a feed with no readable row at all, or that is not the
+  halt feed, is refused.
+- **The dated read** (`&haltdate=MMDDYYYY`, once after 20:00 ET on a trading day; 0.3.1). Read live
+  on 2026-11-10 for 9 Nov: it lists the day's halts (HaltDate that day) with the same fields as the
+  live feed, in another order, with `Mkt` for Market and HaltTime padded between the seconds and the
+  fraction ("09:30:17" + 22 spaces + ".816" where the live feed has "09:30:17.816"). Every dated read
+  of 2-9 Nov 2026 failed: on 2 and 3 Nov for the missing Market (allowed since 0.2.0), then because
+  that padding made every row unreadable; the error showed only the first 20 characters of the
+  time, which hid the fraction. The padding is left out of the halt key
+  (symbol|HaltDate|HaltTime), so a halt has the same key in both feeds: the 89 dated rows of 9 Nov
+  had the keys of the 89 halts the live polls had stored that day, the same resumption for each of
+  the 86 that had resumed, and no resumption for the 3 still halted at 20:00 ET. **A dated row with
+  no resumption adds nothing:** that halt is still open, the live feed keeps listing it until it
+  resumes (every halt open at the last live read of 4-9 Nov was listed again at 04:00 ET the next
+  day), and the live polls record it and its resumption under the live key. A copy under another
+  key would never see that resumption and would block the stock for up to 3 trading days (§7.8,
+  `halt_unresolved_since`). So the dated read adds only halts that ended and resumptions that the
+  live polls missed (Scout stopped, or the feed failing), and can never add a block.
 - **Scheduled events** from structured calendars (nowflation, BLS, the FOMC table).
 
 Facts go to `state\facts\<date>.jsonl` (§10.2). **Facts never depend on an LLM.**
@@ -568,7 +590,9 @@ recorded beside them over the journal, which answers Radar's open question O7 (R
 DECISIONS.md). A stale feed means `unknown`, never "not halted". Guardian's broker refusal
 (TICKER_IS_HALT) stays authoritative. No hold gates on halts. **Since 2026-11-04 (owner) a halt
 still open blocks Radar's buy signal** through `entry_blocks` (§7.8); Pilot's entries still never
-read Scout, because Radar does (PILOT_SPEC §2 as amended).
+read Scout, because Radar does (PILOT_SPEC §2 as amended). The evening dated read (§6.3; 0.3.1) adds
+only halts that ended and resumptions, never an open halt: it can end a halt whose resumption the
+live polls missed (which would otherwise block for up to 3 trading days), never start a block.
 
 ### 7.6 Market regime (record only)
 v1 uses no Webull, so regime comes from daily data: the Cboe VIX close, the inflation regime, and the
@@ -601,7 +625,7 @@ only stop the signal, never start it. Windows (decisions A and D of the squad-sp
 | Block (`kind`) | On file when |
 |---|---|
 | `offering`, `reverse_split`, `listing_notice`, `bankruptcy` | a wire or filing fact naming S with that class (§6.4) first seen within the last 3 trading days, counted back from as_of's trading day (20:00 ET rollover), so on a Wednesday from Friday 20:00 ET |
-| `halt_open` | a halt of S in the facts files of the 3-trading-day window with no resumption by as_of, also one that began on an earlier ET date (its date is added as the reason `halt_unresolved_since:<date>`, so a missed resumption can be seen; owner, 2026-11-04) |
+| `halt_open` | a halt of S in the facts files of the 3-trading-day window with no resumption by as_of, also one that began on an earlier ET date (its date is added as the reason `halt_unresolved_since:<date>`, so a missed resumption can be seen; owner, 2026-11-04). Open halts come from the live feed only: the evening dated read never adds one (§6.3; 0.3.1) |
 | `macro_window` | a scheduled CPI release, FOMC decision or jobs report from 5 minutes before to 15 minutes after its time, from nowflation, BLS or the FOMC table |
 
 - **true** when any block is on file at as_of (`first_seen_at` and `published_at` <= as_of),
@@ -870,7 +894,9 @@ turns that off).
   halt feed at least 60 s apart (wires may go to 30 s, the hard minimum in code; PR Newswire does from
   :58 to :05 ET, §4.1 #4); nowflation at most 10 a day; BLS
   weekly; Cboe daily. Since 0.2.4 the pace (§6.5; owner, 2026-11-10) lowers the EDGAR and wire
-  requests to about a third (measured on 3-10 Nov 2026).
+  requests to about a third (measured on 3-10 Nov 2026). The halt feed's dated read: one request a
+  trading-day evening, at most 16 when it keeps failing (every `halts_dated_retry_s`, 15 min; 0.3.1;
+  before, about 235 a night, every 60 s from 20:00 ET to midnight while it failed on 2-9 Nov).
 
 ## 13. Configuration (Scout's `config.toml`; documented in `config.example.toml`; proposed defaults)
 - **Paths:** `radar_dir` (""), `radar_handoff_subdir` ("state/handoff"; owner, 2026-11-04),
@@ -881,7 +907,8 @@ turns that off).
   `terms_note`; `source_max_gap_s` (180), `source_overlap_max_gap_s` (1800; owner, 2026-11-04),
   `hour_turn_sources` (["prnewswire"]), `hour_turn_start_min` (58), `hour_turn_end_min` (5),
   `hour_turn_spacing_s` (30; owner, 2026-11-04), `source_backoff_max_min` (30), `fetch_max_bytes`
-  (2000000), `ticker_exchange_prefixes`, `class_keywords`.
+  (2000000), `ticker_exchange_prefixes`, `class_keywords`, `halts_dated_retry_s` (900, 60-14400;
+  0.3.1: a failed evening dated halt read is tried again after this).
 - **Polling pace (owner, 2026-11-10; §6.5):** the `[pace]` table: `enabled` (true), `factor` (0.5),
   `lookback_days` (7), `recalc_time_et` ("03:30"), `min_hours` (2.0), `page_fill` (0.5), and
   `[pace.slowest_active_s]` / `[pace.slowest_idle_s]` keyed "source" or "source:FORM" (defaults in

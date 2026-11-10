@@ -1,0 +1,113 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!-- _SYNTHETIC: hand-built 2026-11-10 in the shape of the dated feed (&haltdate=MMDDYYYY) read live that day: its element order, Mkt (a letter) where the live feed has Market, HaltTime padded between the seconds and the fraction, empty fields self-closing, CRLF. NEWS, ABCD, WXYZ and ARCA are the 2 Nov halts of tradehalts_SYNTHETIC.xml; PADS has padding around every field; MISS and PADS ended before the evening read; LATE is still open. -->
+<rss version="2.0" xmlns:ndaq="http://www.nasdaqtrader.com/">
+  <channel>
+    <title>NASDAQTrader.com</title>
+    <link>http://www.nasdaqtrader.com</link>
+    <description>NASDAQ Trade Halts</description>
+    <copyright>Copyright 2026. All rights reserved.</copyright>
+    <pubDate>Tue, 03 Nov 2026 01:01:00 GMT</pubDate>
+    <ttl>1</ttl>
+    <ndaq:numItems>7</ndaq:numItems>
+    <item>
+      <title>NEWS</title>
+      <pubDate>Mon, 02 Nov 2026 05:00:00 GMT</pubDate>
+      <ndaq:IssueSymbol>NEWS</ndaq:IssueSymbol>
+      <ndaq:IssueName>News Pending Ltd</ndaq:IssueName>
+      <ndaq:Mkt>Q</ndaq:Mkt>
+      <ndaq:ReasonCode>T1</ndaq:ReasonCode>
+      <ndaq:PauseThresholdPrice />
+      <ndaq:HaltDate>11/02/2026</ndaq:HaltDate>
+      <ndaq:HaltTime>08:00:00                      </ndaq:HaltTime>
+      <ndaq:ResumptionDate>11/02/2026                    </ndaq:ResumptionDate>
+      <ndaq:ResumptionQuoteTime>10:25:00                      </ndaq:ResumptionQuoteTime>
+      <ndaq:ResumptionTradeTime>10:30:00                      </ndaq:ResumptionTradeTime>
+    </item>
+    <item>
+      <title>ABCD</title>
+      <pubDate>Mon, 02 Nov 2026 05:00:00 GMT</pubDate>
+      <ndaq:IssueSymbol>ABCD</ndaq:IssueSymbol>
+      <ndaq:IssueName>Abcd Therapeutics Inc</ndaq:IssueName>
+      <ndaq:Mkt>Q</ndaq:Mkt>
+      <ndaq:ReasonCode>LUDP</ndaq:ReasonCode>
+      <ndaq:PauseThresholdPrice>1.2300</ndaq:PauseThresholdPrice>
+      <ndaq:HaltDate>11/02/2026</ndaq:HaltDate>
+      <ndaq:HaltTime>09:31:05                      .123</ndaq:HaltTime>
+      <ndaq:ResumptionDate>11/02/2026</ndaq:ResumptionDate>
+      <ndaq:ResumptionQuoteTime>09:36:05</ndaq:ResumptionQuoteTime>
+      <ndaq:ResumptionTradeTime>09:36:05</ndaq:ResumptionTradeTime>
+      <description><![CDATA[<table width="100%" cellpadding="5"><tr><th align="left">Issue Symbol</th><th align="left">Issue Name</th><th align="left">Mkt</th><th align="left">Reason Code</th><th align="left">Pause Threshold Price</th><th align="left">Halt Date</th><th align="left">Halt Time</th><th align="left">Resumption Date</th><th align="left">Resumption Quote Time</th><th align="left">Resumption Trade Time</th></tr><tr><td valign="top">ABCD</td><td valign="top">Abcd Therapeutics Inc</td><td valign="top">Q</td><td valign="top">LUDP</td><td valign="top">1.2300</td><td valign="top">11/02/2026                    </td><td valign="top">09:31:05                      .123</td><td valign="top">11/02/2026</td><td valign="top">09:36:05</td><td valign="top">09:36:05</td></tr></table>]]></description>
+    </item>
+    <item>
+      <title>WXYZ</title>
+      <pubDate>Mon, 02 Nov 2026 05:00:00 GMT</pubDate>
+      <ndaq:IssueSymbol>WXYZ</ndaq:IssueSymbol>
+      <ndaq:IssueName>Wxyz Holdings Inc</ndaq:IssueName>
+      <ndaq:Mkt>N</ndaq:Mkt>
+      <ndaq:ReasonCode>M</ndaq:ReasonCode>
+      <ndaq:PauseThresholdPrice />
+      <ndaq:HaltDate>11/02/2026</ndaq:HaltDate>
+      <ndaq:HaltTime>09:45:00                      </ndaq:HaltTime>
+      <ndaq:ResumptionDate />
+      <ndaq:ResumptionQuoteTime />
+      <ndaq:ResumptionTradeTime />
+    </item>
+    <item>
+      <title>ARCA</title>
+      <pubDate>Mon, 02 Nov 2026 05:00:00 GMT</pubDate>
+      <ndaq:IssueSymbol>ARCA</ndaq:IssueSymbol>
+      <ndaq:IssueName>Arca Listed ETF</ndaq:IssueName>
+      <ndaq:Mkt>P</ndaq:Mkt>
+      <ndaq:ReasonCode>LUDP</ndaq:ReasonCode>
+      <ndaq:PauseThresholdPrice />
+      <ndaq:HaltDate>11/02/2026</ndaq:HaltDate>
+      <ndaq:HaltTime>09:58:30                      .1</ndaq:HaltTime>
+      <ndaq:ResumptionDate />
+      <ndaq:ResumptionQuoteTime />
+      <ndaq:ResumptionTradeTime>10:03:30</ndaq:ResumptionTradeTime>
+    </item>
+    <item>
+      <title>PADS</title>
+      <pubDate>Mon, 02 Nov 2026 05:00:00 GMT</pubDate>
+      <ndaq:IssueSymbol> PADS  </ndaq:IssueSymbol>
+      <ndaq:IssueName> Padded Fields Corp </ndaq:IssueName>
+      <ndaq:Mkt> Q </ndaq:Mkt>
+      <ndaq:ReasonCode> LUDP </ndaq:ReasonCode>
+      <ndaq:PauseThresholdPrice> 2.5000 </ndaq:PauseThresholdPrice>
+      <ndaq:HaltDate> 11/02/2026                    </ndaq:HaltDate>
+      <ndaq:HaltTime>  10:12:13                      .456  </ndaq:HaltTime>
+      <ndaq:ResumptionDate> 11/02/2026                    </ndaq:ResumptionDate>
+      <ndaq:ResumptionQuoteTime> 10:17:13                      </ndaq:ResumptionQuoteTime>
+      <ndaq:ResumptionTradeTime> 10:17:13                      </ndaq:ResumptionTradeTime>
+    </item>
+    <item>
+      <title>MISS</title>
+      <pubDate>Mon, 02 Nov 2026 05:00:00 GMT</pubDate>
+      <ndaq:IssueSymbol>MISS</ndaq:IssueSymbol>
+      <ndaq:IssueName>Missed Pause Inc</ndaq:IssueName>
+      <ndaq:Mkt>Q</ndaq:Mkt>
+      <ndaq:ReasonCode>LUDP</ndaq:ReasonCode>
+      <ndaq:PauseThresholdPrice />
+      <ndaq:HaltDate>11/02/2026</ndaq:HaltDate>
+      <ndaq:HaltTime>11:15:20                      .250</ndaq:HaltTime>
+      <ndaq:ResumptionDate>11/02/2026</ndaq:ResumptionDate>
+      <ndaq:ResumptionQuoteTime>11:15:20</ndaq:ResumptionQuoteTime>
+      <ndaq:ResumptionTradeTime>11:20:20</ndaq:ResumptionTradeTime>
+    </item>
+    <item>
+      <title>LATE</title>
+      <pubDate>Mon, 02 Nov 2026 05:00:00 GMT</pubDate>
+      <ndaq:IssueSymbol>LATE</ndaq:IssueSymbol>
+      <ndaq:IssueName>Late News Inc</ndaq:IssueName>
+      <ndaq:Mkt>Q</ndaq:Mkt>
+      <ndaq:ReasonCode>T1</ndaq:ReasonCode>
+      <ndaq:PauseThresholdPrice />
+      <ndaq:HaltDate>11/02/2026</ndaq:HaltDate>
+      <ndaq:HaltTime>19:50:00                      .000</ndaq:HaltTime>
+      <ndaq:ResumptionDate />
+      <ndaq:ResumptionQuoteTime />
+      <ndaq:ResumptionTradeTime />
+      <description><![CDATA[<table width="100%" cellpadding="5"><tr><th align="left">Issue Symbol</th><th align="left">Issue Name</th><th align="left">Mkt</th><th align="left">Reason Code</th><th align="left">Pause Threshold Price</th><th align="left">Halt Date</th><th align="left">Halt Time</th><th align="left">Resumption Date</th><th align="left">Resumption Quote Time</th><th align="left">Resumption Trade Time</th></tr><tr><td valign="top">LATE</td><td valign="top">Late News Inc</td><td valign="top">Q</td><td valign="top">T1</td><td valign="top"></td><td valign="top">11/02/2026                    </td><td valign="top">19:50:00                      .000</td><td valign="top"></td><td valign="top"></td><td valign="top"></td></tr></table>]]></description>
+    </item>
+  </channel>
+</rss>

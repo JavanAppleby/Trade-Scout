@@ -239,6 +239,7 @@ class ScoutConfig:
     seen_guid_cap: int = 5000
     fact_dedupe_days: int = 7
     ticker_map_retry_s: int = 600
+    halts_dated_retry_s: int = 900  # a failed evening dated halt read is tried again after this (0.3.1)
     edgar_atom_forms: tuple[str, ...] = ("8-K", "6-K", "S-1", "S-3", "F-1", "F-3", "424B", "EFFECT", "NT 10-Q",
                                          "NT 10-K", "10-Q", "10-K")
     ticker_exchange_prefixes: tuple[str, ...] = ("NASDAQ", "Nasdaq", "Nasdaq CM", "NasdaqCM", "Nasdaq GM", "NasdaqGM",

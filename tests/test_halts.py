@@ -272,13 +272,16 @@ def test_halts_tick_schedule(cfg, clock, et) -> None:
 
 
 def test_dated_read_finds_rows_missed_live(cfg, clock, et) -> None:
+    """The live polls saw nothing; the evening read records the halts that ended, with their
+    resumptions, and none still open (0.3.1: the live feed records an open halt from 04:00 ET)."""
     dated = dated_url(HALTS_URL, datetime(2026, 11, 2).date())
     poller, fetcher, (_r, facts, _h, _b) = _poller(
         cfg, clock, results={HALTS_URL: halts_body("tradehalts_empty_SYNTHETIC.xml"), dated: halts_body()})
     halts_tick(poller, cfg, et("2026-11-02", "19:00"))
     assert facts.facts == []
     halts_tick(poller, cfg, et("2026-11-02", "20:10"))
-    assert len(facts.facts) == 5 and {f.feed for f in facts.facts} == {FEED_DATED}
+    assert sorted(f.ticker for f in facts.facts) == ["ABCD", "ARCA", "NEWS"]  # WXYZ and OLDC are still open
+    assert {f.feed for f in facts.facts} == {FEED_DATED} and all(f.resumed_at for f in facts.facts)
 
 
 def test_resumption_after_a_restart_is_still_recorded(cfg, clock, et) -> None:
@@ -307,20 +310,23 @@ def test_resumption_after_a_restart_is_still_recorded(cfg, clock, et) -> None:
 @pytest.mark.parametrize("failure", ["timeout", "http_error", "backoff", "schema"])
 def test_a_failed_dated_read_is_tried_again_the_same_evening(cfg, clock, et, failure) -> None:
     """Regression: dated_done was set before the read, so one failed `&haltdate=` request lost the
-    day's reconciliation until the next day."""
+    day's reconciliation until the next day. Since 0.3.1 the next try waits `halts_dated_retry_s`
+    (900 s), not the 60 s minimum."""
     dated = dated_url(HALTS_URL, datetime(2026, 11, 2).date())
     bad = (b"<rss><nope/></rss>" if failure == "schema"
            else fetch_result("nasdaq_halts", dated, None, result=failure, status=None))
     poller, fetcher, (_r, facts, health, _b) = _poller(cfg, clock, results={dated: bad})
-    halts_tick(poller, cfg, et("2026-11-02", "20:01"))
+    first = et("2026-11-02", "20:01")
+    halts_tick(poller, cfg, first)
     assert len(fetcher.calls) == 1 and poller.dated_done is None
-    halts_tick(poller, cfg, et("2026-11-02", "20:01") + timedelta(seconds=30))  # 60 s spacing kept
+    for wait_s in (30, 60, 61, 600, 899):  # not before 15 minutes
+        halts_tick(poller, cfg, first + timedelta(seconds=wait_s))
     assert len(fetcher.calls) == 1
     fetcher.results[dated] = halts_body()
-    halts_tick(poller, cfg, et("2026-11-02", "20:02"))
+    halts_tick(poller, cfg, first + timedelta(seconds=900))
     assert len(fetcher.calls) == 2 and poller.dated_done == datetime(2026, 11, 2).date()
     assert any(f.feed == FEED_DATED for f in facts.facts)
-    halts_tick(poller, cfg, et("2026-11-02", "20:10"))
+    halts_tick(poller, cfg, et("2026-11-02", "20:40"))
     assert len(fetcher.calls) == 2  # done for the day
 
 

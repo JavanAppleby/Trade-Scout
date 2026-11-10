@@ -89,6 +89,11 @@ could block a Radar buy (30 minutes at night and at weekends). The halt feed is 
 morning brief's "Polling pace" section shows each feed's timings. The settings are the `[pace]`
 table in `config.example.toml`; `enabled = false` there puts every feed back on its fixed timing.
 
+After 20:00 ET on a trading day Scout reads Nasdaq's list of that day's halts once (0.3.1). It only
+fills in halts that ended, and resumptions, that Scout missed during the day; it never adds a halt
+that is still open, so it can never stop a Radar buy. If that read fails, Scout tries again every 15
+minutes (`halts_dated_retry_s`), not every minute.
+
 ## Thesis reads (a paper test; off until you turn it on, 0.3.0)
 
 You asked (10 Nov 2026) for a live paper test of reading everything together: for each stock Radar

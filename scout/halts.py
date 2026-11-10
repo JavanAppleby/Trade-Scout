@@ -2,21 +2,31 @@
 the owner's change of 2026-11-04 an open halt blocks Radar's buy signals through
 `scout_reader.entry_blocks` (block only). Guardian's broker refusal stays authoritative.
 
-Parsing (SCOUT_SPEC 6.3): strip the BOM; elements in the `ndaq` namespace; Market is stored as
-received, any non-empty text ("NASDAQ", "NYSE", "AMEX", "Non NASDAQ", one letter), or None when
-missing or empty (owner, 2026-11-04: the feed was refused all day on 2 and 3 Nov for those forms);
-HaltTime is ET with optional fractional seconds, converted to UTC once here via
+Parsing (SCOUT_SPEC 6.3): strip the BOM; elements in the `ndaq` namespace; every field is matched
+with the whitespace around it stripped (0.3.1); Market is stored as received, any non-empty text
+("NASDAQ", "NYSE", "AMEX", "Non NASDAQ", one letter), or None when missing or empty (owner,
+2026-11-04: the feed was refused all day on 2 and 3 Nov for those forms); the dated feed names it
+`Mkt` (a letter); HaltTime is ET with optional fractional seconds, converted to UTC once here via
 `scout_reader._et`; `pubDate` is ignored; no item order is assumed; an empty `ResumptionTradeTime`
 means still halted; a multi-day halt appears only under its first HaltDate. Rows are stored as
 received (the feed must not be edited or misrepresented): each fact keeps the row's fields verbatim
-in `extra.row`. Feed drift (not XML, no `<rss>` or no channel) raises `SchemaError`; the poll then
-records `schema` and no facts. A bad row (a missing field, an empty symbol, an unreadable date or
-time) is skipped and counted (owner, 2026-11-04): the poll logs a warning per row, stays `ok` and
-puts the count in its health record's `error`. When every row is bad the feed has drifted, and that
-is `SchemaError` again.
+in `extra.row`, padding included. Feed drift (not XML, no `<rss>` or no channel) raises
+`SchemaError`; the poll then records `schema` and no facts. A bad row (a missing field, an empty
+symbol, an unreadable date or time) is skipped and counted (owner, 2026-11-04): the poll logs a
+warning per row, stays `ok` and puts the count in its health record's `error`. When every row is bad
+the feed has drifted, and that is `SchemaError` again.
+
+The dated feed (`&haltdate=`, read live on 2026-11-10; 0.3.1) pads HaltTime between the seconds and
+the fraction ("09:30:17" + 22 spaces + ".816" where the live feed has "09:30:17.816"). Those spaces
+are allowed and left out of the halt key, so a halt has the same key in both feeds. Before 0.3.1
+every dated row was refused for them, and the error showed only the first 20 characters of the time.
 
 Polling: at least 60 s between requests (`HARD_MIN_SPACING_S`, in code, whatever the config says),
-04:00-20:00 ET, plus one `&haltdate=MMDDYYYY` read after 20:00 ET (the job decides when).
+04:00-20:00 ET, plus one `&haltdate=MMDDYYYY` read after 20:00 ET (the job decides when); a failed
+dated read is tried again after `halts_dated_retry_s` (900 s; 0.3.1), not every 60 s. The dated read
+adds no halt still open in its row (0.3.1): such a halt stays in the live feed until it resumes and
+the live polls record it from 04:00 ET, so that read can add only halts that ended and resumptions,
+never a block (SCOUT_SPEC 6.3, 7.8).
 """
 
 from __future__ import annotations
@@ -45,9 +55,10 @@ HARD_MIN_SPACING_S = 60.0  # Nasdaq: "do not query more than once a minute"
 FEED_LIVE = "tradehalts"
 FEED_DATED = "tradehalts_dated"
 REQUIRED = ("HaltDate", "HaltTime", "IssueSymbol", "ReasonCode", "ResumptionTradeTime")
-OPTIONAL = ("IssueName", "Market", "PauseThresholdPrice", "ResumptionDate", "ResumptionQuoteTime")
+OPTIONAL = ("IssueName", "Market", "Mkt", "PauseThresholdPrice", "ResumptionDate", "ResumptionQuoteTime")
 _DATE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
-_TIME = re.compile(r"^(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?$")
+# Spaces may stand between the seconds and the fraction: the dated feed's padding (0.3.1).
+_TIME = re.compile(r"^(\d{1,2}):(\d{2}):(\d{2})(?:\s*\.(\d{1,9}))?$")
 
 __all__ = ["FEED_DATED", "FEED_LIVE", "HARD_MIN_SPACING_S", "HaltPoller", "HaltRow", "SOURCE", "dated_url",
            "halt_key", "parse_halts", "parse_halts_rows"]
@@ -57,13 +68,13 @@ __all__ = ["FEED_DATED", "FEED_LIVE", "HARD_MIN_SPACING_S", "HaltPoller", "HaltR
 class HaltRow:
     symbol: str
     halt_at: datetime  # aware UTC
-    halt_date: str  # as received, "MM/DD/YYYY"
-    halt_time: str  # as received
-    market: str | None  # as received; None when the row has no Market
+    halt_date: str  # as received, stripped: "MM/DD/YYYY"
+    halt_time: str  # as received, stripped, without the dated feed's padding before the fraction
+    market: str | None  # as received (Market, or the dated feed's Mkt); None when the row has neither
     reason: str
     resumed_at: datetime | None  # aware UTC; None while halted
     issue_name: str | None
-    row: dict[str, str]  # every ndaq field, verbatim
+    row: dict[str, str]  # every ndaq field, verbatim (padding included)
 
     @property
     def key(self) -> str:
@@ -85,16 +96,23 @@ def _day(text: str, where: str) -> date:
 
 
 def _et(day: date, text: str, where: str) -> datetime:
-    m = _TIME.match(text.strip())
-    if not m:
-        raise SchemaError(f"halts {where}: unreadable time {text[:20]!r}")
+    text = text.strip()
+    m = _TIME.match(text)
+    if not m:  # 40 characters: the first 20 hid the fraction after the dated feed's padding (0.3.1)
+        raise SchemaError(f"halts {where}: unreadable time {text[:40]!r}")
     hh, mm, ss, frac = m.groups()
     micro = int((frac or "0")[:6].ljust(6, "0"))
     try:
         naive = datetime(day.year, day.month, day.day, int(hh), int(mm), int(ss), micro)
     except ValueError as exc:
-        raise SchemaError(f"halts {where}: impossible time {text[:20]!r}") from exc
+        raise SchemaError(f"halts {where}: impossible time {text[:40]!r}") from exc
     return et_to_utc(naive)
+
+
+def _unpadded(text: str) -> str:
+    """A time as the halt key holds it: "09:30:17" + spaces + ".816" (the dated feed) -> "09:30:17.816",
+    the live feed's form, so a halt has the same key in both feeds. Only called on a time `_et` read."""
+    return "".join(text.split())
 
 
 def _local(tag: str) -> tuple[str | None, str]:
@@ -141,29 +159,29 @@ def parse_halts_rows(body: bytes) -> tuple[list[HaltRow], list[str]]:
 
 
 def _row(item: ET.Element, where: str) -> HaltRow:
-    fields: dict[str, str] = {}
+    received: dict[str, str] = {}
     for child in item:
         ns, name = _local(child.tag)
         if ns:  # the ndaq namespace; pubDate, title and the rest are not read
-            fields[name] = (child.text or "").strip()
+            received[name] = child.text or ""
+    fields = {k: v.strip() for k, v in received.items()}  # matched stripped; stored as received
     missing = [k for k in REQUIRED if k not in fields]
     if missing:
         raise SchemaError(f"halts {where}: missing {', '.join(missing)}")
-    symbol = fields["IssueSymbol"].strip()
+    symbol = fields["IssueSymbol"]
     if not symbol:
         raise SchemaError(f"halts {where}: empty IssueSymbol")
-    market = fields.get("Market", "").strip() or None
+    market = fields.get("Market") or fields.get("Mkt") or None  # the dated feed calls it Mkt
     hday = _day(fields["HaltDate"], where)
     halt_at = _et(hday, fields["HaltTime"], where)
     resumed_at = None
-    if fields["ResumptionTradeTime"].strip():
-        rdate = fields.get("ResumptionDate", "").strip()
+    if fields["ResumptionTradeTime"]:
+        rdate = fields.get("ResumptionDate", "")
         rday = _day(rdate, where) if rdate else hday
         resumed_at = _et(rday, fields["ResumptionTradeTime"], where)
-    name = fields.get("IssueName")
-    return HaltRow(symbol=symbol, halt_at=halt_at, halt_date=fields["HaltDate"].strip(),
-                   halt_time=fields["HaltTime"].strip(), market=market, reason=fields["ReasonCode"].strip(),
-                   resumed_at=resumed_at, issue_name=name or None, row=dict(fields))
+    return HaltRow(symbol=symbol, halt_at=halt_at, halt_date=fields["HaltDate"],
+                   halt_time=_unpadded(fields["HaltTime"]), market=market, reason=fields["ReasonCode"],
+                   resumed_at=resumed_at, issue_name=fields.get("IssueName") or None, row=received)
 
 
 def dated_url(url: str, day: date) -> str:
@@ -182,10 +200,12 @@ class HaltPoller:
         self.health, self.board, self.clock = health, board, clock
         self.src = cfg.source(SOURCE)
         self.spacing_s = max(HARD_MIN_SPACING_S, float(self.src.min_spacing_s))
+        self.dated_retry_s = max(HARD_MIN_SPACING_S, float(cfg.halts_dated_retry_s))
         self.last_request: datetime | None = None
         self.last_ok: str | None = None
         self.last_sha: str | None = None
         self.dated_done: date | None = None
+        self.dated_tried: datetime | None = None  # the last dated request (0.3.1: a failure waits dated_retry_s)
         self.last_result: str | None = None
         self.seen_halts: set[str] = set()
         self.seen_resumed: set[str] = set()
@@ -222,17 +242,26 @@ class HaltPoller:
 
     def dated_read(self, now: datetime) -> int:
         """The once-a-day `&haltdate=` read for today's ET date (after 20:00 ET). Marked done only
-        after a good result, so a failed read is tried again on a later tick (60 s spacing kept)."""
+        after a good result; a failed read is tried again after `dated_retry_s` (900 s; 0.3.1: it was
+        tried every 60 s until midnight ET, about 235 requests a night while the read failed)."""
         day = et_date(now)
-        if self.dated_done == day:
-            return 0
-        if not self.ready(now):
+        if self.dated_done == day or not self._dated_due(now) or not self.ready(now):
             return 0
         self.last_result = None
+        self.dated_tried = now
         new = self._read(now, dated_url(self.src.url, day), FEED_DATED)
         if self.last_result in ("ok", "not_modified"):
             self.dated_done = day
         return new
+
+    def _dated_due(self, now: datetime) -> bool:
+        """No dated request yet this ET day, or `dated_retry_s` since the last one. A last request in
+        the future (the wall clock stepped back) counts as long past, as in `ready`."""
+        tried = self.dated_tried
+        if tried is None or et_date(tried) != et_date(now):
+            return True
+        elapsed = (now - tried).total_seconds()
+        return elapsed < 0 or elapsed >= self.dated_retry_s - 1e-6
 
     def _read(self, now: datetime, url: str, feed: str) -> int:
         if not self.ready(now):
@@ -292,9 +321,19 @@ class HaltPoller:
 
     def _facts(self, now: datetime, rows: list[HaltRow], sha: str | None, url: str, feed: str) -> int:
         """A key is marked seen only after `facts.add` returns: a failed write raises, and the next
-        poll tries the row again (the FactSink contract the wire and EDGAR pollers keep)."""
+        poll tries the row again (the FactSink contract the wire and EDGAR pollers keep).
+
+        The dated read writes nothing for a row with no resumption (0.3.1): that halt is still open,
+        stays in the live feed until it resumes (each halt open at the last live read of a day, 4-9
+        Nov 2026, was listed again at 04:00 ET the next day), and the live polls record it from 04:00
+        ET under the live key, where its resumption will arrive. A dated row under another key would
+        never see that resumption and would block the stock for up to 3 trading days
+        (`halt_unresolved_since`), so this read can add halts that ended and resumptions only, never
+        a block."""
         new = 0
         for row in rows:
+            if feed == FEED_DATED and row.resumed_at is None:
+                continue
             key = row.key
             rkey = f"{key}|{iso(row.resumed_at)}" if row.resumed_at is not None else None
             if key not in self.seen_halts:

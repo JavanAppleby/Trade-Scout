@@ -67,7 +67,7 @@ def test_example_documents_every_key() -> None:
 def test_with_contact_email(scout_dir: Path) -> None:
     c = config_from_dict({"contact_email": SECRET}, scout_dir)
     assert c.http_allowed()
-    assert c.user_agent() == f"Scout/0.3.0 ({SECRET})"
+    assert c.user_agent() == f"Scout/0.3.1 ({SECRET})"
     assert SECRET not in repr(c) and SECRET not in str(c)
     assert SECRET not in str(c.public_dict())
 
@@ -121,6 +121,8 @@ def test_wrong_types_name_the_key(scout_dir: Path, data: dict, needle: str) -> N
     ({"log_level": "LOUD"}, "log_level"),
     ({"verify_sample_weekday": "Monday"}, "verify_sample_weekday"),
     ({"scout_stale_s": 5}, "scout_stale_s"),
+    ({"halts_dated_retry_s": 59}, "halts_dated_retry_s"),  # 0.3.1: never more often than the 60 s minimum
+    ({"halts_dated_retry_s": 14401}, "halts_dated_retry_s"),
     ({"llm_daily_cost_cap_usd": 50.0, "llm_monthly_cost_cap_usd": 20.0}, "llm_daily_cost_cap_usd"),
     ({"llm": {"jobs": {"J1": {"effort": "huge"}}}}, "llm.jobs.J1.effort"),
     ({"llm": {"prices": {"m": {"input_per_mtok": 1.0}}}}, "llm.prices.m"),

@@ -39,6 +39,7 @@ refused_after_403s = 3            # a wire that answers this many 403s in a row 
 seen_guid_cap = 5000              # item ids remembered per feed for the overlap check
 fact_dedupe_days = 7              # ET days of stored facts checked for repeats (a restart re-reads feeds)
 ticker_map_retry_s = 600          # a failed read of SEC's ticker list is tried again after this many seconds
+halts_dated_retry_s = 900         # a failed evening read of the day's halt list (after 20:00 ET) is tried again after this many seconds (60-14400)
 # 10-Q and 10-K are read for the gate-5 check only (a small cap that reports
 # earnings by 10-Q alone); they are never a gate-6 class and not gate-6 coverage.
 edgar_atom_forms = ["8-K", "6-K", "S-1", "S-3", "F-1", "F-3", "424B", "EFFECT", "NT 10-Q", "NT 10-K", "10-Q", "10-K"]  # one EDGAR feed each
