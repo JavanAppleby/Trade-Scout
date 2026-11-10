@@ -95,7 +95,8 @@ def test_empty_state_skeleton(cfg: ScoutConfig, paths: ScoutPaths, clock: Manual
     assert "radar_dir is empty" in text and "No sample yet" in text and "Claude's paragraph" not in text
     assert "No BLS results yet." in text
     assert "No pace worked out yet" in text  # 0.2.4: no plan saved yet, every source at its fixed spacing
-    assert len(SECTIONS) == 14
+    assert len(SECTIONS) == 15  # 0.3.0: the thesis reads (shown only when reads_enabled)
+    assert "Thesis reads" not in text
 
 
 def test_full_brief(scout_dir: Path, clock: ManualClock, tmp_path: Path) -> None:

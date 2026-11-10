@@ -6,6 +6,7 @@
 # --------------------------------------------------------------------------- paths and identity
 radar_dir = ""            # Radar's folder (e.g. 'E:\Radar'); read only. Empty: Radar's finds are skipped.
 radar_handoff_subdir = "state/handoff"  # Radar's hand-off file of finds, <trading day>.jsonl, inside radar_dir
+radar_packs_subdir = "state/handoff/packs"  # Radar's research feed, <trading day>.packs.jsonl, inside radar_dir (reads only)
 pilot_dir = ""            # Pilot's folder; read only. Empty: Pilot's positions are skipped.
 levels_dir = "state/levels"   # where Add Levels keeps Jason's files (must be inside Scout's folder)
 inbox_dir = "inbox"       # where the owner drops files for Scout (inbox\jason for level files)
@@ -105,6 +106,26 @@ j1_interval_s = 120               # J1 runs this often in PRE/CORE/POST
 j3_time_et = "19:30"              # J3 runs for open Pilot positions at this time
 j3_no_fact_after_s = 600          # J3 also runs for a Radar find with no fact after this many seconds
 llm_timeout_s = 120.0             # seconds before a Claude call is abandoned
+
+# --------------------------------------------------------------------------- thesis reads (a paper test; off until you turn it on)
+# Claude readers write a "read" (direction, strength 1-5, reasons) for each Radar find, from Radar's
+# evidence pack and Scout's news, before the outcome is known; a scorer later checks whether strong
+# reads beat weak ones (READS_TEST.md). NO BOT ACTS ON A READ and no Scout answer reads them. Reads
+# also need llm_enabled = true and the API key. The readers are the [llm.readers.*] blocks below.
+reads_enabled = false             # true turns the reads on (the only line to add; owner, 2026-11-11)
+reads_poll_s = 5                  # Radar's packs file and inbox\reads are read this often (seconds)
+reads_max_pack_age_s = 120        # a pack older than this when its turn comes is not read (a "stale" skip)
+reads_workers_per_reader = 3      # Claude calls one reader may have in flight at once (1-8); each reader has its own,
+                                  # so a slow reader never holds up another, and a burst of finds is read before it is stale
+reads_sessions = ["PRE", "CORE", "POST"]   # packs made in these sessions are read
+reads_reread_min_strength = 4     # a first read this strong or stronger (long or short) is looked at again
+reads_reread_max = 12             # at most this many rereads of one first read
+reads_news_lookback_h = 24        # news and filings first seen this many hours back are shown to a reader
+reads_news_max_items = 8          # ... at most this many, newest first
+reads_item_chars = 300            # each news title is cut to this many characters
+reads_sample_seed = "reads-v1"    # seed of the hash that picks which finds a sampled reader reads
+reads_daily_cost_cap_usd = 1.50   # reads stop for the ET day at this spend (reads calls only; apart from llm_*)
+reads_monthly_cost_cap_usd = 20.0 # ... and for the month at this spend
 
 # --------------------------------------------------------------------------- schedule, verification, loop
 brief_time_et = "08:20"           # the morning brief is written at this time on trading days
@@ -375,6 +396,30 @@ enabled = true
 model = "claude-sonnet-5-5"
 effort = "medium"
 max_tokens = 3000
+
+# Thesis readers (owner, 2026-11-11). sample: the share of finds read (1.0 every find); rereads: look
+# again while a strong read is alive; daily_cost_cap_usd and monthly_cost_cap_usd: this reader stops for
+# the ET day / the month at this spend of its own (0 means no cap of its own), so a costly reader can
+# never use up the main test's budget. A changed model or effort is a new reader for the scorer.
+[llm.readers.R1]   # the main test: every find, rereads on
+enabled = true
+model = "claude-haiku-5-5"
+effort = "medium"
+max_tokens = 4000
+sample = 1.0
+rereads = true
+daily_cost_cap_usd = 0.0
+monthly_cost_cap_usd = 0.0
+
+[llm.readers.R2]   # exploratory: a stronger model on a random 15% of finds
+enabled = true
+model = "claude-opus-5-5"
+effort = "low"
+max_tokens = 3000
+sample = 0.15
+rereads = false
+daily_cost_cap_usd = 0.75
+monthly_cost_cap_usd = 12.0
 
 # Prices in USD per million tokens (checked against Anthropic's price list at build step 5).
 # A model with no price row here is refused by the spend ledger.

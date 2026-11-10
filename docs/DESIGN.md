@@ -130,7 +130,12 @@ Session`, `trading_day_of(dt) -> date` (20:00 ET rollover, as Guardian), `in_act
   heartbeat_file, params_file, lock_file, env_file`; `day_file(folder: Path, day: date, ext=".jsonl")
   -> Path`; `writable(p: Path) -> Path` (resolves, refuses anything outside `root`, and anything
   inside `radar_dir`/`pilot_dir`); `ensure() -> None` (creates the runtime folders).
-- `is_within(child, parent) -> bool` (case-insensitive on Windows).
+- `is_within(child, parent) -> bool` (case-insensitive on Windows). 0.3.0: both it and `writable`
+  read Windows' long form of a path (`\\?\C:\...`, `\\?\UNC\server\share\...`) as the plain path, and
+  `writable` returns the plain one. `Path.resolve()` hands back the long form when another thread
+  makes the folder while it resolves, and since 0.3.0 the reads workers write beside the loop, so
+  without this a first write into `state\reads` was now and then refused. Any other `\\?\` form (a
+  volume or device name) is still refused.
 
 **`scout/store.py`**: atomic and append-only file IO (Guardian's heartbeat pattern).
 - `atomic_write_text(paths, path, text) -> None` (temp file in the same folder, `os.replace`, retried
@@ -1783,3 +1788,74 @@ after-20:00 ET dated halt read (`&haltdate=`) fails on every trading day ("no re
 unreadable time '09:30:17            '": that feed pads HaltTime with spaces, which `_TIME` refuses)
 and is tried again every 60 s until midnight ET, about 235 requests a night; its rows never reach the
 facts.
+
+## 22. Thesis reads (owner, 2026-11-10 and 2026-11-11; 0.3.0)
+
+The contract is `E:\Market_Data\research\reads\READS_TEST.md`; SCOUT_SPEC 19 says what Scout does
+under it. Reads are evidence for a paper test: no bot acts on a read, and nothing that answers a
+question reads them (`state\reads` is deliberately not in `scout_reader.records`).
+
+**Modules.**
+- `scout/config_reads.py`: `ReadsConfig` (`cfg.reads`) from the top-level `reads_*` keys and
+  `radar_packs_subdir`, and `ReaderConfig` per `[llm.readers.<id>]` (enabled, model, effort,
+  max_tokens, sample, rereads, daily_cost_cap_usd, monthly_cost_cap_usd); `validate_reads`. Defaults:
+  the owner's R1 and R2.
+- `scout/reads_tail.py`: `PackTailer.poll(days, save=)` and `poll_spans` (each pack with its file
+  and byte span), `cursor_days()`, `position()`, `commit(offsets)`; `open_shared` (Windows
+  `CreateFileW` with read, write and delete sharing); the position file `state\reads\_tail.json`
+  (`{"format": 1, "files": {"<day>.packs.jsonl": offset}}`). A file shorter than its position is read
+  again from 0.
+- `scout/reads_service.py`: `ReadsService.tick(now)` (loop: owner notes, then new packs; on the first
+  tick also the cursor's earlier files): each pack is one task per enabled reader on that reader's
+  queue; each reader has `reads_workers_per_reader` daemon worker threads (started again when one
+  has stopped). A worker takes the oldest task whose (reader, day, candidate) is not busy, so one
+  candidate's reads never overlap and keep their order. The position committed is the start of the
+  earliest pack not finished or failed in each file. `drain()` works the queues on the calling thread
+  (`threaded=False`, the tests). `sample_value`/`selected`; theses keyed (trading day, reader,
+  candidate) and rebuilt from the day's reads file on first use (a file that cannot be read leaves
+  the day unloaded); handled (reader, pack) pairs and (reader, day, candidate) first reads, all under
+  one lock. A line append is tried `APPEND_TRIES` (5) times.
+- `scout/reads_prompt.py`: `SYSTEM_R1`, `FIRST_SCHEMA`/`REREAD_SCHEMA`, `build_read` (job
+  `READ:<id>`). `scout/reads_context.py`: `scout_context` (news and labels, `entry_blocks`, the macro
+  window, Jason's setups; fact ids for `facts_used`).
+- `scout/reads_file.py`: `check_answer`, `read_line`, `skip_line`, `ReadsWriter` (one lock for the
+  numbering and the append; `first_seen_at` with microseconds), `reads_on`.
+- `scout/reads_budget.py`: `ReadsBudget(Ledger)` on `reads_ledger_paths(paths)` (Scout's paths with
+  the ledger folder moved to `state\reads\ledger\`): the same pricing, estimates, reserve and settle
+  code, reads records only; reasons `reads_daily_cap`, `reads_monthly_cap`, `reader_daily_cap`,
+  `reader_monthly_cap`; `stop_reason(job)` (a cap or `ledger_unreadable`); `reserve_lock`.
+  `scout/llm_ledger.py` is unchanged from 0.2.4. `scout/llm_client.execute` holds a ledger's
+  `reserve_lock`, when it has one, from the cap check to the written reservation.
+- `scout/reads_owner.py`: `cli_reads_add`, `write_note`, `pick_up` (INBOX 7). `scout/jobs_reads.py`:
+  the `reads` job every `reads_poll_s`, only with `reads_enabled`. `scout/reads_report.py`:
+  `sec_reads` for the brief.
+- `scout/store.py`: one process-wide lock around each JSONL append (the worker threads and the loop
+  append to the same files). `scout/llm_schemas.validate` accepts `integer` and `number`.
+
+**Records.** `state\reads\<trading day>.jsonl` (READS_TEST.md 5.4): `first`, `reread` and `owner`
+lines carry `format`, `kind`, `read_id`, `reader`, `model`, `effort`, `prompt_version`, `symbol`,
+`trading_day`, `session`, `candidate_id`, `pack_id`, `pack_made_at`, `first_seen_at`, `ref_bid`,
+`ref_ask`, the eight answer fields, `parent_read_id`, `facts_used`, `usage`, `cost_usd` (an owner line
+adds `noted_at`, `note`, `note_sha256`; its model fields are null). A `skip` line carries `kind`,
+`reader`, `pack_id`, `first_seen_at`, `why`, plus `for` (first or reread), `symbol`, `trading_day`,
+`candidate_id`, `model`, `effort`, `prompt_version`, `detail` and `cost_usd` (a refused or invalid
+answer may still have been billed). `cost_usd` is a decimal string ("0.000965"; READS_TEST.md 3).
+The reads calls' ledger records are in `state\reads\ledger\<ET date>.jsonl`, shaped as
+`state\llm\` records.
+
+**Choices made here** (where the contract leaves one):
+- A reread answer cannot say `new` and a first read can only say `new` (two schemas), so the
+  constrained decoding enforces 5.3's status rule. Bounds structured outputs cannot state
+  (`horizon_min` 5 to 390, at least one reason) make an answer `invalid`; long notes are cut and
+  reasons past six dropped rather than wasting a paid answer.
+- A cut-off answer (`max_tokens`) is an `invalid` skip with detail `cut_off`; an API failure, no key
+  or an unwritable ledger is `error`. The shared flow retries once on a refusal, cut-off or schema
+  failure, as for J1 to J4.
+- "The session ends" is read as: a refresh pack from a different session than the first read's.
+- A pack is judged stale when its turn comes on a worker, so a backlog after a slow API turns into
+  `stale` skips rather than late reads. With 3 workers a reader keeps up with 12 finds in 2 minutes
+  (the most seen from 2 to 10 Nov 2026) at 10 s a call; one reader's backlog never delays another.
+- A reread shows the first pack's "Found at" line, held in memory by the thesis; after a restart the
+  rebuilt thesis does not have it, and the reread prompt goes without it.
+- The answer schemas carry no `description` keywords: the structured-output reference does not list
+  them, and the system prompt states every bound.

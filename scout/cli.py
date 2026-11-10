@@ -29,6 +29,7 @@ DISPATCH: dict[str, tuple[str, str]] = {
     "verify": ("scout.verify", "cli_verify"),
     "answers": ("scout.answers_cli", "cli_answers"),
     "discord check": ("scout.discord_ingest", "cli_discord_check"),
+    "reads add": ("scout.reads_owner", "cli_reads_add"),
 }
 
 __all__ = ["DEFAULT_CONFIG", "DISPATCH", "build_parser", "main"]
@@ -70,6 +71,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = dsub.add_parser("check", help="check one capture file as Scout would read it (writes nothing)")
     p.add_argument("file", help="inbox\\discord\\<channel>\\<YYYYMMDDTHHMMSSZ>.jsonl (or .jsonl.tmp)")
 
+    reads = sub.add_parser("reads", help="the thesis-read paper test (READS_TEST.md)")
+    rsub = reads.add_subparsers(dest="reads_command", metavar="<add>")
+    p = rsub.add_parser("add", help="note your own read of a stock (asks when given nothing)")
+    p.add_argument("fields", nargs="*", metavar="TICKER long|short STRENGTH [WHY]",
+                   help="e.g. ABCD long 4 \"clean break of the high on volume\"")
+
     p = sub.add_parser("answers", help="print the reader's answers for symbols (writes nothing)")
     p.add_argument("symbols", nargs="+", metavar="SYMBOL")
     p.add_argument("--as-of", help="aware ISO time, e.g. 2026-11-02T00:45:00Z (default: now)")
@@ -83,6 +90,9 @@ def _command(args: argparse.Namespace) -> str | None:
     if args.command == "discord":
         sub = getattr(args, "discord_command", None)
         return f"discord {sub}" if sub else None
+    if args.command == "reads":
+        sub = getattr(args, "reads_command", None)
+        return f"reads {sub}" if sub else None
     return args.command
 
 

@@ -11,7 +11,9 @@
   failure at most one retry, a record per call in `state/llm/<date>.jsonl` that settles the
   reservation. A timeout or a connection error is recorded with `cost_usd` = the pre-call estimate
   and its searches (reason `charged_estimate:<type>`): the server may have finished and billed the
-  call. When the final record cannot be written the reservation stands at the worst case.
+  call. When the final record cannot be written the reservation stands at the worst case. A ledger
+  with a `reserve_lock` (the thesis reads' budget, used from several threads) has it held from the
+  cap check to the written reservation, so two calls checked at once never both pass a cap.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ import logging
 import os
 import uuid
 from collections.abc import Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
@@ -238,31 +241,33 @@ def execute(transport: Any, request: LlmRequest, ledger: LedgerLike, paths: Scou
     """Check the ledger, call, retry once on refusal / max_tokens / schema failure, record each call.
     Never raises for an API failure (that is recorded as `api_error`)."""
     out = Outcome(status="unlabelled")
+    gate = getattr(ledger, "reserve_lock", None) or nullcontext()
     for attempt in range(2):
-        allowed, reason = ledger.allow(request.job, request)
-        estimate = ledger.estimate(request)
-        if not allowed:
-            if reason not in ("llm_disabled", "job_disabled"):
-                _note(paths, request, clock, validation="refused_by_cap", retry=attempt > 0, estimate=estimate,
-                      reason=reason)
-            out.reason = reason
-            if attempt == 0:
-                out.status = "refused"
-            return out
-        if transport is None:
-            _note(paths, request, clock, validation="no_key", retry=attempt > 0, estimate=estimate)
-            out.status, out.reason = "refused", "no_key"
-            return out
-        rid = uuid.uuid4().hex
-        try:
-            _record(paths, request, clock.now(), validation="reserved", retry=attempt > 0, estimate=estimate,
-                    cost=estimate, usage=_worst_usage(request), extra={"reservation": rid})
-        except Exception as exc:  # noqa: BLE001 - no reservation, no call: the caps could not see it
-            log.warning("LLM %s: ledger not writable (%s); call not sent", request.job, type(exc).__name__)
-            out.reason = "ledger_unwritable"
-            if attempt == 0:
-                out.status = "refused"
-            return out
+        with gate:  # the cap check and the reservation are one step for a ledger shared by threads
+            allowed, reason = ledger.allow(request.job, request)
+            estimate = ledger.estimate(request)
+            if not allowed:
+                if reason not in ("llm_disabled", "job_disabled"):
+                    _note(paths, request, clock, validation="refused_by_cap", retry=attempt > 0, estimate=estimate,
+                          reason=reason)
+                out.reason = reason
+                if attempt == 0:
+                    out.status = "refused"
+                return out
+            if transport is None:
+                _note(paths, request, clock, validation="no_key", retry=attempt > 0, estimate=estimate)
+                out.status, out.reason = "refused", "no_key"
+                return out
+            rid = uuid.uuid4().hex
+            try:
+                _record(paths, request, clock.now(), validation="reserved", retry=attempt > 0, estimate=estimate,
+                        cost=estimate, usage=_worst_usage(request), extra={"reservation": rid})
+            except Exception as exc:  # noqa: BLE001 - no reservation, no call: the caps could not see it
+                log.warning("LLM %s: ledger not writable (%s); call not sent", request.job, type(exc).__name__)
+                out.reason = "ledger_unwritable"
+                if attempt == 0:
+                    out.status = "refused"
+                return out
         try:
             response = call(transport, request)
         except LlmApiError as exc:

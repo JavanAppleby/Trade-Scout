@@ -11,6 +11,7 @@ from typing import Any
 
 from scout.config_load import ConfigError
 from scout.config_pace import validate_pace
+from scout.config_reads import validate_reads
 from scout.http_state import hard_cap
 from scout.models import FILING_CLASSES, WIRE_CLASSES
 from scout.paths import is_within, overlaps
@@ -155,6 +156,7 @@ def validate(c: Any) -> None:
     _validate_hour_turn(c)
     _validate_discord(c)
     validate_pace(c)
+    validate_reads(c)
     for j, job in c.llm_jobs.items():
         _check(bool(job.model.strip()), f"llm.jobs.{j}.model: must be set")
         _check(job.effort in EFFORTS, f"llm.jobs.{j}.effort: must be one of {EFFORTS}")

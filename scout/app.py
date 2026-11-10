@@ -37,7 +37,7 @@ from scout.scheduler import Job, run_due
 from scout.store import append_jsonl, canonical_json, read_jsonl, sha256_text
 
 JOB_MODULES = ("scout.jobs_pace", "scout.jobs_wire", "scout.jobs_macro", "scout.jobs_levels", "scout.jobs_discord",
-               "scout.jobs_answers", "scout.jobs_llm", "scout.jobs_brief")
+               "scout.jobs_answers", "scout.jobs_llm", "scout.jobs_reads", "scout.jobs_brief")
 _PARAM_META = ("format", "first_seen_at", "config_sha256")
 EXIT_ALREADY_RUNNING = 4
 

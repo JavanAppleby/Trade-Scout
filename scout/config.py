@@ -20,6 +20,7 @@ from scout.config_load import (
     check_keys, read_toml,
 )
 from scout.config_pace import PaceConfig, pace_from_table
+from scout.config_reads import READS_KEYS, ReaderConfig, ReadsConfig, reads_from
 from scout.config_validate import EFFORTS, KNOWN_CLASSES, LOG_LEVELS, PRICE_KEYS, SOURCE_KINDS, WEEKDAYS, validate
 from scout.models import WIRE_CLASSES
 
@@ -318,6 +319,7 @@ class ScoutConfig:
     llm_jobs: Mapping[str, LlmJobConfig] = field(default_factory=lambda: _frozen({}))
     llm_prices: Mapping[str, LlmPrice] = field(default_factory=lambda: _frozen({}))
     web_search_usd_per_1000: float = 10.0
+    reads: ReadsConfig = field(default_factory=ReadsConfig)  # thesis reads: reads_* and [llm.readers.*]
 
     # 6.8 schedule, verification, loop, Webull
     brief_time_et: time = time(8, 20)
@@ -442,7 +444,7 @@ def _plain(value: Any) -> Any:
         return [_plain(v) for v in value]
     if isinstance(value, Mapping):
         return {str(k): _plain(v) for k, v in value.items()}
-    if isinstance(value, (SourceConfig, LlmJobConfig, LlmPrice, PaceConfig)):
+    if isinstance(value, (SourceConfig, LlmJobConfig, LlmPrice, PaceConfig, ReadsConfig, ReaderConfig)):
         return {f.name: _plain(getattr(value, f.name)) for f in fields(value)}
     if isinstance(value, time):
         return value.strftime("%H:%M")
@@ -452,9 +454,9 @@ def _plain(value: Any) -> Any:
 
 
 TABLE_KEYS = frozenset({"host_min_spacing_s", "host_max_requests_per_day", "class_keywords", "sources", "llm", "pace"})
-_DERIVED = frozenset({"scout_dir", "llm_jobs", "llm_prices", "web_search_usd_per_1000"})
+_DERIVED = frozenset({"scout_dir", "llm_jobs", "llm_prices", "web_search_usd_per_1000", "reads"})
 SCALAR_KEYS = frozenset(f.name for f in fields(ScoutConfig)) - TABLE_KEYS - _DERIVED
-CONFIG_KEYS: frozenset[str] = SCALAR_KEYS | TABLE_KEYS
+CONFIG_KEYS: frozenset[str] = SCALAR_KEYS | TABLE_KEYS | READS_KEYS
 
 
 # --------------------------------------------------------------------------- coercion
@@ -558,7 +560,8 @@ def _tables(data: Mapping[str, Any]) -> dict[str, Any]:
         sources[name] = _source(name, as_table(f"sources.{name}", table), DEFAULT_SOURCES.get(name))
     out["sources"] = _frozen(sources)
     llm = as_table("llm", data.get("llm", {}))
-    check_keys("llm", llm, {"jobs", "prices"})
+    check_keys("llm", llm, {"jobs", "prices", "readers"})
+    out["reads"] = reads_from(data, llm.get("readers"))
     jobs_given = as_table("llm.jobs", llm.get("jobs", {}))
     check_keys("llm.jobs", jobs_given, set(LLM_JOBS))
     out["llm_jobs"] = _frozen({j: _llm_job(j, as_table(f"llm.jobs.{j}", jobs_given.get(j, {})), DEFAULT_LLM_JOBS[j])

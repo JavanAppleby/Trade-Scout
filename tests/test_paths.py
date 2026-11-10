@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
+import threading
 from pathlib import Path
 
 import pytest
 
 from scout.config import config_from_dict
-from scout.paths import OwnFolderError, ScoutPaths, is_within, overlaps
+from scout.paths import OwnFolderError, ScoutPaths, _plain, is_within, overlaps
 
 
 def test_layout(paths: ScoutPaths, scout_dir: Path) -> None:
@@ -39,6 +41,62 @@ def test_writable_refuses_outside_and_other_bots(tmp_path: Path) -> None:
     for bad in (tmp_path / "x", scout / ".." / "x", radar / "state" / "x", Path("../Radar/x")):
         with pytest.raises(OwnFolderError):
             p.writable(bad)
+
+
+def test_the_long_path_prefix_is_dropped_for_drive_and_unc_forms_only() -> None:
+    assert _plain(r"\\?\C:\Scout\state\x.json") == r"C:\Scout\state\x.json"
+    assert _plain(r"\\?\UNC\server\share\x") == r"\\server\share\x"
+    for other in (r"\\?\Volume{1b3b1146-4076-11e1-84aa-806e6f6e6963}\x", r"\\?\GLOBALROOT\Device\x", r"\\?\C:",
+                  r"C:\Scout\x", r"\\server\share\x", "state/x"):
+        assert _plain(other) == other
+    assert _plain(Path("state") / "x") == str(Path("state") / "x")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the long-path form is Windows'")
+def test_writable_judges_a_long_form_path_like_the_plain_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    r"""`Path.resolve()` can return `\\?\C:\...` for an ordinary path (it keeps the prefix when another
+    thread makes the folder while it resolves). The gate allows it inside Scout's folder, returns
+    the plain path, and still refuses everything it refused before."""
+    scout, radar = tmp_path / "Scout", tmp_path / "Radar"
+    scout.mkdir()
+    radar.mkdir()
+    p = ScoutPaths(scout, others=(radar,))
+    want = (scout / "state" / "reads" / "_tail.json").resolve()
+    real = Path.resolve
+
+    def long_form(self: Path, strict: bool = False) -> Path:
+        out = str(real(self, strict=strict))
+        return Path(out if out.startswith("\\\\") else "\\\\?\\" + out)
+
+    monkeypatch.setattr(Path, "resolve", long_form)
+    got = p.writable("state/reads/_tail.json")
+    assert got == want and not str(got).startswith("\\\\?\\")
+    assert is_within(Path("\\\\?\\" + str(want)), scout) and not is_within(Path("\\\\?\\" + str(radar)), scout)
+    for bad in (tmp_path / "x", scout / ".." / "x", radar / "state" / "x", Path("../Radar/x")):
+        with pytest.raises(OwnFolderError):
+            p.writable(bad)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the long-path form is Windows'")
+def test_writable_never_refuses_a_path_while_another_thread_makes_its_folder(tmp_path: Path) -> None:
+    """0.3.0: the reads workers write beside the loop. A worker making `state/reads/...` while the
+    loop asks the gate about a file in it must never turn that file into a refused write."""
+    p = ScoutPaths(tmp_path / "Scout")
+    p.root.mkdir()
+    refused: list[str] = []
+    for i in range(300):
+        folder = p.root / "state" / f"r{i}" / "ledger"
+        go = threading.Event()
+        maker = threading.Thread(target=lambda f=folder: (go.wait(), f.mkdir(parents=True, exist_ok=True)))
+        maker.start()
+        go.set()
+        for _ in range(4):
+            try:
+                p.writable(folder.parent / "_tail.json")
+            except OwnFolderError as exc:  # pragma: no cover - the defect
+                refused.append(str(exc))
+        maker.join()
+    assert refused == []
 
 
 def test_overlapping_folders_refused(tmp_path: Path) -> None:

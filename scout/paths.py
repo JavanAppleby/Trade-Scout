@@ -18,17 +18,41 @@ from scout_reader import records as R
 if TYPE_CHECKING:  # pragma: no cover
     from scout.config import ScoutConfig
 
-__all__ = ["PACE", "OwnFolderError", "ScoutPaths", "is_within", "overlaps"]
+__all__ = ["PACE", "READS", "OwnFolderError", "ScoutPaths", "is_within", "overlaps"]
 
 PACE = "state/pace"  # the polling pace plans (owner, 2026-11-10); not a reader file, so not in scout_reader.records
+# The thesis reads (owner, 2026-11-10; READS_TEST.md 5): evidence for a paper test. Never in
+# scout_reader.records: nothing that answers a question may read them.
+READS = "state/reads"
 
 
 class OwnFolderError(RuntimeError):
     """A write outside Scout's own folder (or into another bot's folder) was refused."""
 
 
+_LONG, _LONG_UNC = "\\\\?\\", "\\\\?\\UNC\\"
+
+
+def _plain(p: Path | str) -> str:
+    r"""`p` without Windows' long-path prefix (`\\?\C:\...` or `\\?\UNC\server\share\...`).
+
+    `Path.resolve()` can hand back that form of an ordinary path. It drops the prefix only after
+    looking the plain path up a second time, and keeps it when that second look fails in another way
+    than the first did: a folder that did not exist at first and that another thread has made by
+    then. Since 0.3.0 the reads workers write beside the loop, so without this the first write into a
+    folder made at that moment was now and then refused as "outside Scout's folder". Any other
+    `\\?\` form (a volume or device name) is left as it is, and so is still refused.
+    """
+    s = str(p)
+    if s.startswith(_LONG_UNC):
+        return "\\\\" + s[len(_LONG_UNC):]
+    if s.startswith(_LONG) and s[5:7] == ":\\":
+        return s[len(_LONG):]
+    return s
+
+
 def _key(p: Path | str) -> str:
-    return os.path.normcase(os.path.normpath(str(p)))
+    return os.path.normcase(os.path.normpath(_plain(p)))
 
 
 def is_within(child: Path | str, parent: Path | str) -> bool:
@@ -97,6 +121,16 @@ class ScoutPaths:
     @property
     def inbox_discord(self) -> Path:
         return self.inbox / "discord"
+
+    @property
+    def inbox_reads(self) -> Path:
+        """The owner's read notes (Add Read.bat), picked up by the running Scout (READS_TEST.md 6)."""
+        return self.inbox / "reads"
+
+    @property
+    def reads(self) -> Path:
+        """`<trading day>.jsonl`, one line per read or skip, and `_tail.json` (how far Radar's packs were read)."""
+        return self.root / READS
 
     @property
     def discord(self) -> Path:
@@ -192,7 +226,7 @@ class ScoutPaths:
         target = Path(p)
         if not target.is_absolute():
             target = self.root / target
-        target = target.resolve(strict=False)
+        target = Path(_plain(target.resolve(strict=False)))
         if not is_within(target, self.root):
             raise OwnFolderError(f"refused a write outside Scout's folder: {target}")
         for other in self.others:

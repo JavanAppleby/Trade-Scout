@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -24,6 +25,7 @@ from scout.paths import ScoutPaths
 
 REPLACE_TRIES = 20
 REPLACE_PAUSE_S = 0.05
+_APPEND_LOCK = threading.Lock()
 
 __all__ = [
     "REPLACE_PAUSE_S", "REPLACE_TRIES", "append_jsonl", "atomic_write_json", "atomic_write_text",
@@ -72,7 +74,9 @@ def append_jsonl(paths: ScoutPaths, path: Path | str, record: Mapping[str, Any])
     target = paths.writable(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     data = (line + "\n").encode("utf-8")
-    with open(target, "a+b") as fh:  # one open: "a+" appends and still lets the last byte be read
+    # 0.3.0: the reads worker thread appends to the LLM ledger beside the loop's jobs; one lock per
+    # process keeps two appends (and the tail repair) from interleaving. It is held for one write only.
+    with _APPEND_LOCK, open(target, "a+b") as fh:  # one open: "a+" appends and still lets the last byte be read
         _repair_partial_tail(fh)
         fh.write(data)
 

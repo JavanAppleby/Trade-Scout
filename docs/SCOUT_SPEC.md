@@ -11,7 +11,11 @@ the 04:00 ET spacing switch and failed polls; 0.2.2: the overlap rule), and §4.
 EDGAR yields to the wires; PR Newswire at 30 s around the hour). On 2026-11-10 the owner asked Scout
 to slow down by how often each source really updates and to keep adjusting it (0.2.4, the polling
 pace): §4.1 #1, #4, #4b and #6, §6.2, §6.5 (new), §12 and §13 are amended, each marked "owner,
-2026-11-10". Repo: JavanAppleby/Trade-Scout (`E:\Scout_dev`). Scout never trades.
+2026-11-10". The same day the owner asked for a live paper test of thesis reads (Radar packs up the
+evidence for each find, Claude readers and the owner score how strong the idea is, a scorer checks
+later), and on 2026-11-11 chose the readers and their caps (0.3.0, the contract
+`E:\Market_Data\research\reads\READS_TEST.md`): §2 rule 7, §8.5 and §8.6 are amended and §19 (new)
+is added, each marked "owner, 2026-11-10" or "owner, 2026-11-11". Repo: JavanAppleby/Trade-Scout (`E:\Scout_dev`). Scout never trades.
 **Decided** marks the owner's decisions recorded in `docs/HANDOFF.md` §3, `PILOT_SPEC.md` §16 or the
 owner's message of 2026-10-31. **Proposed** marks this spec's suggestions. §16 lists what the owner
 still has to decide, each with a recommended default. This file lives in Trade Guardian's `docs\`
@@ -76,7 +80,9 @@ hold may use them (§11). An LLM output is evidence to be scored; it gates nothi
    schema-validated label with its sources. It is never an instruction, never runs a tool that
    writes, and never reaches a broker or another bot's settings (§8.4).
 7. **Facts gate; labels are evidence** (proposed). Gates 5 and 6 read only deterministic facts. No
-   LLM label changes any answer in v1 (§16 Q5 asks whether one may later *block* a hold).
+   LLM label changes any answer in v1 (§16 Q5 asks whether one may later *block* a hold). Thesis
+   reads (§19) are evidence for a paper test and change no answer either (owner, 2026-11-10): nothing
+   that answers a question, no gate, `entry_blocks` and nothing in `scout_reader` reads them.
 8. **Secrets** (**decided**, CLAUDE.md). `ANTHROPIC_API_KEY` and any source key live only in
    `E:\Scout\.env` (git-ignored), are loaded into the environment only and are never logged or
    printed; `ANTHROPIC_LOG` stays unset. Scout never reads Guardian's `conf\`, any token file or any
@@ -679,8 +685,12 @@ computed from Layer-1 times.
 
 ### 8.5 What an LLM output may do in v1
 Nothing beyond the record and the reports. It never changes gate 5 or gate 6, never decides an entry,
-never writes outside `state\llm\`, `state\labels\` and `reports\`, and never sees Radar's or Pilot's
-internal state beyond public tickers. Two later options are owner questions with consequences stated:
+never writes outside `state\llm\`, `state\labels\`, `state\reads\` and `reports\`, and never sees
+Radar's or Pilot's internal state beyond public tickers, with one exception (owner, 2026-11-10;
+§19): a thesis reader sees Radar's evidence pack for a find, which is market data (the quote and its
+sizes, the day so far, bars, the market's direction) and Radar's own check results, and its read is
+written to `state\reads\`. A read still changes no answer, gate or `entry_blocks` result, and no bot
+acts on it. Two later options are owner questions with consequences stated:
 §16 Q5 (a label may *block* a hold) and §16 Q6 (a verified J3 catalyst may satisfy gate 6).
 
 ### 8.6 Cost
@@ -691,6 +701,13 @@ internal state beyond public tickers. Two later options are owner questions with
 - Per job: `j1_max_calls_per_day` (400), `j3_max_calls_per_day` (15), `web_search_max_per_day` (30).
 - At a cap, LLM jobs stop for the day; Layer 1, the answers and the deterministic brief carry on, and
   the brief says "LLM cap reached".
+- These caps cover every Claude call except the thesis reads, which have a budget of their own
+  (owner, 2026-11-11; §19.4): `reads_daily_cost_cap_usd` (1.50) and `reads_monthly_cost_cap_usd`
+  (20.0), plus a reader's own `daily_cost_cap_usd` and `monthly_cost_cap_usd`. A reads call goes
+  through the same ledger code (reserved before it is sent, priced after) but its records are kept
+  in their own folder, `state\reads\ledger\`, and count only toward the reads caps; the other jobs'
+  spend never counts toward them. The most Scout can spend in a day is the sum of the two
+  daily caps.
 - Outside backstop: a dedicated Anthropic Console workspace for Scout with its own key and spend
   limit.
 - Estimates from research (unmeasured; build step 5 measures them): J1 about $0.05 a day, J4 about
@@ -1079,3 +1096,87 @@ and Main Stage category (except for market-edge-chat as this is just general cha
    as_of)` describes them (descriptive, never raises, `unknown` while `discord_inbox` is not `ok`) for
    a later Radar tag, which needs its own Radar spec change (§9.1). It adds no gate and removes
    nothing.
+
+## 19. Thesis reads: a live paper test (owner, 2026-11-10 and 2026-11-11; Scout 0.3.0)
+
+The contract is `E:\Market_Data\research\reads\READS_TEST.md` (frozen 10 Nov 2026; its §10 records
+the owner's choices of 11 Nov 2026). This section says what Scout does under it.
+
+### 19.1 The decisions
+- **Reads are evidence for a test and change no answer** (owner, 2026-11-10). A read is recorded and
+  later scored, nothing more. No bot acts on a read. Nothing that answers a question reads the reads
+  files: not the answers, not gates 5 and 6, not `entry_blocks`, not `scout_reader` (a test proves
+  every answer is unchanged with reads on file). §2 rule 7 stays true, and Scout still can only stop
+  a buy, never start one.
+- **The readers and caps** (owner, 2026-11-11, "Go with your suggestion on model"):
+
+  | Reader | Model | Effort | Sample | Rereads | Own daily cap | Own monthly cap |
+  |---|---|---|---|---|---|---|
+  | `R1` | `claude-haiku-5-5` | medium | 1.0 (every find) | on | none | none |
+  | `R2` | `claude-opus-5-5` | low | 0.15 | off | $0.75 | $12.00 |
+
+  Reads stop for the day at `reads_daily_cost_cap_usd` (1.50) and for the month at
+  `reads_monthly_cost_cap_usd` (20.0). R2's own caps keep the costlier reader from using up the main
+  test's day or month (review round 2, 2026-11-11). These are the defaults in code and in
+  `config.example.toml`.
+- **Off until the owner turns it on**: `reads_enabled = false` by default; with it false the running
+  Scout tails nothing, calls nothing and writes nothing. `Add Read` still drops a note in
+  `inbox\reads\`, which waits there until reads are on and Scout runs. Reads also need `llm_enabled`
+  and the API key; without them only the owner's own notes are added, and Radar's packs are not read
+  (they get no line).
+
+### 19.2 What Scout does
+- Every `reads_poll_s` (5 s) Scout reads the new lines of Radar's
+  `<radar_dir>\<radar_packs_subdir>\<trading day>.packs.jsonl` (open, read, close; on Windows the
+  file is opened sharing read, write and delete, so Radar's writes never wait on Scout). Bad and
+  unfinished lines are skipped. How far it has read is kept in `state\reads\_tail.json`, saved only
+  up to the start of the earliest pack not yet finished, so a restart polls unfinished packs again;
+  the reads file says which packs were handled, so none is read twice. On the first poll after a
+  start Scout also finishes every earlier day's file named there (packs left at a stop get their
+  line, normally `stale`). A file that became shorter (rewritten or restored) is read again from its
+  start.
+- Each reader has its own queue and its own pool of `reads_workers_per_reader` (3) worker threads:
+  R1 never waits on R2, a burst of finds is read in parallel (12 finds at 10 s a call are all read
+  within about 40 s), and a slow or failing API never makes Scout's loop late or delays another job.
+  Reads of one reader and candidate never overlap and keep Radar's order; one first read per reader
+  and candidate. A worker that stopped is started again on the next poll. The workers never hold up
+  Scout's stop.
+- A read or skip line that cannot be appended is tried 5 times; if it still fails, the position is
+  not saved past that pack, so the next start polls it again. If the day's reads file cannot be read
+  when the handled packs and theses are rebuilt, the pack waits and the next pack tries again.
+- A selected pack can still end with no line only when: the reads stay on but `llm_enabled` is false
+  or the key is missing (packs are not read at all); a line failed to append and Scout never starts
+  again; Radar's file is gone or was rewritten without the pack before Scout read it; or the cursor
+  no longer names the file (it keeps the last 10 files). Every other selected pack gets a read or a
+  skip line.
+- Which finds a reader reads, its first reads and rereads, and the skip lines (`cap`, `stale`,
+  `error`, `refusal`, `invalid`) follow READS_TEST.md §5.1 (`scout.reads_service`).
+- The prompt, version `r1`, is fixed in `scout.reads_prompt` (READS_TEST.md §5.2-5.3). It starts
+  with the present moment ("Now 09:00:15 ET, pre-market, 30 minutes to the open") and shows every time
+  in ET. It carries the pack as compact tables (oldest first, volumes and sizes in shares, "p" bars
+  explained, "Market: not available" when the pack has none, Radar's failed checks marked as its own
+  internal checks), Scout's news and filings for the symbol, the `entry_blocks` answer, Jason's
+  levels and whether a macro window is open; third-party text is fenced and marked as data. The
+  answer schema uses only the structured-output keywords the API reference lists as supported. It never
+  carries an account number, position size, P&L, token or file path, and never the owner's own notes.
+- The reads file `state\reads\<trading day>.jsonl` (READS_TEST.md §5.4) is append-only, every line
+  with `first_seen_at` from Scout's clock; `cost_usd` is a decimal string (READS_TEST.md §3).
+
+### 19.3 The owner's reads
+`Add Read.bat` (`python -m scout reads add`) asks the ticker, long or short, strength 1 to 5 and why
+(optional), and drops a note in `inbox\reads\` (`docs/INBOX.md` §7). The running Scout adds it as a
+read with `reader` "owner" within `reads_poll_s`; when Scout is not running, or reads are off, the
+note waits and the command says so. The free text is stored and never sent to a model.
+
+### 19.4 Spend
+Every reads call goes through the existing ledger code, with its records in a folder of their own
+(`state\reads\ledger\<ET date>.jsonl`, job `READ:<reader id>`), so the main ledger in `state\llm\`
+never holds a reads record: reserved at its worst case before it is sent and priced from its usage
+after. The reads budget (`scout.reads_budget`) refuses a read that would cross the reads day or
+month cap or the reader's own day or month cap (a `cap` skip line); the cap check and the
+reservation are one step across the worker threads, so two calls checked at once never cross a cap
+together. A reads ledger that cannot be read gives an `error` skip line (detail
+`ledger_unreadable`). The two budgets are independent both ways
+(§8.6): reads spend never counts toward `llm_daily_cost_cap_usd` or `llm_monthly_cost_cap_usd`, a
+refused or capped read never stops J1, J3 or J4, and their spend and caps never stop a read. The
+brief shows the reads by reader and the reads spend apart from the other jobs' spend.

@@ -2,8 +2,8 @@
 
 Every object schema has `additionalProperties: false` and lists every property as required (the
 structured-output rules); every category is an enum. `validate` is a small stdlib validator for
-the subset used here (object, array, string with enum, boolean, null, anyOf, required,
-additionalProperties), so a reply is checked again after the API's own constrained decoding: a
+the subset used here (object, array, string with enum, integer and number (with enum), boolean,
+null, anyOf, required, additionalProperties; the last two numeric types for the thesis reads), so a reply is checked again after the API's own constrained decoding: a
 field outside the schema, or a value outside an enum, is a schema failure and the reply is
 stored as `unlabelled` after at most one retry.
 """
@@ -83,7 +83,7 @@ J4_OUTPUT: dict[str, Any] = _obj({
 OUTPUTS: dict[str, dict[str, Any]] = {"J1": J1_OUTPUT, "J3": J3_OUTPUT, "J4": J4_OUTPUT}
 
 _TYPES: dict[str, tuple[type, ...]] = {"object": (dict,), "array": (list,), "string": (str,), "boolean": (bool,),
-                                       "null": (type(None),)}
+                                       "null": (type(None),), "integer": (int,), "number": (int, float)}
 
 
 def validate(obj: Any, schema: Mapping[str, Any], path: str = "$") -> list[str]:
@@ -101,8 +101,10 @@ def validate(obj: Any, schema: Mapping[str, Any], path: str = "$") -> list[str]:
     if not isinstance(obj, allowed) or (kind != "boolean" and isinstance(obj, bool)):
         return [f"{path}: expected {kind}"]
     errors: list[str] = []
-    if kind == "string" and "enum" in schema and obj not in schema["enum"]:
+    if kind in ("string", "integer", "number") and "enum" in schema and obj not in schema["enum"]:
         errors.append(f"{path}: value not in enum")
+    elif kind in ("integer", "number") and obj != obj:  # NaN
+        errors.append(f"{path}: not a number")
     elif kind == "array":
         items = schema.get("items")
         if items is not None:

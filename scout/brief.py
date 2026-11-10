@@ -26,10 +26,11 @@ from scout.calendar import previous_trading_day
 from scout.clock import et_date, et_datetime
 from scout.inputs import radar_finds
 from scout.llm_ledger import Ledger
+from scout.reads_report import sec_reads
 from scout.store import atomic_write_text
 
 SECTIONS = (sec_header, sec_calendar, sec_macro, sec_regime, sec_results, sec_catalysts, sec_halts, sec_due_windows,
-            sec_jason, sec_discord, sec_health, sec_pace, sec_llm, sec_verify)
+            sec_jason, sec_discord, sec_health, sec_pace, sec_llm, sec_reads, sec_verify)
 
 __all__ = ["SECTIONS", "brief_path", "build_brief", "cli_brief", "collect", "j4_items", "write_brief"]
 

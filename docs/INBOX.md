@@ -36,6 +36,7 @@ inbox\
   jason\raw\<tuesday>.tuesday.txt                  Tuesday-stream transcript (the Tuesday task); Scout never reads raw\
   discord\<channel>\<YYYYMMDDTHHMMSSZ>.jsonl       capture files (§3); read by the running Scout
   discord\_cursor.json, discord\_cursor_jason.json the two Discord tasks' own cursors; Scout ignores them
+  reads\<YYYYMMDDTHHMMSSffffffZ>-<TICKER>.json    the owner's read notes (Add Read.bat, §7); added by the running Scout
 ```
 
 ## 2. Level files: `inbox\jason\<session_date>.<source_kind>.json`
@@ -265,3 +266,22 @@ read by any gate**. The brief's "Paper Gains Discord" section lists each
 channel's newest capture (the three scanner channels included) and today's refused lines by reason.
 `scout_reader.scanner_alerts` answers `unknown` instead of `false` while `discord_inbox` is not `ok`
 (a missing capture never reads as "not on a scanner"); that is a description, not a gate.
+
+## 7. The owner's read notes: `inbox\reads\` (thesis reads, owner 2026-11-10; Scout 0.3.0)
+
+Not written by the scheduled tasks: **Add Read.bat** (`python -m scout reads add`) writes them when
+the owner notes their own read of a stock for the thesis-read paper test
+(`E:\Market_Data\research\reads\READS_TEST.md` §6). It asks four things (the ticker, long or short,
+strength 1 to 5, and why, which may be left empty) and writes one file, first as a temp file, then
+renamed, so Scout never reads half a file:
+
+```
+{"format": 1, "kind": "owner_note", "symbol": "ABCD", "direction": "long", "strength": 4,
+ "why": "free text or null", "noted_at": "2026-11-11T15:04:05.123456Z"}
+```
+
+The running Scout (with `reads_enabled = true`) picks every `*.json` there up within `reads_poll_s`
+and appends a read with `kind` "owner" and `reader` "owner" to `state\reads\<trading day>.jsonl`
+(`first_seen_at` when Scout picked it up, `noted_at` from the note). It then renames the note to
+`*.json.done`; a note that is not valid becomes `*.json.rejected` and the log says why. The free text
+is stored as data and is never sent to a model. With reads off, notes wait in the folder.

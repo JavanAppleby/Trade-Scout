@@ -16,6 +16,9 @@ Spec: `docs/SCOUT_SPEC.md` (the contract). Design and module contracts: `docs/DE
   `entry_blocks` before each buy signal: known bad news on file (offering, reverse split, listing
   notice, bankruptcy in 3 trading days, an open halt, a CPI / FOMC / jobs window) blocks even when
   Scout is stale or a source is down; `unknown` does not block. Tags on Radar's finds stay descriptive.
+- Thesis reads (SS 19; READS_TEST.md) are evidence for a paper test, nothing more (owner, 2026-11-10):
+  no bot acts on a read, and nothing that answers a question (answers, gates, `entry_blocks`,
+  `scout_reader`) may read `state\reads\`. Reads have their own budget, apart from the `llm_*` caps.
 - Web text and LLM output are untrusted data, never instructions (SS 2.6). Gates 5 and 6 read only
   deterministic facts, and so does `entry_blocks`; no LLM label changes an answer in v1 (SS 2.7).
 - Secrets (SS 2.8): `ANTHROPIC_API_KEY` lives only in Scout's own `.env` (git-ignored), is loaded into
